@@ -1,0 +1,43 @@
+name: pin-check
+
+# Weekly, and on demand: does ark's newest chain tag change what this SDK
+# generates? src/gen is generated at ARK_VERSION; this job generates at the
+# newest v* tag instead and fails if anything differs, so a chain release
+# whose pin bump was forgotten shows within a week. It holds no token and
+# opens nothing: the bump is a pull request a person makes.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  latest:
+    name: Generate at ark's newest tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - id: tags
+        name: Resolve the pinned and the newest chain tag
+        run: |
+          pinned=$(cat ARK_VERSION)
+          newest=$(git ls-remote --tags --refs https://github.com/ararat-network/ark.git 'refs/tags/v*' \
+            | awk -F/ '{print $NF}' | sort -V | tail -n 1)
+          echo "pinned=$pinned" >> "$GITHUB_OUTPUT"
+          echo "newest=$newest" >> "$GITHUB_OUTPUT"
+          echo "pinned $pinned, newest $newest"
+      - name: Generate at the newest tag
+        run: pnpm exec buf generate "https://github.com/ararat-network/ark.git#tag=${{ steps.tags.outputs.newest }},subdir=proto"
+      - name: Compare
+        run: |
+          if ! git diff --exit-code --stat -- src/gen; then
+            echo "::error::ark ${{ steps.tags.outputs.newest }} changes the generated code; ARK_VERSION is ${{ steps.tags.outputs.pinned }}. Move the pin and regenerate."
+            exit 1
+          fi

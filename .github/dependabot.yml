@@ -1,0 +1,30 @@
+version: 2
+updates:
+  # Actions are pinned by commit with the version as a trailing comment, so a
+  # tag moving under a workflow cannot change what runs; these bumps move the
+  # commit and the comment together, all in one pull request.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # The generator, its runtime, and the compiler move together: a bump of one
+  # regenerates or rechecks everything, so one pull request a week.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    groups:
+      npm:
+        patterns:
+          - "*"

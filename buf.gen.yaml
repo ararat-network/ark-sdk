@@ -1,0 +1,15 @@
+# Generates every Ark and Cosmos message, query, and event from ark's protos at
+# the tag in ARK_VERSION, which the tag below must match. The output under
+# src/gen is committed; CI regenerates and fails on any difference.
+version: v2
+inputs:
+  - git_repo: https://github.com/ararat-network/ark.git
+    tag: v0.1.0-alpha.1
+    subdir: proto
+plugins:
+  - local: protoc-gen-es
+    out: src/gen
+    include_imports: true
+    opt:
+      - target=ts
+      - import_extension=js
