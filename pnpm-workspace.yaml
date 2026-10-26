@@ -1,2 +1,4 @@
+# pnpm blocks dependencies' install scripts by default. The buf binary works
+# without its script, so it stays blocked.
 allowBuilds:
-  '@bufbuild/buf': set this to true or false
+  '@bufbuild/buf': false
