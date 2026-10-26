@@ -11,7 +11,7 @@
   },
   "scripts": {
     "gen": "buf generate",
-    "gen:check": "git diff --exit-code --stat -- src/gen && test \"$(grep -E '^\\s+tag:' buf.gen.yaml | awk '{print $2}')\" = \"$(cat ARK_VERSION)\"",
+    "gen:check": "git diff --exit-code --stat -- src/gen && test \"$(awk '/ararat-network\\/ark\\.git/{f=1} f&&/tag:/{print $2; exit}' buf.gen.yaml)\" = \"$(cat ARK_VERSION)\"",
     "check": "tsc --noEmit"
   },
   "dependencies": {
