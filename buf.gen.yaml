@@ -1,11 +1,20 @@
-# Generates every Ark and Cosmos message, query, and event from ark's protos at
-# the tag in ARK_VERSION, which the tag below must match. The output under
-# src/gen is committed; CI regenerates and fails on any difference.
+# Generates every message, query, and event the SDK can meet: Ark's own
+# modules from ark's protos at the tag in ARK_VERSION, which the tag below must
+# match; the Cosmos SDK modules the chain runs unchanged, at the registry
+# commit ark's own proto/buf.lock pins, so the types are the ones the chain was
+# built against; and wasmd's at the version the chain embeds. Inputs are
+# generated in order and a later input overwrites a shared file, so the chain's
+# Cosmos pin comes last and wins. The output under src/gen is committed; CI
+# regenerates and fails on any difference.
 version: v2
 inputs:
+  - git_repo: https://github.com/CosmWasm/wasmd.git
+    tag: v0.70.4
+    subdir: proto
   - git_repo: https://github.com/ararat-network/ark.git
     tag: v0.1.0-alpha.1
     subdir: proto
+  - module: buf.build/cosmos/cosmos-sdk:65fa41963e6a41dd95a35934239029df
 plugins:
   - local: protoc-gen-es
     out: src/gen
