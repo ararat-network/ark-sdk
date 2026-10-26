@@ -1,0 +1,25 @@
+{
+  "name": "@ararat-network/sdk",
+  "version": "0.0.0",
+  "private": true,
+  "description": "TypeScript SDK for Ark and the client contracts it implements",
+  "license": "Apache-2.0",
+  "type": "module",
+  "packageManager": "pnpm@12.5.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "gen": "buf generate",
+    "gen:check": "git diff --exit-code --stat -- src/gen && test \"$(grep -E '^\\s+tag:' buf.gen.yaml | awk '{print $2}')\" = \"$(cat ARK_VERSION)\"",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "2.16.0"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "1.75.0",
+    "@bufbuild/protoc-gen-es": "2.16.0",
+    "typescript": "7.0.2"
+  }
+}
