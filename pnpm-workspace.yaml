@@ -1,4 +1,6 @@
 # pnpm blocks dependencies' install scripts by default. The buf binary works
-# without its script, so it stays blocked.
+# without its script, and esbuild's platform package ships the binary tsx
+# runs, so both stay blocked.
 allowBuilds:
   '@bufbuild/buf': false
+  esbuild: false
