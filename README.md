@@ -119,7 +119,8 @@ not know decodes as unknown, with its type URL and bytes, never under a label it
 Nothing in the package holds or sees a private key. `Signer` is what the SDK asks of whatever does: the accounts it
 can sign for, `signDirect` over the protobuf sign document, `signAmino` over the amino document for a Ledger, and
 `signArbitrary` over the ADR-036 sign bytes for the signup protocol. `ark-signer` implements it for device keys and
-the Ledger; `MemorySigner` implements it for tests and development against a localnet. The builder refuses to
+the Ledger; `MemorySigner` implements it for tests and development against a localnet; `fromOfflineSigner` wraps a
+wallet with CosmJS's OfflineSigner shape, such as Keplr or Leap, including its ADR-036 call. The builder refuses to
 continue if a signer returns a different document than it was given, and refuses direct mode for a multisig key.
 
 ## Generated code
@@ -157,10 +158,13 @@ purpose once the schema gains the field, so a pin bump retires the gap.
 
 ```sh
 pnpm check
+pnpm lint
 pnpm test
 ```
 
-The tests run on `node:test` through `tsx`. Every one of the 85 transaction fixtures is reproduced byte for byte
+The tests run on `node:test` through `tsx`; `pnpm test:coverage` adds coverage thresholds, and `pnpm check:package`
+and `pnpm check:browser` prove the built tarball installs, its types resolve, and the library bundles for a browser.
+[CONTRIBUTING.md](CONTRIBUTING.md) lists every command and the rules. Every one of the 85 transaction fixtures is reproduced byte for byte
 from its messages and declared fee: the body and auth-info bytes, the direct sign document, the amino sign bytes a
 Ledger would sign, the deterministic signature with the fixture's key, the raw bytes, and the hash; its declared fee
 is recomputed from the tax, gas price, gas limit, and pads it records; and its transaction, every typed event in it
@@ -184,6 +188,6 @@ and the noble and scure libraries for secp256k1, hashing, BIP-39, BIP-32, and Be
 types CosmJS lags, Ark's own messages are not in any shared library, and Ledger signing needs amino names only Ark's
 protos carry; the fixtures prove the encoding byte for byte instead. Queries go over the node's gRPC gateway, which
 every node serves and the fee contract names; gRPC-web left the SDK in v0.50 and would need a proxy. pnpm is the
-package manager, TypeScript the only language, `tsx` the one test-time dependency, and nothing in the package holds
-or sees a key. The type registry holds every generated type so any message decodes; a consumer that wants a smaller
+package manager, TypeScript the only language, `tsx` the test runner's one dependency, Biome the linter and formatter,
+and nothing in the package holds or sees a key. The type registry holds every generated type so any message decodes; a consumer that wants a smaller
 bundle builds its own with `createRegistry` and passes it to the gateway client and the decoders.
