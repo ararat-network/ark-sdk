@@ -25,6 +25,7 @@ export interface ChainJson {
   staking?: { staking_tokens?: { denom: string }[] };
   codebase?: {
     recommended_version?: string;
+    /** The binary versions a node may run; verifyNetwork reports the node's against them. */
     compatible_versions?: string[];
     genesis?: { genesis_url?: string };
   };

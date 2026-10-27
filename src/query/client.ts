@@ -19,7 +19,7 @@ import type { QueryProposalsRequestSchema } from "../gen/cosmos/gov/v1/query_pb.
 import { Query as GovQuery } from "../gen/cosmos/gov/v1/query_pb.js";
 import { Query as StakingQuery } from "../gen/cosmos/staking/v1beta1/query_pb.js";
 import { BroadcastMode, OrderBy, Service as TxService } from "../gen/cosmos/tx/v1beta1/service_pb.js";
-import type { Network } from "../registry/network.js";
+import { type Network, RegistryError } from "../registry/network.js";
 import { GatewayClient, type GatewayOptions } from "./gateway.js";
 
 export class NetworkMismatch extends Error {
@@ -32,13 +32,45 @@ export class NetworkMismatch extends Error {
   }
 }
 
+/** The node runs a binary version the registry does not list as compatible, and the caller asked for one it does. */
+export class NodeVersionUnlisted extends Error {
+  override readonly name: string = "NodeVersionUnlisted";
+  constructor(
+    readonly version: string,
+    readonly listed: readonly string[],
+  ) {
+    super(`node runs ${version === "" ? "an unnamed version" : version}; the registry lists ${listed.join(", ")}`);
+  }
+}
+
+export interface VerifyOptions {
+  /** Refuse a node whose binary version the registry does not list; off by default, since a development build reports none of them. */
+  requireListedVersion?: boolean;
+  /** Fetch the genesis file the registry names and hash it against the registry's hash. */
+  genesis?: boolean;
+}
+
+export interface NetworkVerification {
+  /** The chain the node reports, equal to the network's. */
+  chainId: string;
+  /** The binary the node reports: its application name and version. */
+  appName: string;
+  version: string;
+  /** Whether the registry lists the node's version as compatible; undefined when it lists none. */
+  versionListed: boolean | undefined;
+  /** The genesis file against the registry's hash: skipped unless asked for, unverifiable without a hash or a URL. */
+  genesis: "verified" | "unverifiable" | "skipped";
+}
+
 type Page = MessageInitShape<typeof PageRequestSchema> | undefined;
 
 export class QueryClient {
   readonly gateway: GatewayClient;
+  readonly #fetch: typeof fetch;
 
   constructor(restUrl: string | readonly string[], options: GatewayOptions = {}) {
     this.gateway = new GatewayClient(restUrl, options);
+    this.#fetch = options.fetch ?? globalThis.fetch;
   }
 
   /** A client over the network's REST endpoints, in the registry's order, moving on when one cannot answer. */
@@ -48,11 +80,31 @@ export class QueryClient {
     return new QueryClient(urls, options);
   }
 
-  /** Checks the node is on the network's chain, refusing another chain under the same endpoint. */
-  async verifyNetwork(network: Network): Promise<void> {
+  /**
+   * Checks the node is on the network's chain, refusing another chain under
+   * the same endpoint, and reports what else it could see: the binary the
+   * node runs against the versions the registry lists, and, on request, the
+   * genesis file against the registry's hash. A node can still lie about all
+   * of it; what this rules out is a wrong or stale endpoint, not a hostile one.
+   */
+  async verifyNetwork(network: Network, options: VerifyOptions = {}): Promise<NetworkVerification> {
     const info = await this.node.info();
     const actual = info.defaultNodeInfo?.network ?? "";
     if (actual !== network.chainId) throw new NetworkMismatch(network.chainId, actual);
+    const appName = info.applicationVersion?.appName ?? "";
+    const version = info.applicationVersion?.version ?? "";
+    const listed = network.compatibleVersions;
+    const versionListed = listed.length === 0 ? undefined : listed.includes(version);
+    if (options.requireListedVersion && versionListed === false) throw new NodeVersionUnlisted(version, listed);
+    const genesis = options.genesis ? await this.#verifyGenesis(network) : "skipped";
+    return { chainId: actual, appName, version, versionListed, genesis };
+  }
+
+  async #verifyGenesis(network: Network): Promise<"verified" | "unverifiable"> {
+    if (network.genesisSha256 === undefined || network.genesisUrl === undefined) return "unverifiable";
+    const response = await this.#fetch(network.genesisUrl);
+    if (!response.ok) throw new RegistryError(`${network.genesisUrl}: ${response.status} ${response.statusText}`);
+    return network.verifyGenesis(new Uint8Array(await response.arrayBuffer()));
   }
 
   readonly disbursement = {
@@ -155,7 +207,7 @@ export class QueryClient {
     /** Committed transactions matching a CometBFT event query such as message.sender='ark1...'; needs a node that indexes transactions. */
     search: (query: string, options: { page?: bigint; limit?: bigint; orderBy?: OrderBy } = {}) =>
       this.#value(TxService, "getTxsEvent", { query, page: options.page ?? 1n, limit: options.limit ?? 50n, orderBy: options.orderBy ?? OrderBy.DESC }),
-    /** The transactions of one block, decoded. */
+    /** The transactions of one block as the node returns them, messages still packed; decodeTx reads each. */
     byBlock: (height: bigint, pagination?: Page) => this.#value(TxService, "getBlockWithTxs", { height, pagination }),
   };
 
