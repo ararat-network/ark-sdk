@@ -13,7 +13,7 @@ Today the repository holds the generated types, one contract and its vectors; th
 | [testdata/signup/vectors.json](testdata/signup/vectors.json) | Its test vectors, which every producer and verifier of the protocol must reproduce. |
 
 The vectors are generated with the chain's own secp256k1 and JSON sorting and checked against Keplr's ADR-36
-implementation. The Go verifier lives with the member platform; the TypeScript producer will live here.
+implementation. The Go verifier lives with the membership service; the TypeScript producer will live here.
 
 ## Generated code
 
