@@ -1,0 +1,35 @@
+{
+  "chain_id": "ark-1",
+  "ark_version": "v0.1.0-alpha.1",
+  "genesis_sha256": "fa5b80d1a2a04c0fa8d526cd799f49fb47593370ae850345c679b43073997fd5",
+  "bech32_prefix": "ark",
+  "slip44": 330,
+  "features": {
+    "cosmwasm": true,
+    "vote_extensions": true,
+    "conversion_open": false
+  },
+  "reference_denom": "axdr",
+  "feeds": [
+    "aaud",
+    "acad",
+    "acny",
+    "aeur",
+    "agbp",
+    "ajpy",
+    "akrw",
+    "amxn",
+    "asgd",
+    "ausd",
+    "axdr"
+  ],
+  "fee_denoms": [
+    "anoah"
+  ],
+  "fee_contract": "https://github.com/ararat-network/ark/blob/v0.1.0-alpha.1/docs/clients/CLIENT_FEES.md",
+  "logo_URIs": {
+    "png": "https://raw.githubusercontent.com/ararat-network/ark-registry/main/images/ark-symbol-navy-512.png",
+    "svg": "https://raw.githubusercontent.com/ararat-network/ark-registry/main/images/ark-symbol-navy.svg"
+  },
+  "indexer": []
+}

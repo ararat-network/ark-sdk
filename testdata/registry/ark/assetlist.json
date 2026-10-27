@@ -1,0 +1,24 @@
+{
+  "$schema": "../assetlist.schema.json",
+  "chain_name": "ark",
+  "assets": [
+    {
+      "description": "The native staking token of Ark.",
+      "denom_units": [
+        {
+          "denom": "anoah",
+          "exponent": 0
+        },
+        {
+          "denom": "noah",
+          "exponent": 18
+        }
+      ],
+      "base": "anoah",
+      "name": "NOAH",
+      "display": "noah",
+      "symbol": "NOAH",
+      "type_asset": "sdk.coin"
+    }
+  ]
+}

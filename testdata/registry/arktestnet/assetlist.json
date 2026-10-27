@@ -1,0 +1,204 @@
+{
+  "$schema": "../assetlist.schema.json",
+  "chain_name": "arktestnet",
+  "assets": [
+    {
+      "description": "The native staking token of Ark.",
+      "denom_units": [
+        {
+          "denom": "anoah",
+          "exponent": 0
+        },
+        {
+          "denom": "noah",
+          "exponent": 18
+        }
+      ],
+      "base": "anoah",
+      "name": "NOAH",
+      "display": "noah",
+      "symbol": "NOAH",
+      "type_asset": "sdk.coin"
+    },
+    {
+      "description": "An Ark currency tracking the Australian dollar.",
+      "denom_units": [
+        {
+          "denom": "aaud",
+          "exponent": 0
+        },
+        {
+          "denom": "aud",
+          "exponent": 18
+        }
+      ],
+      "base": "aaud",
+      "name": "ArkAUD",
+      "display": "aud",
+      "symbol": "arkAUD",
+      "type_asset": "sdk.coin"
+    },
+    {
+      "description": "An Ark currency tracking the Canadian dollar.",
+      "denom_units": [
+        {
+          "denom": "acad",
+          "exponent": 0
+        },
+        {
+          "denom": "cad",
+          "exponent": 18
+        }
+      ],
+      "base": "acad",
+      "name": "ArkCAD",
+      "display": "cad",
+      "symbol": "arkCAD",
+      "type_asset": "sdk.coin"
+    },
+    {
+      "description": "An Ark currency tracking the Chinese yuan.",
+      "denom_units": [
+        {
+          "denom": "acny",
+          "exponent": 0
+        },
+        {
+          "denom": "cny",
+          "exponent": 18
+        }
+      ],
+      "base": "acny",
+      "name": "ArkCNY",
+      "display": "cny",
+      "symbol": "arkCNY",
+      "type_asset": "sdk.coin"
+    },
+    {
+      "description": "An Ark currency tracking the euro.",
+      "denom_units": [
+        {
+          "denom": "aeur",
+          "exponent": 0
+        },
+        {
+          "denom": "eur",
+          "exponent": 18
+        }
+      ],
+      "base": "aeur",
+      "name": "ArkEUR",
+      "display": "eur",
+      "symbol": "arkEUR",
+      "type_asset": "sdk.coin"
+    },
+    {
+      "description": "An Ark currency tracking the pound sterling.",
+      "denom_units": [
+        {
+          "denom": "agbp",
+          "exponent": 0
+        },
+        {
+          "denom": "gbp",
+          "exponent": 18
+        }
+      ],
+      "base": "agbp",
+      "name": "ArkGBP",
+      "display": "gbp",
+      "symbol": "arkGBP",
+      "type_asset": "sdk.coin"
+    },
+    {
+      "description": "An Ark currency tracking the Japanese yen.",
+      "denom_units": [
+        {
+          "denom": "ajpy",
+          "exponent": 0
+        },
+        {
+          "denom": "jpy",
+          "exponent": 18
+        }
+      ],
+      "base": "ajpy",
+      "name": "ArkJPY",
+      "display": "jpy",
+      "symbol": "arkJPY",
+      "type_asset": "sdk.coin"
+    },
+    {
+      "description": "An Ark currency tracking the South Korean won.",
+      "denom_units": [
+        {
+          "denom": "akrw",
+          "exponent": 0
+        },
+        {
+          "denom": "krw",
+          "exponent": 18
+        }
+      ],
+      "base": "akrw",
+      "name": "ArkKRW",
+      "display": "krw",
+      "symbol": "arkKRW",
+      "type_asset": "sdk.coin"
+    },
+    {
+      "description": "An Ark currency tracking the Mexican peso.",
+      "denom_units": [
+        {
+          "denom": "amxn",
+          "exponent": 0
+        },
+        {
+          "denom": "mxn",
+          "exponent": 18
+        }
+      ],
+      "base": "amxn",
+      "name": "ArkMXN",
+      "display": "mxn",
+      "symbol": "arkMXN",
+      "type_asset": "sdk.coin"
+    },
+    {
+      "description": "An Ark currency tracking the Singapore dollar.",
+      "denom_units": [
+        {
+          "denom": "asgd",
+          "exponent": 0
+        },
+        {
+          "denom": "sgd",
+          "exponent": 18
+        }
+      ],
+      "base": "asgd",
+      "name": "ArkSGD",
+      "display": "sgd",
+      "symbol": "arkSGD",
+      "type_asset": "sdk.coin"
+    },
+    {
+      "description": "An Ark currency tracking the United States dollar.",
+      "denom_units": [
+        {
+          "denom": "ausd",
+          "exponent": 0
+        },
+        {
+          "denom": "usd",
+          "exponent": 18
+        }
+      ],
+      "base": "ausd",
+      "name": "ArkUSD",
+      "display": "usd",
+      "symbol": "arkUSD",
+      "type_asset": "sdk.coin"
+    }
+  ]
+}
