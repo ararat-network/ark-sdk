@@ -274,6 +274,9 @@ function queryString(fields: JsonObject): string {
   const params = new URLSearchParams();
   const add = (prefix: string, value: JsonValue): void => {
     if (value === null || value === "" || value === false || value === 0 || value === "0") return;
+    // Proto JSON names an enum's zero value, which every chain enum spells
+    // _UNSPECIFIED: the absent value, so it is not sent either.
+    if (typeof value === "string" && value.endsWith("_UNSPECIFIED")) return;
     if (Array.isArray(value)) {
       for (const item of value) if (item !== null && typeof item !== "object") params.append(prefix, String(item));
       return;

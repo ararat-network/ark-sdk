@@ -40,9 +40,9 @@ function wallet(
         bodyBytes: doc.bodyBytes,
         authInfoBytes: doc.authInfoBytes,
         chainId: doc.chainId,
-        accountNumber: BigInt(doc.accountNumber.toString()),
+        accountNumber: BigInt(String(doc.accountNumber)),
       });
-      return { signed: { ...doc, accountNumber: doc.accountNumber.toString() }, signature: std(bytes) };
+      return { signed: { ...doc, accountNumber: String(doc.accountNumber) }, signature: std(bytes) };
     },
     signAmino: async (_address: string, doc: AminoSignDoc) => ({ signed: doc, signature: std(aminoSignDocBytes(doc)) }),
     signArbitrary: async (_chainId: string, signer: string, data: string | Uint8Array) => {
@@ -101,6 +101,24 @@ test("ADR-036 data reaches the wallet as text when it is UTF-8, so Keplr shows i
   const opaque = await signer.signArbitrary(member.address, raw);
   assert.deepEqual(w.received[2], raw, "bytes that are not UTF-8 go as bytes");
   assert.equal(toBase64(opaque.signature), toBase64(signMessage(adr036SignBytes(member.address, raw), fromHex(member.private_key_hex))));
+});
+
+test("a wallet that returns a sign document without an account number is refused with the reason", async () => {
+  const f = fixture("bank_send_taxed");
+  const key = fixtureKey(f.signer!.key);
+  const w = wallet(key.private_key_hex, key.address);
+  const dropping: OfflineSignerLike = {
+    getAccounts: w.getAccounts,
+    signDirect: async (address, doc) => {
+      const { signed, signature } = await w.signDirect!(address, doc);
+      return { signed: { ...signed, accountNumber: null }, signature };
+    },
+  };
+  const signDoc = fromBinary(SignDocSchema, fromBase64(f.sign_mode_direct!.sign_doc));
+  await assert.rejects(
+    fromOfflineSigner(dropping).signDirect(key.address, signDoc),
+    (err: unknown) => err instanceof SignerError && /account number/.test(err.message),
+  );
 });
 
 test("a wallet without a mode or without signArbitrary is refused with the reason", async () => {

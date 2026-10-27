@@ -70,7 +70,13 @@ export function durationToProtoJson(d: Duration): string {
 }
 
 /** Amino: the whole duration in nanoseconds, as a quoted integer. */
+/** The chain's x/tx bound on a duration's seconds, ten thousand years either way. */
+const MAX_DURATION_SECONDS = 315_576_000_000n;
+
 export function durationToAmino(d: Duration): string {
+  if (d.seconds > MAX_DURATION_SECONDS || d.seconds < -MAX_DURATION_SECONDS) throw new WktError(`duration out of range: ${d.seconds}s`);
+  if (d.nanos <= -1_000_000_000 || d.nanos >= 1_000_000_000) throw new WktError(`duration nanos out of range: ${d.nanos}`);
+  if ((d.seconds > 0n && d.nanos < 0) || (d.seconds < 0n && d.nanos > 0)) throw new WktError(`duration sign mismatch: ${d.seconds}s ${d.nanos}ns`);
   return (d.seconds * NANOS + BigInt(d.nanos)).toString();
 }
 

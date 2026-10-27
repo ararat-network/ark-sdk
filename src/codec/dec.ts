@@ -6,8 +6,8 @@
 export const DEC_PRECISION = 18;
 const UNIT = 10n ** 18n;
 const HALF_UNIT = UNIT / 2n;
-/** Go's LegacyDec refuses a scaled value past 315 bits. */
-const MAX_BITS = 315n;
+/** Go's LegacyDec holds |scaled| up to 2^256 × 10^18 − 1, 316 bits. */
+const MAX_SCALED = 2n ** 256n * UNIT - 1n;
 
 export class DecError extends Error {
   override readonly name: string = "DecError";
@@ -18,7 +18,7 @@ export class LegacyDec {
   readonly scaled: bigint;
 
   private constructor(scaled: bigint) {
-    if (bitLength(scaled < 0n ? -scaled : scaled) > MAX_BITS) throw new DecError("decimal out of range");
+    if (scaled > MAX_SCALED || scaled < -MAX_SCALED) throw new DecError("decimal out of range");
     this.scaled = scaled;
   }
 
@@ -144,8 +144,4 @@ function chopPrecisionAndRound(d: bigint): bigint {
   if (rem < HALF_UNIT) return quo;
   if (rem > HALF_UNIT) return quo + 1n;
   return quo % 2n === 0n ? quo : quo + 1n;
-}
-
-function bitLength(n: bigint): bigint {
-  return n === 0n ? 0n : BigInt(n.toString(2).length);
 }

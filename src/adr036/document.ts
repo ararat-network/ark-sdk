@@ -34,8 +34,10 @@ const SAFE_VALUE = /^[\x20-\x7e]*$/;
 const FORBIDDEN = /["\\<>&]/;
 const ADMISSION = /^[\x21-\x7e]{1,128}$/;
 const UNIX_SECONDS = /^(0|[1-9]\d{0,19})$/;
+const MAX_UNIX_SECONDS = 2n ** 64n - 1n;
 const NONCE = /^[0-9a-f]{64}$/;
-const ORIGIN = /^https?:\/\/[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:[1-9]\d{0,4})?$/;
+const ORIGIN = /^(https?):\/\/[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(?::([1-9]\d{0,4}))?$/;
+const DEFAULT_PORT: Record<string, number> = { https: 443, http: 80 };
 
 /** Throws unless the document meets the §4 grammar. */
 export function validateDocument(doc: SignupDocument): void {
@@ -48,9 +50,16 @@ export function validateDocument(doc: SignupDocument): void {
   if (doc.chain_id === "" || /\s/.test(doc.chain_id)) throw new DocumentError("chain_id must be a chain ID");
   if (doc.domain !== SIGNUP_DOMAIN && doc.domain !== VOUCH_DOMAIN) throw new DocumentError(`domain must be ${SIGNUP_DOMAIN} or ${VOUCH_DOMAIN}`);
   if (!UNIX_SECONDS.test(doc.expires) || !UNIX_SECONDS.test(doc.issued)) throw new DocumentError("issued and expires must be Unix seconds as decimal strings");
+  if (BigInt(doc.issued) > MAX_UNIX_SECONDS || BigInt(doc.expires) > MAX_UNIX_SECONDS) throw new DocumentError("issued and expires must fit a uint64");
   if (BigInt(doc.issued) >= BigInt(doc.expires)) throw new DocumentError("expires must be after issued");
   if (!NONCE.test(doc.nonce)) throw new DocumentError("nonce must be 64 lowercase hex characters");
-  if (!ORIGIN.test(doc.origin)) throw new DocumentError("origin must be a lowercase scheme and host with an optional port and no path");
+  const origin = ORIGIN.exec(doc.origin);
+  if (!origin) throw new DocumentError("origin must be a lowercase scheme and host with an optional port and no path");
+  const scheme = origin[1] as string;
+  const port = origin[5];
+  if (port !== undefined && (Number(port) > 65535 || Number(port) === DEFAULT_PORT[scheme])) {
+    throw new DocumentError("origin names a port only when it is not the scheme's default, and below 65536");
+  }
 }
 
 /** The canonical bytes: members in name order, no whitespace, nothing escaped. */

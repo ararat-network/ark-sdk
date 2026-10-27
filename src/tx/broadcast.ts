@@ -41,6 +41,18 @@ export class BroadcastUnknown extends Error {
   }
 }
 
+/** The chain is past the transaction's timeout height and no block carried it: it can no longer be included. */
+export class TransactionExpired extends Error {
+  override readonly name: string = "TransactionExpired";
+  constructor(
+    readonly hash: string,
+    readonly timeoutHeight: bigint,
+    readonly height: bigint,
+  ) {
+    super(`transaction ${hash} was not included by its timeout height ${timeoutHeight}; the chain is at ${height}`);
+  }
+}
+
 export class InclusionTimeout extends Error {
   override readonly name: string = "InclusionTimeout";
   constructor(
@@ -84,6 +96,8 @@ export async function broadcastSync(client: QueryClient, txBytes: Uint8Array): P
 export interface InclusionOptions {
   /** How long to poll before giving up; the transaction may still be included after. */
   timeoutMs?: number;
+  /** The body's timeout height, when it has one: past it the transaction is dead, and the wait says so instead of running to the deadline. */
+  timeoutHeight?: bigint;
   pollMs?: number;
   signal?: AbortSignal;
   /** Injectable for tests. */
@@ -115,11 +129,30 @@ function transient(err: unknown): boolean {
   return err instanceof EndpointsExhausted || isEndpointFault(err);
 }
 
+/** The committed transaction, or undefined while the node has none under the hash. */
+async function lookUp(client: QueryClient, hash: string): Promise<TxResponse | undefined> {
+  try {
+    return (await client.tx.getTx(hash)).txResponse;
+  } catch (err) {
+    if (err instanceof QueryError && err.isNotFound) return undefined;
+    throw err;
+  }
+}
+
+async function latestHeight(client: QueryClient): Promise<bigint> {
+  const latest = await client.node.latestBlock();
+  const height = latest.sdkBlock?.header?.height ?? latest.block?.header?.height;
+  if (height === undefined) throw new Error("the node reported no latest block");
+  return height;
+}
+
 /**
  * Polls the node until the transaction is in a committed block and returns
  * its result, whatever its code. NotFound means not yet; an endpoint fault is
  * ridden out until the deadline, which then names it; any other error is the
- * caller's and is thrown at once.
+ * caller's and is thrown at once. Given the body's timeout height, the wait
+ * ends once the chain is past it, after one last look, since a block at the
+ * height may have carried the transaction between the poll and the read.
  */
 export async function waitForInclusion(client: QueryClient, hash: string, options: InclusionOptions = {}): Promise<TxResponse> {
   const timeoutMs = options.timeoutMs ?? 60_000;
@@ -130,12 +163,20 @@ export async function waitForInclusion(client: QueryClient, hash: string, option
   let lastError: unknown;
   for (;;) {
     try {
-      const found = await client.tx.getTx(hash);
-      if (found.txResponse) return found.txResponse;
+      const found = await lookUp(client, hash);
+      if (found) return found;
       lastError = undefined;
+      if (options.timeoutHeight !== undefined) {
+        const height = await latestHeight(client);
+        if (height > options.timeoutHeight) {
+          const last = await lookUp(client, hash);
+          if (last) return last;
+          throw new TransactionExpired(hash, options.timeoutHeight, height);
+        }
+      }
     } catch (err) {
-      if (err instanceof QueryError && err.isNotFound) lastError = undefined;
-      else if (transient(err)) lastError = err;
+      if (err instanceof TransactionExpired) throw err;
+      if (transient(err)) lastError = err;
       else throw err;
     }
     const waited = now() - start;

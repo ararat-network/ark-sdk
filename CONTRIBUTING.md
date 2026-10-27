@@ -14,14 +14,17 @@ pnpm install
 | Command | Does |
 | --- | --- |
 | `pnpm check` | Type check. |
-| `pnpm lint`, `pnpm lint:fix` | Biome: lint and format check, or apply both. |
+| `pnpm lint`, `pnpm lint:fix`, `pnpm format` | Biome: lint and format check, apply both, or format alone. |
 | `pnpm test`, `pnpm test:coverage` | The unit tests, or the same with coverage thresholds. |
 | `ARK_LOCALNET_REST=http://localhost:1317 pnpm test:smoke` | The smoke test against ark's Docker localnet (`make localnet-start` in ark). |
 | `pnpm build`, `pnpm check:package`, `pnpm check:browser` | Build `dist/`, prove the tarball installs and its types resolve, bundle for a browser. |
-| `pnpm gen`, `pnpm gen:check` | Regenerate `src/gen` from the pinned protos; check it matches. |
-| `pnpm fixtures:sync`, `pnpm fixtures:check` | Copy the decoding fixtures from ark at `ARK_VERSION`; check the copy matches. |
+| `pnpm gen`, `pnpm gen:check` | Regenerate `src/gen` from the pinned protos, from empty; check it matches, added and removed files included. |
+| `pnpm fixtures:sync`, `pnpm fixtures:check` | Copy the decoding fixtures from ark at `ARK_VERSION`; check the copy matches, added and removed files included. |
 
-CI runs all of them. The localnet smoke test runs in its own workflow on pull requests that touch the SDK and weekly.
+[ci.yml](.github/workflows/ci.yml) runs the generated and fixture checks, lint, the type check, the unit tests with
+coverage, and the package and browser checks on every pull request; the release workflow runs them all again from
+the tag, which must sit on `main`. The localnet smoke test runs in its own workflow on pull requests that touch the
+SDK and weekly.
 
 ## Rules
 

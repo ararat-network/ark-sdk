@@ -1,7 +1,7 @@
 // An adapter from the OfflineSigner shape CosmJS defines and Keplr and Leap
 // implement to the SDK's Signer, so an external wallet signs through the same
-// interface as ark-signer. The shape is declared structurally; nothing from
-// CosmJS is imported.
+// interface as the app's signer. The shape is declared structurally; nothing
+// from CosmJS is imported.
 import { create } from "@bufbuild/protobuf";
 import type { Any } from "@bufbuild/protobuf/wkt";
 
@@ -22,8 +22,8 @@ export interface OfflineDirectSignDoc {
   readonly bodyBytes: Uint8Array;
   readonly authInfoBytes: Uint8Array;
   readonly chainId: string;
-  /** bigint in current cosmjs-types; a Long or a string in older ones. */
-  readonly accountNumber: bigint | number | string | { toString(): string };
+  /** bigint in current cosmjs-types; a Long or a string in older ones; null from a wallet that dropped it. */
+  readonly accountNumber: bigint | number | string | { toString(): string } | null;
 }
 
 /** CosmJS's StdSignature: the key and signature in standard base64. */
@@ -67,6 +67,8 @@ export function fromOfflineSigner(offline: OfflineSignerLike, options: OfflineSi
         chainId: signDoc.chainId,
         accountNumber: signDoc.accountNumber,
       });
+      if (signed.accountNumber === null || signed.accountNumber === undefined)
+        throw new SignerError("the wallet returned a sign document without an account number");
       return {
         signDoc: create(SignDocSchema, {
           bodyBytes: signed.bodyBytes,

@@ -5,7 +5,7 @@
 // multisig key: its sign document binds one public key and sequence, which a
 // multisig account does not have as one.
 import { toBinary } from "@bufbuild/protobuf";
-import type { Any } from "@bufbuild/protobuf/wkt";
+import type { Any, Timestamp } from "@bufbuild/protobuf/wkt";
 
 import { type AminoSignDoc, aminoSignDocBytes, makeAminoSignDoc } from "../codec/aminojson.js";
 import { bytesEqual } from "../codec/bytes.js";
@@ -40,6 +40,9 @@ export interface SignTxInput {
   messages: readonly TxMessage[];
   memo?: string;
   timeoutHeight?: bigint;
+  /** An unordered transaction, valid until its timeout timestamp in place of a sequence. */
+  unordered?: boolean;
+  timeoutTimestamp?: Timestamp;
   /** The declared fee, a ceiling; see fee.ts for how it is priced. */
   fee: Fee;
   /** direct by default; amino for a Ledger. */
@@ -68,7 +71,13 @@ export async function signTx(input: SignTxInput): Promise<SignedTx> {
   if (!account) throw new SignerError(`signer holds no account ${input.address}`);
   checkKeyForMode(account.publicKey, mode);
 
-  const body = makeTxBody({ messages: input.messages, memo: input.memo, timeoutHeight: input.timeoutHeight });
+  const body = makeTxBody({
+    messages: input.messages,
+    memo: input.memo,
+    timeoutHeight: input.timeoutHeight,
+    timeoutTimestamp: input.timeoutTimestamp,
+    unordered: input.unordered,
+  });
   const bodyBytes = encodeTxBody(body);
   const signMode = mode === "direct" ? SignMode.DIRECT : SignMode.LEGACY_AMINO_JSON;
   const authInfo = makeAuthInfo([makeSignerInfo(account.publicKey, input.sequence, signMode)], input.fee);
@@ -101,6 +110,9 @@ function checkKeyForMode(publicKey: Any, mode: SigningMode): void {
 export interface SimulationTxInput {
   messages: readonly TxMessage[];
   memo?: string;
+  timeoutHeight?: bigint;
+  unordered?: boolean;
+  timeoutTimestamp?: Timestamp;
   publicKey: Any;
   sequence: bigint;
   /** A fee to meter the transfer under, or none: the ante then charges its fee-transfer allowance instead. */
@@ -109,7 +121,13 @@ export interface SimulationTxInput {
 
 /** An unsigned transaction for Simulate: the real body and signer info with an empty signature. */
 export function simulationTxBytes(input: SimulationTxInput): Uint8Array {
-  const body = makeTxBody({ messages: input.messages, memo: input.memo });
+  const body = makeTxBody({
+    messages: input.messages,
+    memo: input.memo,
+    timeoutHeight: input.timeoutHeight,
+    timeoutTimestamp: input.timeoutTimestamp,
+    unordered: input.unordered,
+  });
   const fee = input.fee ?? makeFee({ amount: [], gasLimit: 0n });
   const authInfo = makeAuthInfo([makeSignerInfo(input.publicKey, input.sequence, SignMode.DIRECT)], fee);
   return encodeTxRaw({ bodyBytes: encodeTxBody(body), authInfoBytes: encodeAuthInfo(authInfo), signatures: [new Uint8Array()] });

@@ -28,16 +28,24 @@ jobs:
         name: Resolve the pinned and the newest chain tag
         run: |
           pinned=$(cat ARK_VERSION)
+          # Version sort ranks v0.1.0-alpha.1 above v0.1.0, since a hyphen
+          # sorts after the end of a string; a tilde sorts below everything,
+          # as Debian versions use it, so the hyphen becomes one while sorting.
           newest=$(git ls-remote --tags --refs https://github.com/ararat-network/ark.git 'refs/tags/v*' \
-            | awk -F/ '{print $NF}' | sort -V | tail -n 1)
+            | awk -F/ '{print $NF}' | sed 's/-/~/' | sort -V | tail -n 1 | sed 's/~/-/')
           echo "pinned=$pinned" >> "$GITHUB_OUTPUT"
           echo "newest=$newest" >> "$GITHUB_OUTPUT"
           echo "pinned $pinned, newest $newest"
+      # Every input, in buf.gen.yaml's order, so the shared files come from the
+      # same pins that produced the committed output; the ark input alone would
+      # regenerate them from ark's buf.lock and could differ for that reason.
       - name: Generate at the newest tag
-        run: pnpm exec buf generate "https://github.com/ararat-network/ark.git#tag=${{ steps.tags.outputs.newest }},subdir=proto"
+        run: |
+          sed -i "s#tag: ${{ steps.tags.outputs.pinned }}#tag: ${{ steps.tags.outputs.newest }}#" buf.gen.yaml
+          pnpm gen
       - name: Compare
         run: |
-          if ! git diff --exit-code --stat -- src/gen; then
+          if ! ./scripts/check-clean.sh src/gen src/codec/files.ts; then
             echo "::error::ark ${{ steps.tags.outputs.newest }} changes the generated code; ARK_VERSION is ${{ steps.tags.outputs.pinned }}. Move the pin and regenerate."
             exit 1
           fi

@@ -83,8 +83,9 @@ HTML escaping ever applies and every encoder produces the same bytes. The docume
 bytes.
 
 **Window.** `issued <= now < expires`. A challenge expires at most 15 minutes after issue, 10 by default. A vouch
-document expires at most 24 hours after issue, since the voucher signs on their own device in their own time. A
-document is single use: the platform refuses a nonce it has already accepted.
+document expires at most 24 hours after issue, since the voucher signs on their own device in their own time. Those
+maxima are the platform's issuance policy; a verifier checks the window against its clock under rules 8 and 9 and
+nothing else. A document is single use: the platform refuses a nonce it has already accepted.
 
 **Binding.** `chain_id` and `origin` stop a document issued by one platform or for one chain from being accepted by
 another. `admission` stops a proof made for one admission from being attached to another. `nonce` and the window stop

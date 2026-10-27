@@ -50,7 +50,7 @@ test("formatting follows the locale and rounds down by default", () => {
   assert.equal(formatAssetAmount("1999999999999999999", usd, { locale: "en-GB", maximumFractionDigits: 2, roundingMode: "halfExpand" }), "2 arkUSD");
   assert.equal(formatAssetAmount("5", usd, { locale: "en-GB", symbol: false, maximumFractionDigits: 18 }), "0.000000000000000005");
   assert.equal(formatCoin({ denom: "anoah", amount: "2000000000000000000000" }, network, { locale: "en-GB" }), "2,000 NOAH");
-  assert.equal(formatCoin({ denom: "ausd-venue", amount: "7" }, network), "7 ausd-venue", "an unlisted denomination stays in base units");
+  assert.equal(formatCoin({ denom: "ausd-venue", amount: "7" }, network), "7ausd-venue", "an unlisted denomination is the chain's coin text");
 });
 
 test("coin text parses as the chain writes it", () => {
@@ -98,7 +98,7 @@ test("coin lists, decimal coins, and their display", () => {
     formatDecCoin({ denom: "ausd", amount: LegacyDecWire("2500000000000000000.5") }, network, { locale: "en-GB", maximumFractionDigits: 6 }),
     "2.5 arkUSD",
   );
-  assert.equal(formatDecCoin({ denom: "ausd-venue", amount: "1500000000000000000" }, network), "1.500000000000000000 ausd-venue");
+  assert.equal(formatDecCoin({ denom: "ausd-venue", amount: "1500000000000000000" }, network), "1.500000000000000000ausd-venue");
   assert.throws(() => parseDecCoin("1.5"), AmountError);
 });
 

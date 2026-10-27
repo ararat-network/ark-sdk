@@ -1,6 +1,7 @@
 // The signer interface: what the SDK asks of whatever holds a key. The SDK
-// builds every document and never sees a private key; ark-signer implements
-// this for device keys and the Ledger, and the memory signer for tests.
+// builds every document and never sees a private key; the app's signer
+// package implements this for device keys and the Ledger, and the memory
+// signer for tests.
 import type { Any } from "@bufbuild/protobuf/wkt";
 
 import type { AminoSignDoc } from "../codec/aminojson.js";
@@ -22,7 +23,7 @@ export interface DirectSignature {
 }
 
 export interface AminoSignature {
-  /** The document that was signed; a wallet may have adjusted the fee or memo. */
+  /** The document that was signed; the builder refuses one the wallet altered. */
   readonly signDoc: AminoSignDoc;
   readonly signature: Uint8Array;
 }

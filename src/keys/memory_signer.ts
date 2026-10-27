@@ -1,6 +1,6 @@
 // A signer holding its key in memory, for tests, fixtures, and development
 // against a localnet. Nothing in an app should use it: a real key lives in
-// ark-signer or a wallet, behind the same interface.
+// the app's signer package or a wallet, behind the same interface.
 import { create, toBinary } from "@bufbuild/protobuf";
 import type { Any } from "@bufbuild/protobuf/wkt";
 

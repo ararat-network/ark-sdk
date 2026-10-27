@@ -4,6 +4,8 @@
 // sendTx, the broadcast and the block. Nothing here chooses a headroom, a gas
 // adjustment, or a denomination for the caller; it only runs the steps in the
 // right order on the same messages.
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
+
 import type { Coin } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import type { Signer } from "../keys/signer.js";
 import type { QueryClient } from "../query/client.js";
@@ -30,6 +32,8 @@ export interface PrepareInput {
   messages: readonly TxMessage[];
   memo?: string;
   timeoutHeight?: bigint;
+  unordered?: boolean;
+  timeoutTimestamp?: Timestamp;
   /** The denomination that pays the base fee; must be on the sheet. */
   feeDenom: string;
   headroom: Headroom;
@@ -72,7 +76,15 @@ export async function prepareAndSign(input: PrepareInput): Promise<Prepared> {
   let gasLimit = input.gasLimit;
   if (gasLimit === undefined) {
     const simulation = await client.tx.simulate(
-      simulationTxBytes({ messages, memo: input.memo, publicKey: signerAccount.publicKey, sequence: account.sequence }),
+      simulationTxBytes({
+        messages,
+        memo: input.memo,
+        timeoutHeight: input.timeoutHeight,
+        unordered: input.unordered,
+        timeoutTimestamp: input.timeoutTimestamp,
+        publicKey: signerAccount.publicKey,
+        sequence: account.sequence,
+      }),
     );
     if (!simulation.gasInfo) throw new PrepareError("simulation returned no gas info");
     simulatedGas = simulation.gasInfo.gasUsed;
@@ -103,6 +115,8 @@ export async function prepareAndSign(input: PrepareInput): Promise<Prepared> {
     messages,
     memo: input.memo,
     timeoutHeight: input.timeoutHeight,
+    unordered: input.unordered,
+    timeoutTimestamp: input.timeoutTimestamp,
     fee: feeFromQuote(quote, { payer: input.payer, granter: input.granter }),
     mode: input.mode,
   });
@@ -155,5 +169,6 @@ export async function sendTx(input: PrepareInput, options: SendOptions = {}): Pr
 
 async function attempt(input: PrepareInput, options: InclusionOptions): Promise<Sent> {
   const prepared = await prepareAndSign(input);
-  return { ...prepared, ...(await broadcastAndConfirm(input.client, prepared.signed.txBytes, options)) };
+  const inclusion = { ...options, timeoutHeight: options.timeoutHeight ?? input.timeoutHeight };
+  return { ...prepared, ...(await broadcastAndConfirm(input.client, prepared.signed.txBytes, inclusion)) };
 }

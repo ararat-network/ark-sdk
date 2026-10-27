@@ -9,7 +9,7 @@ import { unpackAnyAs } from "../codec/any.js";
 import { fromBase64, toBase64, utf8Decode } from "../codec/bytes.js";
 import { PubKeySchema } from "../gen/cosmos/crypto/secp256k1/keys_pb.js";
 import { ADDRESS_LENGTH, decodeAddress, publicKeyToAddress } from "../keys/address.js";
-import { isLowS, PUBLIC_KEY_LENGTH, SIGNATURE_LENGTH, verifyMessage } from "../keys/secp256k1.js";
+import { isCompressedPublicKey, isLowS, SIGNATURE_LENGTH, verifyMessage } from "../keys/secp256k1.js";
 import { SECP256K1_PUBLIC_KEY_URL, type Signer, SignerError } from "../keys/signer.js";
 import { documentBytes, parseDocument, type SignupDocument } from "./document.js";
 import { adr036SignBytes } from "./signbytes.js";
@@ -69,7 +69,7 @@ export function checkSubmission(s: Submission, prefix = "ark"): StatelessRefusal
   } catch {
     return "signer_invalid";
   }
-  if (s.publicKey.length !== PUBLIC_KEY_LENGTH) return "key_mismatch";
+  if (!isCompressedPublicKey(s.publicKey)) return "key_mismatch";
   let derived: string;
   try {
     derived = publicKeyToAddress(s.publicKey, prefix);

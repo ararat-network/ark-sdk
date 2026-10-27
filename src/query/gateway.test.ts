@@ -59,6 +59,10 @@ test("routes come from the http option: path parameters, query parameters, and b
 
   const getTx = routeFor(TxService.method.getTx, { hash: "ABCD" });
   assert.equal(getTx.path, "/cosmos/tx/v1beta1/txs/ABCD");
+  const unordered = routeFor(TxService.method.getTxsEvent, { query: "tx.height=7", page: "1", limit: "50", order_by: "ORDER_BY_UNSPECIFIED" });
+  assert.equal(unordered.path, "/cosmos/tx/v1beta1/txs?query=tx.height%3D7&page=1&limit=50", "an enum's zero value is not sent");
+  const ordered = routeFor(TxService.method.getTxsEvent, { query: "tx.height=7", page: "1", limit: "50", order_by: "ORDER_BY_DESC" });
+  assert.ok(ordered.path.endsWith("&order_by=ORDER_BY_DESC"));
   assert.throws(() => routeFor(DisbursementQuery.method.member, {}), /lacks address/);
 });
 

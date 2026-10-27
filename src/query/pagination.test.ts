@@ -45,6 +45,6 @@ test("paginate follows next keys until the last page", async () => {
 test("paginate stops at the page budget", async () => {
   await assert.rejects(
     collectAll(pages(10, 2), (p) => p.items, { limit: 2n, maxPages: 3 }),
-    PaginationError,
+    (err: unknown) => err instanceof PaginationError && err.partial.length === 6,
   );
 });

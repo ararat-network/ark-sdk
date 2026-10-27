@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { bech32, bech32m } from "@scure/base";
+
 import { fromBase64, fromHex, toBase64, toHex, utf8Encode } from "../codec/bytes.js";
 import { fixtureKeys, signupVectors } from "../testing/fixtures.js";
 import {
@@ -15,7 +17,7 @@ import {
   validatorPrefix,
 } from "./address.js";
 import { hdPath, isValidMnemonic, privateKeyFromMnemonic } from "./hd.js";
-import { isCompressedPublicKey, isLowS, publicKeyFromPrivate, signMessage, verifyMessage } from "./secp256k1.js";
+import { isCompressedPublicKey, isLowS, publicKeyFromPrivate, randomPrivateKey, signMessage, verifyMessage } from "./secp256k1.js";
 
 test("fixture and vector keys derive their public keys and addresses", () => {
   const keys = [...fixtureKeys().accounts, ...signupVectors().keys];
@@ -140,4 +142,27 @@ test("a high-S signature is neither low S nor accepted", () => {
   }
   assert.equal(isLowS(high), false);
   assert.equal(verifyMessage(high, utf8Encode("ark sdk key vector"), fromBase64(v.publicKey)), false);
+});
+
+test("a bech32m string, a 21-byte payload, and oversized signatures or keys are refused", () => {
+  const twenty = new Uint8Array(20).fill(7);
+  assert.throws(() => decodeAddress(bech32m.encode("ark", bech32.toWords(twenty), 90)), AddressError, "bech32m is not bech32");
+  assert.throws(
+    () => decodeAddress(encodeAddress(new Uint8Array(21).fill(7)), { prefix: "ark" }),
+    AddressError,
+    "21 bytes is neither an account nor a contract",
+  );
+  assert.doesNotThrow(() => decodeAddress(encodeAddress(new Uint8Array(21).fill(7)), { prefix: "ark", lengths: [21] }), "unless the caller allows it");
+
+  const priv = randomPrivateKey();
+  const pub = publicKeyFromPrivate(priv);
+  const message = new TextEncoder().encode("hello");
+  const sig = signMessage(message, priv);
+  assert.equal(verifyMessage(sig, message, pub), true);
+  const longSig = new Uint8Array(65);
+  longSig.set(sig);
+  assert.equal(verifyMessage(longSig, message, pub), false, "65 bytes is not r || s");
+  const longKey = new Uint8Array(65);
+  longKey.set(pub);
+  assert.equal(verifyMessage(sig, message, longKey), false, "an uncompressed or padded key is refused");
 });

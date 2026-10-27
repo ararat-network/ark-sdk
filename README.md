@@ -10,7 +10,7 @@ protocol's ADR-036 proof, and a decoder, every byte checked against the chain's 
 
 | Path | Holds |
 | --- | --- |
-| [src/registry/](src/registry/) | The network registry: chain ID, prefix, coin type, assets and display units, endpoints, feature flags, and the genesis hash check, from [ark-registry](https://github.com/ararat-network/ark-registry). |
+| [src/registry/](src/registry/) | The network registry: chain ID, prefix, coin type, assets and display units, endpoints, feature flags, and the genesis hash check, from [ark-registry](https://github.com/ararat-network/ark-registry), every member checked on load. |
 | [src/keys/](src/keys/) | Bech32 addresses, secp256k1, BIP-39 derivation at coin type 330, the `Signer` interface, and an in-memory signer for tests and development. |
 | [src/codec/](src/codec/) | The chain's JSON dialect both ways, the amino JSON encoder a Ledger signs, `LegacyDec`, Any packing, and the type registry. |
 | [src/query/](src/query/) | The gateway client over one endpoint or several, routes read from the generated descriptors, typed facades for Ark's and the Cosmos modules, pagination, and transaction search. |
@@ -25,12 +25,20 @@ protocol's ADR-036 proof, and a decoder, every byte checked against the chain's 
 ## Use
 
 ```sh
-pnpm add @ararat-network/sdk
+pnpm add @ararat-network/sdk @bufbuild/protobuf@2.16.0
 ```
 
-A network comes from the registry, a client from its REST endpoints, and the client checks it reached that chain.
-Given several endpoints, a call that cannot reach one, or finds it unavailable, moves to the next and stays there;
-an answer that blames the request is final, and a broadcast is never re-sent:
+`@bufbuild/protobuf` is the runtime the generated types need and the one you call `create` on; install it beside the
+SDK, at the version the SDK pins, since a package manager that keeps dependencies strict does not expose it through
+the SDK.
+
+A network comes from the registry, read at `main` unless `ref` pins a commit: every member the SDK reads is checked,
+the prefix and coin type must be Ark's, and an endpoint is accepted over https, or http on the loopback. A client
+comes from the network's REST endpoints and checks it reached that chain; the check also reports whether the node's
+binary is a version the registry lists, refuses one that is not on request, and can hash the genesis file the
+registry names against the registry's hash. Given several endpoints, a call that cannot reach one, or finds it
+unavailable, moves to the next and stays there; an answer that blames the request is final, and a broadcast is never
+re-sent:
 
 ```ts
 import { collectAll, loadNetwork, QueryClient, searchTxs, txQuery } from "@ararat-network/sdk";
@@ -64,12 +72,15 @@ import {
 const send = typed(MsgSendSchema, create(MsgSendSchema, { fromAddress, toAddress, amount: [coin("ausd", 10n ** 18n)] }));
 const [account] = await signer.accounts();
 const { info } = await client.auth.accountInfo(fromAddress);
+if (!info) throw new Error(`no account at ${fromAddress}`);
 
 const simulated = await client.tx.simulate(simulationTxBytes({ messages: [send], publicKey: account.publicKey, sequence: info.sequence }));
 const gasLimit = adjustGas(simulated.gasInfo.gasUsed, arkdPolicy.gasAdjustment);
 const { tax } = await client.treasury.computeTax(packMessages([send]));
 const sheet = await client.treasury.gasPrices();
-const quote = quoteFee({ tax, gasPrice: sheet.gasPrices.find((p) => p.denom === "ausd"), gasLimit, headroom: arkdPolicy.headroom });
+const price = sheet.gasPrices.find((p) => p.denom === "ausd");
+if (!price) throw new Error("ausd is not on the gas price sheet");
+const quote = quoteFee({ tax, gasPrice: price, gasLimit, headroom: arkdPolicy.headroom });
 
 const signed = await signTx({ signer, address: fromAddress, chainId: network.chainId, accountNumber: info.accountNumber, sequence: info.sequence, messages: [send], fee: feeFromQuote(quote) });
 const { response } = await broadcastAndConfirm(client, signed.txBytes);
@@ -123,12 +134,14 @@ not know decodes as unknown, with its type URL and bytes, never under a label it
 
 ## The signer
 
-Nothing in the package holds or sees a private key. `Signer` is what the SDK asks of whatever does: the accounts it
-can sign for, `signDirect` over the protobuf sign document, `signAmino` over the amino document for a Ledger, and
-`signArbitrary` over the ADR-036 sign bytes for the signup protocol. `ark-signer` implements it for device keys and
-the Ledger; `MemorySigner` implements it for tests and development against a localnet; `fromOfflineSigner` wraps a
-wallet with CosmJS's OfflineSigner shape, such as Keplr or Leap, including its ADR-036 call. The builder refuses to
-continue if a signer returns a different document than it was given, and refuses direct mode for a multisig key.
+Nothing in the package holds a private key but `MemorySigner`, which exists for tests and development against a
+localnet. `Signer` is what the SDK asks of whatever does: the accounts it can sign for, `signDirect` over the
+protobuf sign document, `signAmino` over the amino document for a Ledger, and `signArbitrary` over the ADR-036 sign
+bytes for the signup protocol. The app's signer package implements it for device keys and the Ledger;
+`fromOfflineSigner` wraps a wallet with CosmJS's OfflineSigner shape, such as Keplr or Leap, including its ADR-036
+call. The builder refuses to continue if a signer returns a different document than it was given, and refuses
+direct mode for a multisig key; a wallet that lets its user edit the fee or memo in its prompt therefore has to be
+asked not to, which for Keplr is `preferNoSetFee` and `preferNoSetMemo` on the offline signer.
 
 ## Generated code
 
@@ -197,4 +210,5 @@ protos carry; the fixtures prove the encoding byte for byte instead. Queries go 
 every node serves and the fee contract names; gRPC-web left the SDK in v0.50 and would need a proxy. pnpm is the
 package manager, TypeScript the only language, `tsx` the test runner's one dependency, Biome the linter and formatter,
 and nothing in the package holds or sees a key. The type registry holds every generated type so any message decodes; a consumer that wants a smaller
-bundle builds its own with `createRegistry` and passes it to the gateway client and the decoders.
+bundle builds its own with `createRegistry` from `@bufbuild/protobuf` and passes it to the gateway client and the
+decoders. The tarball ships `src` beside `dist`, so the source maps resolve in a debugger.
