@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { GenesisMismatch, Network, RegistryError, loadNetwork, registrySource } from "./network.js";
+import { GenesisMismatch, loadNetwork, Network, RegistryError, registrySource } from "./network.js";
 import type { ArkJson, AssetListJson, ChainJson, RegistryFiles } from "./types.js";
 
 function files(name: string): RegistryFiles {

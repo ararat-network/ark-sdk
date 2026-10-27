@@ -3,8 +3,8 @@
 // node can return the transaction from, found by polling. Neither step hides
 // a code, a codespace, or a log.
 import type { TxResponse } from "../gen/cosmos/base/abci/v1beta1/abci_pb.js";
-import { QueryError } from "../query/gateway.js";
 import type { QueryClient } from "../query/client.js";
+import { QueryError } from "../query/gateway.js";
 import { txHash } from "./signdoc.js";
 
 export interface BroadcastResult {

@@ -5,8 +5,8 @@ import { fromBase64, fromHex, toBase64, utf8Decode, utf8Encode } from "../codec/
 import { MemorySigner } from "../keys/memory_signer.js";
 import { signMessage } from "../keys/secp256k1.js";
 import { signupVectors } from "../testing/fixtures.js";
-import { DocumentError, documentBytes, parseDocument, validateDocument, type SignupDocument } from "./document.js";
-import { checkSubmission, signDocument, submissionFromJson, submissionToJson, verifySignature, type StatelessRefusal } from "./sign.js";
+import { DocumentError, documentBytes, parseDocument, type SignupDocument, validateDocument } from "./document.js";
+import { checkSubmission, type StatelessRefusal, signDocument, submissionFromJson, submissionToJson, verifySignature } from "./sign.js";
 import { adr036SignBytes } from "./signbytes.js";
 
 const { keys, vectors } = signupVectors();

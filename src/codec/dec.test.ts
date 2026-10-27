@@ -69,5 +69,10 @@ test("quo carries 36 places and rounds like Go, roundInt ties to even", () => {
   assert.equal(LegacyDec.fromString("-2.5").roundInt(), -2n);
   // A continuous vesting seat halfway: 5,000,000 NOAH × (t−start)/(end−start) with the SDK's Dec arithmetic.
   const s = LegacyDec.fromInt(63_072_000n).quo(LegacyDec.fromInt(126_144_000n));
-  assert.equal(LegacyDec.fromInt(5_000_000n * 10n ** 18n).mul(s).roundInt(), 2_500_000n * 10n ** 18n);
+  assert.equal(
+    LegacyDec.fromInt(5_000_000n * 10n ** 18n)
+      .mul(s)
+      .roundInt(),
+    2_500_000n * 10n ** 18n,
+  );
 });

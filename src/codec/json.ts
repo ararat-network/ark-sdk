@@ -48,9 +48,9 @@ export function marshalGoJson(value: JsonValue): string {
     case "number":
       return goJsonNumber(value);
   }
-  if (Array.isArray(value)) return "[" + value.map(marshalGoJson).join(",") + "]";
+  if (Array.isArray(value)) return `[${value.map(marshalGoJson).join(",")}]`;
   const keys = Object.keys(value).sort(compareUtf8);
-  return "{" + keys.map((k) => goJsonString(k) + ":" + marshalGoJson(value[k] as JsonValue)).join(",") + "}";
+  return `{${keys.map((k) => `${goJsonString(k)}:${marshalGoJson(value[k] as JsonValue)}`).join(",")}}`;
 }
 
 /** Serialises to UTF-8 bytes. */
@@ -94,11 +94,11 @@ export function goJsonString(s: string): string {
       case 0x26:
       case 0x2028:
       case 0x2029:
-        out += "\\u" + c.toString(16).padStart(4, "0");
+        out += `\\u${c.toString(16).padStart(4, "0")}`;
         break;
       default:
         if (c < 0x20) {
-          out += "\\u" + c.toString(16).padStart(4, "0");
+          out += `\\u${c.toString(16).padStart(4, "0")}`;
         } else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length) {
           const d = s.charCodeAt(i + 1);
           if (d >= 0xdc00 && d <= 0xdfff) {
@@ -114,7 +114,7 @@ export function goJsonString(s: string): string {
         }
     }
   }
-  return out + '"';
+  return `${out}"`;
 }
 
 /** Formats a number as Go's float64 marshalling does; integers are exact. */
@@ -127,5 +127,5 @@ export function goJsonNumber(n: number): string {
   const mantissa = s.slice(0, e);
   const sign = s[e + 1] as string;
   const digits = s.slice(e + 2);
-  return `${mantissa}e${sign}${digits.length < 2 ? "0" + digits : digits}`;
+  return `${mantissa}e${sign}${digits.length < 2 ? `0${digits}` : digits}`;
 }

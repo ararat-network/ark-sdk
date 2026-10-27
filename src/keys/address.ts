@@ -73,7 +73,7 @@ export function isAccountAddress(address: string, prefix = DEFAULT_PREFIX): bool
 
 /** The validator operator prefix of an account prefix. */
 export function validatorPrefix(prefix = DEFAULT_PREFIX): string {
-  return prefix + "valoper";
+  return `${prefix}valoper`;
 }
 
 /** Re-encodes an account address as the validator operator address of the same key. */

@@ -3,8 +3,8 @@ import { test } from "node:test";
 
 import { create } from "@bufbuild/protobuf";
 
-import { PageResponseSchema, type PageResponse } from "../gen/cosmos/base/query/v1beta1/pagination_pb.js";
-import { PaginationError, collectAll, paginate, type PageRequestInit } from "./pagination.js";
+import { type PageResponse, PageResponseSchema } from "../gen/cosmos/base/query/v1beta1/pagination_pb.js";
+import { collectAll, type PageRequestInit, PaginationError, paginate } from "./pagination.js";
 
 interface Page {
   items: number[];
@@ -31,9 +31,20 @@ test("paginate follows next keys until the last page", async () => {
     if (first.length === 4) break;
   }
   assert.deepEqual(first, [0, 1, 2, 3]);
-  assert.deepEqual(await collectAll(async (): Promise<Page> => ({ items: [1] }), (p) => p.items, { limit: 100n }), [1], "a page without pagination ends the walk");
+  assert.deepEqual(
+    await collectAll(
+      async (): Promise<Page> => ({ items: [1] }),
+      (p) => p.items,
+      { limit: 100n },
+    ),
+    [1],
+    "a page without pagination ends the walk",
+  );
 });
 
 test("paginate stops at the page budget", async () => {
-  await assert.rejects(collectAll(pages(10, 2), (p) => p.items, { limit: 2n, maxPages: 3 }), PaginationError);
+  await assert.rejects(
+    collectAll(pages(10, 2), (p) => p.items, { limit: 2n, maxPages: 3 }),
+    PaginationError,
+  );
 });

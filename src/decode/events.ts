@@ -2,7 +2,7 @@
 // carries each field as an attribute whose value is JSON. A block event adds a
 // `mode` attribute whose value is a bare word, which must go before decoding;
 // `msg_index` names the message an event belongs to and is not a field.
-import { type DescMessage, type Message, type Registry } from "@bufbuild/protobuf";
+import type { DescMessage, Message, Registry } from "@bufbuild/protobuf";
 
 import type { JsonObject, JsonValue } from "../codec/json.js";
 import { fromProtoJson, toProtoJson } from "../codec/protojson.js";

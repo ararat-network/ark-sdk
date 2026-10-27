@@ -4,19 +4,27 @@
 // decimal text, Any as {"type", "value"} under its amino name, Timestamps in
 // RFC 3339, Durations as nanoseconds, coins never null, wasm JSON inlined,
 // public keys as their bare key. The bytes are Go's compact sorted JSON.
-import { fromBinary, type DescField, type DescMessage, type MessageShape, type Registry, ScalarType } from "@bufbuild/protobuf";
-import { reflect, type ReflectList, type ReflectMessage } from "@bufbuild/protobuf/reflect";
-import { type Any, type Duration, type Timestamp } from "@bufbuild/protobuf/wkt";
-
-import { UnknownTypeError, typeNameOf, typeUrlOf } from "./any.js";
-import { toBase64, utf8Decode } from "./bytes.js";
-import { LegacyDec } from "./dec.js";
-import { compareUtf8, marshalGoJsonBytes, sortKeys, type JsonObject, type JsonValue } from "./json.js";
-import { ENCODING_INLINE_JSON, ENCODING_LEGACY_COINS, ENCODING_NULL_SLICE_AS_EMPTY, LEGACY_DEC, SCALAR_DEC, SCALAR_INT, fieldOptions, messageOptions } from "./options.js";
-import { registry as defaultRegistry } from "./registry.js";
-import { durationToAmino, timestampToAmino } from "./wkt.js";
+import { type DescField, type DescMessage, fromBinary, type MessageShape, type Registry, ScalarType } from "@bufbuild/protobuf";
+import { type ReflectList, type ReflectMessage, reflect } from "@bufbuild/protobuf/reflect";
+import type { Any, Duration, Timestamp } from "@bufbuild/protobuf/wkt";
 import { CoinSchema } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import type { Fee, TxBody } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
+import { typeNameOf, typeUrlOf, UnknownTypeError } from "./any.js";
+import { toBase64, utf8Decode } from "./bytes.js";
+import { LegacyDec } from "./dec.js";
+import { compareUtf8, type JsonObject, type JsonValue, marshalGoJsonBytes, sortKeys } from "./json.js";
+import {
+  ENCODING_INLINE_JSON,
+  ENCODING_LEGACY_COINS,
+  ENCODING_NULL_SLICE_AS_EMPTY,
+  fieldOptions,
+  LEGACY_DEC,
+  messageOptions,
+  SCALAR_DEC,
+  SCALAR_INT,
+} from "./options.js";
+import { registry as defaultRegistry } from "./registry.js";
+import { durationToAmino, timestampToAmino } from "./wkt.js";
 
 export interface AminoCoin {
   denom: string;
@@ -292,7 +300,7 @@ const cosmosInt: FieldEncoder = (r, f) => {
 
 function keyFieldEncoder(r: ReflectMessage): JsonValue {
   const key = r.desc.fields.find((f) => f.name === "key");
-  if (!key || key.fieldKind !== "scalar" || key.scalar !== ScalarType.BYTES) throw new AminoError('message encoder for key_field: no field named "key" found');
+  if (key?.fieldKind !== "scalar" || key.scalar !== ScalarType.BYTES) throw new AminoError('message encoder for key_field: no field named "key" found');
   const bytes = r.get(key) as Uint8Array;
   return bytes.length === 0 ? null : toBase64(bytes);
 }
@@ -300,7 +308,7 @@ function keyFieldEncoder(r: ReflectMessage): JsonValue {
 function thresholdStringEncoder(r: ReflectMessage, ctx: Context): JsonValue {
   const keys = r.desc.fields.find((f) => f.name === "public_keys");
   const threshold = r.desc.fields.find((f) => f.name === "threshold");
-  if (!keys || keys.fieldKind !== "list" || !threshold || threshold.fieldKind !== "scalar") {
+  if (keys?.fieldKind !== "list" || !threshold || threshold.fieldKind !== "scalar") {
     throw new AminoError("thresholdStringEncoder: msg not a multisig.LegacyAminoPubKey");
   }
   const list = r.get(keys);

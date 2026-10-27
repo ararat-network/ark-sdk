@@ -4,7 +4,15 @@ import { test } from "node:test";
 import { create } from "@bufbuild/protobuf";
 import { DurationSchema, TimestampSchema } from "@bufbuild/protobuf/wkt";
 
-import { GO_ZERO_TIME_SECONDS, durationFromText, durationToAmino, durationToProtoJson, timestampFromText, timestampToAmino, timestampToProtoJson } from "./wkt.js";
+import {
+  durationFromText,
+  durationToAmino,
+  durationToProtoJson,
+  GO_ZERO_TIME_SECONDS,
+  timestampFromText,
+  timestampToAmino,
+  timestampToProtoJson,
+} from "./wkt.js";
 
 test("timestamps render as jsonpb and as Go's RFC 3339 forms", () => {
   const cases: [bigint, number, string, string][] = [

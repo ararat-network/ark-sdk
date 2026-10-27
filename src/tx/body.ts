@@ -6,9 +6,20 @@ import type { Any, Timestamp } from "@bufbuild/protobuf/wkt";
 
 import { packAny } from "../codec/any.js";
 import { materialise } from "../codec/gogo.js";
-import { CoinSchema, type Coin } from "../gen/cosmos/base/v1beta1/coin_pb.js";
+import { type Coin, CoinSchema } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import { SignMode } from "../gen/cosmos/tx/signing/v1beta1/signing_pb.js";
-import { AuthInfoSchema, FeeSchema, ModeInfoSchema, ModeInfo_SingleSchema, SignerInfoSchema, TxBodySchema, type AuthInfo, type Fee, type SignerInfo, type TxBody } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
+import {
+  type AuthInfo,
+  AuthInfoSchema,
+  type Fee,
+  FeeSchema,
+  ModeInfo_SingleSchema,
+  ModeInfoSchema,
+  type SignerInfo,
+  SignerInfoSchema,
+  type TxBody,
+  TxBodySchema,
+} from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 
 /** A message with the schema that encodes it. */
 export interface Typed<Desc extends DescMessage = DescMessage> {

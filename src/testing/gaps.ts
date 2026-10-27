@@ -10,10 +10,10 @@ import type { JsonObject } from "../codec/json.js";
 
 export const knownJsonGaps: Record<string, (tx: JsonObject) => void> = {
   gov_proposal_cosmos: (tx) => {
-    const messages = ((tx["body"] as JsonObject)["messages"] as JsonObject[])[0]!["messages"] as JsonObject[];
+    const messages = ((tx.body as JsonObject).messages as JsonObject[])[0]!.messages as JsonObject[];
     const consensus = messages.find((m) => m["@type"] === "/cosmos.consensus.v1.MsgUpdateParams")!;
     assert.ok("auth" in consensus, "cosmos.consensus.v1.MsgUpdateParams.auth is in the schema now; retire this gap");
-    delete consensus["auth"];
+    delete consensus.auth;
   },
 };
 

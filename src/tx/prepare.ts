@@ -9,8 +9,8 @@ import type { Signer } from "../keys/signer.js";
 import type { QueryClient } from "../query/client.js";
 import { packMessages, type TxMessage } from "./body.js";
 import { BroadcastRefused, broadcastAndConfirm, type Confirmed, type InclusionOptions } from "./broadcast.js";
-import { feeFromQuote, signTx, simulationTxBytes, type SignedTx, type SigningMode } from "./builder.js";
-import { FeeError, adjustGas, quoteFee, type FeeQuote, type Headroom } from "./fee.js";
+import { feeFromQuote, type SignedTx, type SigningMode, signTx, simulationTxBytes } from "./builder.js";
+import { adjustGas, FeeError, type FeeQuote, type Headroom, quoteFee } from "./fee.js";
 
 export class PrepareError extends Error {
   override readonly name: string = "PrepareError";
@@ -68,7 +68,9 @@ export async function prepareAndSign(input: PrepareInput): Promise<Prepared> {
   let simulatedGas: bigint | undefined;
   let gasLimit = input.gasLimit;
   if (gasLimit === undefined) {
-    const simulation = await client.tx.simulate(simulationTxBytes({ messages, memo: input.memo, publicKey: signerAccount.publicKey, sequence: account.sequence }));
+    const simulation = await client.tx.simulate(
+      simulationTxBytes({ messages, memo: input.memo, publicKey: signerAccount.publicKey, sequence: account.sequence }),
+    );
     if (!simulation.gasInfo) throw new PrepareError("simulation returned no gas info");
     simulatedGas = simulation.gasInfo.gasUsed;
     gasLimit = adjustGas(simulatedGas, input.gasAdjustment);
@@ -76,7 +78,8 @@ export async function prepareAndSign(input: PrepareInput): Promise<Prepared> {
 
   const tax = await client.treasury.computeTax(messages);
   const sheet = await client.treasury.gasPrices();
-  const gasPrice = sheet.gasPrices.find((p) => p.denom === input.feeDenom) ?? (sheet.referenceGasPrice?.denom === input.feeDenom ? sheet.referenceGasPrice : undefined);
+  const gasPrice =
+    sheet.gasPrices.find((p) => p.denom === input.feeDenom) ?? (sheet.referenceGasPrice?.denom === input.feeDenom ? sheet.referenceGasPrice : undefined);
   if (!gasPrice) throw new FeeError(`${input.feeDenom} is not on the gas price sheet; the chain does not accept it for the base fee`);
   const quote = quoteFee({ tax: tax.tax, gasPrice, gasLimit, headroom: input.headroom, legOrder: input.legOrder, nativeDenom: input.nativeDenom });
 
