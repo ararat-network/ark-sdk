@@ -1,14 +1,17 @@
 // Amino vectors the fixtures do not reach, generated with the chain's own
-// x/tx aminojson encoder over the api module's messages: a oneof under its
-// camel-cased name with each member and with none set, a multisig key's
-// threshold_string encoding with key_field members, and a renamed field.
+// x/tx aminojson encoder over the api module's messages decoded from these
+// bytes: a oneof under its camel-cased name with each member and with none
+// set, a multisig key's threshold_string encoding with key_field members, a
+// renamed field, and empty dont_omitempty lists, null unless legacy_coins.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { type DescMessage, fromBinary } from "@bufbuild/protobuf";
-
+import { MsgSetRecognitionPolicySchema } from "../gen/ark/reserve/v1/tx_pb.js";
 import { BaseAccountSchema } from "../gen/cosmos/auth/v1beta1/auth_pb.js";
 import { MsgGrantSchema } from "../gen/cosmos/authz/v1beta1/tx_pb.js";
+import { MsgMultiSendSchema, MsgSendSchema } from "../gen/cosmos/bank/v1beta1/tx_pb.js";
+import { MsgDepositSchema } from "../gen/cosmos/gov/v1/tx_pb.js";
 import { aminoEncode } from "./aminojson.js";
 import { fromBase64 } from "./bytes.js";
 import { marshalGoJson } from "./json.js";
@@ -51,6 +54,36 @@ const vectors: { name: string; schema: DescMessage; bytes: string; amino: string
     schema: BaseAccountSchema,
     bytes: "CiphcmsxMDJwNnM1Mm45N2U3emNteGM0OXVmd3gwNGxudHJlNWt0cWtrenASLwopL2Nvc21vcy5jcnlwdG8ubXVsdGlzaWcuTGVnYWN5QW1pbm9QdWJLZXkSAggB",
     amino: `{"type":"cosmos-sdk/BaseAccount","value":{"address":"${granter}","public_key":{"type":"tendermint/PubKeyMultisigThreshold","value":{"pubkeys":[],"threshold":"1"}}}}`,
+  },
+  {
+    name: "an empty MsgMultiSend writes its dont_omitempty lists as null, the chain's nil slice",
+    schema: MsgMultiSendSchema,
+    bytes: "",
+    amino: `{"type":"cosmos-sdk/MsgMultiSend","value":{"inputs":null,"outputs":null}}`,
+  },
+  {
+    name: "an input without coins writes [] under legacy_coins beside a null outputs list",
+    schema: MsgMultiSendSchema,
+    bytes: "CiwKKmFyazEwMnA2czUybjk3ZTd6Y214YzQ5dWZ3eDA0bG50cmU1a3Rxa2t6cA==",
+    amino: `{"type":"cosmos-sdk/MsgMultiSend","value":{"inputs":[{"address":"${granter}","coins":[]}],"outputs":null}}`,
+  },
+  {
+    name: "a MsgSend without an amount writes [] under legacy_coins",
+    schema: MsgSendSchema,
+    bytes: "CiphcmsxMDJwNnM1Mm45N2U3emNteGM0OXVmd3gwNGxudHJlNWt0cWtrenASKmFyazFsdzdqcm5nZGdtODhydXo4djdrNnM3MGdzc3U2dnJ5dWZlbDhucQ==",
+    amino: `{"type":"cosmos-sdk/MsgSend","value":{"amount":[],"from_address":"${granter}","to_address":"${grantee}"}}`,
+  },
+  {
+    name: "a gov v1 MsgDeposit without an amount writes null",
+    schema: MsgDepositSchema,
+    bytes: "CAESKmFyazEwMnA2czUybjk3ZTd6Y214YzQ5dWZ3eDA0bG50cmU1a3Rxa2t6cA==",
+    amino: `{"type":"cosmos-sdk/v1/MsgDeposit","value":{"amount":null,"depositor":"${granter}","proposal_id":"1"}}`,
+  },
+  {
+    name: "a MsgSetRecognitionPolicy clearing every entry writes null",
+    schema: MsgSetRecognitionPolicySchema,
+    bytes: "CiphcmsxMDJwNnM1Mm45N2U3emNteGM0OXVmd3gwNGxudHJlNWt0cWtrenA=",
+    amino: `{"type":"ark/reserve/MsgSetRecognitionPolicy","value":{"authority":"${granter}","entries":null}}`,
   },
 ];
 
