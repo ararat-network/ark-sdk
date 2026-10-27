@@ -190,8 +190,13 @@ function marshalMessage(r: ReflectMessage, ctx: Context): JsonValue {
 
 function marshalField(r: ReflectMessage, f: DescField, ctx: Context): JsonValue {
   switch (f.fieldKind) {
-    case "list":
-      return marshalList(r.get(f), f, ctx);
+    case "list": {
+      // Reached empty only under dont_omitempty: the chain decodes an absent
+      // repeated field as a nil slice and writes null; legacy_coins and
+      // null_slice_as_empty write [] through their own encoder.
+      const list = r.get(f);
+      return list.size === 0 ? null : marshalList(list, f, ctx);
+    }
     case "map":
       throw new AminoError("maps are not supported");
     case "message":
