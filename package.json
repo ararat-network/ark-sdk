@@ -21,7 +21,9 @@
   },
   "files": [
     "dist",
-    "!dist/**/*.test.*"
+    "src",
+    "!src/**/*.test.ts",
+    "!src/testing"
   ],
   "publishConfig": {
     "access": "public"
@@ -31,10 +33,10 @@
     "node": ">=22"
   },
   "scripts": {
-    "gen": "buf generate && node scripts/gen-files.mjs",
-    "gen:check": "git diff --exit-code --stat -- src/gen src/codec/files.ts && test \"$(awk '/ararat-network\\/ark\\.git/{f=1} f&&/tag:/{print $2; exit}' buf.gen.yaml)\" = \"$(cat ARK_VERSION)\"",
+    "gen": "rm -rf src/gen && buf generate && node scripts/gen-files.mjs",
+    "gen:check": "./scripts/check-clean.sh src/gen src/codec/files.ts && test \"$(awk '/ararat-network\\/ark\\.git/{f=1} f&&/tag:/{print $2; exit}' buf.gen.yaml)\" = \"$(cat ARK_VERSION)\"",
     "fixtures:sync": "./scripts/sync-fixtures.sh",
-    "fixtures:check": "./scripts/sync-fixtures.sh && git diff --exit-code --stat -- testdata/decoding",
+    "fixtures:check": "./scripts/sync-fixtures.sh && ./scripts/check-clean.sh testdata/decoding",
     "check": "tsc --noEmit",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",

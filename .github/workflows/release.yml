@@ -1,9 +1,11 @@
 name: release
 
 # Publishes @ararat-network/sdk to npm from a v* tag, with provenance. The tag
-# must name the version in package.json. npm's trusted publishing for this
-# repository and workflow must be configured on the package first; until it is,
-# the publish step fails and nothing else is affected.
+# must name the version in package.json and sit on main, so nothing publishes
+# that the pull request gate never saw, and every check ci.yml runs is run
+# again from the tag. npm's trusted publishing for this repository and
+# workflow must be configured on the package first; until it is, the publish
+# step fails and nothing else is affected.
 on:
   push:
     tags: ["v*"]
@@ -21,6 +23,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
@@ -29,8 +33,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: The tag names the package's version
         run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+      - name: The tagged commit is on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - run: pnpm gen
+      - run: pnpm gen:check
+      - run: pnpm fixtures:check
+      - run: pnpm lint
       - run: pnpm check
-      - run: pnpm test
+      - run: pnpm test:coverage
       - run: pnpm build
       - run: pnpm check:package
+      - run: pnpm check:browser
       - run: npm publish --provenance --access public
