@@ -5,8 +5,8 @@
 // message fields with empty messages and unset non-nullable Dec and Int
 // fields with zero, recursively, leaving everything else alone. A
 // non-nullable Timestamp is Go's zero time, year 1, not the epoch.
-import { ScalarType, type DescMessage, type MessageShape } from "@bufbuild/protobuf";
-import { reflect, type ReflectMessage } from "@bufbuild/protobuf/reflect";
+import { type DescMessage, type MessageShape, ScalarType } from "@bufbuild/protobuf";
+import { type ReflectMessage, reflect } from "@bufbuild/protobuf/reflect";
 
 import { utf8Encode } from "./bytes.js";
 import { fieldOptions } from "./options.js";
@@ -29,9 +29,8 @@ function materialiseReflect(r: ReflectMessage): void {
           materialiseReflect(r.get(f));
         } else if (!o.nullable && !f.oneof) {
           const empty = reflect(f.message);
-          if (f.message.typeName === "google.protobuf.Timestamp") {
-            empty.set(f.message.fields.find((t) => t.name === "seconds")!, GO_ZERO_TIME_SECONDS);
-          }
+          const seconds = f.message.fields.find((t) => t.name === "seconds");
+          if (f.message.typeName === "google.protobuf.Timestamp" && seconds) empty.set(seconds, GO_ZERO_TIME_SECONDS);
           materialiseReflect(empty);
           r.set(f, empty);
         }

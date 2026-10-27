@@ -4,14 +4,14 @@ import { test } from "node:test";
 import { create } from "@bufbuild/protobuf";
 
 import { packAny } from "../codec/any.js";
-import { Query as DisbursementQuery } from "../gen/ark/disbursement/v1/query_pb.js";
 import { GrantKind } from "../gen/ark/disbursement/v1/disbursement_pb.js";
+import { Query as DisbursementQuery } from "../gen/ark/disbursement/v1/query_pb.js";
 import { Query as TreasuryQuery } from "../gen/ark/treasury/v1/query_pb.js";
 import { MsgSendSchema } from "../gen/cosmos/bank/v1beta1/tx_pb.js";
 import { Service as TxService } from "../gen/cosmos/tx/v1beta1/service_pb.js";
 import { fixtureKeys } from "../testing/fixtures.js";
-import { GatewayClient, GrpcCode, QueryError, TransportError, routeFor } from "./gateway.js";
 import { QueryClient } from "./client.js";
+import { GatewayClient, GrpcCode, QueryError, routeFor, TransportError } from "./gateway.js";
 
 interface Seen {
   url: string;
@@ -23,20 +23,32 @@ interface Seen {
 function stub(reply: (seen: Seen) => Response | Promise<Response>): { fetch: typeof fetch; seen: Seen[] } {
   const seen: Seen[] = [];
   const fetchStub = (async (input: string | URL | Request, init?: RequestInit) => {
-    const s: Seen = { url: String(input), method: init?.method ?? "GET", body: init?.body as string | undefined, headers: (init?.headers as Record<string, string>) ?? {} };
+    const s: Seen = {
+      url: String(input),
+      method: init?.method ?? "GET",
+      body: init?.body as string | undefined,
+      headers: (init?.headers as Record<string, string>) ?? {},
+    };
     seen.push(s);
     return reply(s);
   }) as typeof fetch;
   return { fetch: fetchStub, seen };
 }
 
-const json = (body: unknown, init: ResponseInit = {}) => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" }, ...init });
+const json = (body: unknown, init: ResponseInit = {}) =>
+  new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" }, ...init });
 
 test("routes come from the http option: path parameters, query parameters, and bodies", () => {
   const member = routeFor(DisbursementQuery.method.member, { address: "ark1abc" });
   assert.deepEqual(member, { verb: "GET", path: "/ark/disbursement/v1/members/ark1abc", body: undefined });
 
-  const grants = routeFor(DisbursementQuery.method.grants, { beneficiary: "", committee_term: "0", registrar_term: "2", pagination: { limit: "10", key: "", count_total: true, reverse: false }, kind: "GRANT_KIND_MEMBER" });
+  const grants = routeFor(DisbursementQuery.method.grants, {
+    beneficiary: "",
+    committee_term: "0",
+    registrar_term: "2",
+    pagination: { limit: "10", key: "", count_total: true, reverse: false },
+    kind: "GRANT_KIND_MEMBER",
+  });
   assert.equal(grants.verb, "GET");
   assert.equal(grants.path, "/ark/disbursement/v1/grants?registrar_term=2&pagination.limit=10&pagination.count_total=true&kind=GRANT_KIND_MEMBER");
 
@@ -63,7 +75,7 @@ test("a call encodes the request, reads the dialect back, and carries the height
   assert.equal(result.value.referenceGasPrice?.denom, "axdr");
   assert.equal(seen[0]?.url, "http://localhost:1317/ark/treasury/v1/gas_prices");
   assert.equal(seen[0]?.headers["x-cosmos-block-height"], "41");
-  assert.equal(seen[0]?.headers["authorization"], "Bearer x");
+  assert.equal(seen[0]?.headers.authorization, "Bearer x");
 });
 
 test("computeTax posts the packed messages as proto JSON", async () => {
@@ -72,12 +84,15 @@ test("computeTax posts the packed messages as proto JSON", async () => {
   const { fetch, seen } = stub(() => json({ tax: [{ denom: "ausd", amount: "1" }], tax_base: [{ denom: "ausd", amount: "5" }] }));
   const client = new QueryClient("http://node", { fetch });
   const tax = await client.treasury.computeTax([packAny(MsgSendSchema, send)]);
-  assert.deepEqual(tax.tax.map((c) => `${c.amount}${c.denom}`), ["1ausd"]);
+  assert.deepEqual(
+    tax.tax.map((c) => `${c.amount}${c.denom}`),
+    ["1ausd"],
+  );
   assert.equal(seen[0]?.method, "POST");
   const body = JSON.parse(seen[0]!.body!) as { messages: Record<string, unknown>[] };
   assert.equal(body.messages[0]?.["@type"], "/cosmos.bank.v1beta1.MsgSend");
-  assert.equal(body.messages[0]?.["from_address"], trader.address);
-  assert.deepEqual(body.messages[0]?.["amount"], [{ denom: "ausd", amount: "5" }]);
+  assert.equal(body.messages[0]?.from_address, trader.address);
+  assert.deepEqual(body.messages[0]?.amount, [{ denom: "ausd", amount: "5" }]);
 });
 
 test("gateway errors carry the gRPC code and NotFound is recognisable", async () => {
@@ -100,7 +115,10 @@ test("an unreachable node is a transport error, not a query error", async () => 
   const client = new QueryClient("http://node", { fetch: failing });
   await assert.rejects(client.node.info(), TransportError);
   const notJson = stub(() => new Response("<html>", { status: 502, statusText: "Bad Gateway" }));
-  await assert.rejects(new QueryClient("http://node", { fetch: notJson.fetch }).node.info(), (err: unknown) => err instanceof QueryError && err.httpStatus === 502);
+  await assert.rejects(
+    new QueryClient("http://node", { fetch: notJson.fetch }).node.info(),
+    (err: unknown) => err instanceof QueryError && err.httpStatus === 502,
+  );
 });
 
 test("facades send enum and bigint request fields as the gateway expects", async () => {
@@ -126,7 +144,10 @@ test("several endpoints: a call moves past one that cannot answer and stays on t
   const client = new QueryClient(["http://a", "http://b", "http://c"], { fetch: fetchStub });
   const info = await client.node.info();
   assert.equal(info.defaultNodeInfo?.network, "localark");
-  assert.deepEqual(calls.map((u) => u.slice(0, 9)), ["http://a/", "http://b/", "http://c/"]);
+  assert.deepEqual(
+    calls.map((u) => u.slice(0, 9)),
+    ["http://a/", "http://b/", "http://c/"],
+  );
   assert.equal(client.gateway.baseUrl, "http://c");
   await client.node.info();
   assert.equal(calls.length, 4, "the next call starts at the endpoint that answered");
@@ -158,4 +179,32 @@ test("a request error does not fail over, and every endpoint failing surfaces th
   await assert.rejects(new QueryClient(["http://a", "http://b"], { fetch: abortFetch }).gateway.call(TreasuryQuery, "params", {}, { signal: aborted.signal }));
   assert.equal(attempts, 1, "an aborted call tries no other endpoint");
   assert.throws(() => new QueryClient([]), /at least one endpoint/);
+});
+
+test("a request that hangs past the timeout counts the endpoint as unreachable", async () => {
+  const hanging = (async (_input: string | URL | Request, init?: RequestInit) =>
+    new Promise<Response>((_, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason ?? new Error("aborted")));
+    })) as typeof fetch;
+  const alone = new QueryClient("http://slow", { fetch: hanging, timeoutMs: 20 });
+  const started = Date.now();
+  await assert.rejects(alone.node.info(), TransportError);
+  assert.ok(Date.now() - started < 2_000);
+
+  let urls: string[] = [];
+  const slowThenFast = (async (input: string | URL | Request, init?: RequestInit) => {
+    urls.push(String(input));
+    if (String(input).startsWith("http://slow")) return hanging(input, init);
+    return json({ default_node_info: { network: "localark" }, application_version: null });
+  }) as typeof fetch;
+  const pair = new QueryClient(["http://slow", "http://fast"], { fetch: slowThenFast, timeoutMs: 20 });
+  const info = await pair.node.info();
+  assert.equal(info.defaultNodeInfo?.network, "localark");
+  assert.deepEqual(
+    urls.map((u) => u.slice(0, 11)),
+    ["http://slow", "http://fast"],
+  );
+  urls = [];
+  await pair.gateway.call(TreasuryQuery, "params", {}, { timeoutMs: 5_000 });
+  assert.ok(urls[0]!.startsWith("http://fast"), "the client stays on the endpoint that answered");
 });

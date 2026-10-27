@@ -4,17 +4,17 @@
 // pointer field is null, a non-nullable one is always present, Decs read as
 // decimals, and a wasm message's JSON is inlined. The reverse direction reads
 // the same dialect back into generated messages.
-import { ScalarType, type DescEnum, type DescField, type DescMessage, type MessageShape, type Registry } from "@bufbuild/protobuf";
-import { reflect, type ReflectList, type ReflectMap, type ReflectMessage } from "@bufbuild/protobuf/reflect";
-import { AnySchema, DurationSchema, TimestampSchema, type Any, type Duration, type Timestamp } from "@bufbuild/protobuf/wkt";
+import { type DescEnum, type DescField, type DescMessage, type MessageShape, type Registry, ScalarType } from "@bufbuild/protobuf";
+import { type ReflectList, type ReflectMap, type ReflectMessage, reflect } from "@bufbuild/protobuf/reflect";
+import { type Any, AnySchema, type Duration, DurationSchema, type Timestamp, TimestampSchema } from "@bufbuild/protobuf/wkt";
 
-import { UnknownTypeError, typeNameOf, typeUrlOf } from "./any.js";
+import { typeNameOf, typeUrlOf, UnknownTypeError } from "./any.js";
 import { fromBase64, toBase64, utf8Decode, utf8Encode } from "./bytes.js";
 import { LegacyDec } from "./dec.js";
 import type { JsonObject, JsonValue } from "./json.js";
 import { fieldOptions } from "./options.js";
 import { registry as defaultRegistry } from "./registry.js";
-import { durationFromText, durationToProtoJson, timestampFromText, timestampToProtoJson } from "./wkt.js";
+import { durationFromText, durationToProtoJson, GO_ZERO_TIME_SECONDS, timestampFromText, timestampToProtoJson } from "./wkt.js";
 
 export class ProtoJsonError extends Error {
   override readonly name: string = "ProtoJsonError";
@@ -94,7 +94,7 @@ function fromBinaryInto<Desc extends DescMessage>(schema: Desc, bytes: Uint8Arra
   return fromBinaryImpl(schema, bytes);
 }
 
-import { fromBinary as fromBinaryImpl, create } from "@bufbuild/protobuf";
+import { create, fromBinary as fromBinaryImpl } from "@bufbuild/protobuf";
 
 function fieldToJson(r: ReflectMessage, f: DescField, ctx: WriteContext): JsonValue {
   switch (f.fieldKind) {
@@ -103,7 +103,12 @@ function fieldToJson(r: ReflectMessage, f: DescField, ctx: WriteContext): JsonVa
     case "map":
       return mapToJson(r.get(f), f, ctx);
     case "message":
-      if (!r.isSet(f)) return fieldOptions(f).nullable ? null : messageToJson(reflect(f.message), ctx);
+      if (!r.isSet(f)) {
+        if (fieldOptions(f).nullable) return null;
+        // A non-nullable Timestamp is Go's zero time, year 1, as gogo renders it.
+        if (f.message.typeName === WKT_TIMESTAMP) return timestampToProtoJson(create(TimestampSchema, { seconds: GO_ZERO_TIME_SECONDS }));
+        return messageToJson(reflect(f.message), ctx);
+      }
       return messageToJson(r.get(f), ctx);
     case "enum":
       return enumToJson(f.enum, r.get(f));
@@ -262,7 +267,7 @@ function anyFromJson(json: JsonValue, ctx: ReadContext): Any {
   const schema = ctx.registry.getMessage(typeNameOf(typeUrl));
   if (!schema) throw new UnknownTypeError(typeUrl);
   const wkt = schema.typeName === WKT_TIMESTAMP || schema.typeName === WKT_DURATION || schema.typeName === WKT_ANY;
-  const inner = messageFromJson(schema, wkt ? (rest["value"] as JsonValue) : rest, ctx);
+  const inner = messageFromJson(schema, wkt ? (rest.value as JsonValue) : rest, ctx);
   return create(AnySchema, { typeUrl: typeUrlOf(schema), value: toBinaryImpl(schema, inner.message) });
 }
 
