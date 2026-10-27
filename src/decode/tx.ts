@@ -64,6 +64,11 @@ export function decodeMessage(any: Any, options: TxDecodeOptions = {}): DecodedM
 
 import { AnySchema as AnySchemaRef } from "@bufbuild/protobuf/wkt";
 
+/** The decoded messages of a transaction a query returned already parsed. */
+export function decodeTxMessages(tx: Tx, options: TxDecodeOptions = {}): DecodedMessage[] {
+  return (tx.body?.messages ?? []).map((m) => decodeMessage(m, options));
+}
+
 /** Decodes raw transaction bytes as a node returns them. */
 export function decodeTx(bytes: Uint8Array, options: TxDecodeOptions = {}): DecodedTx {
   const registry = options.registry ?? defaultRegistry;
