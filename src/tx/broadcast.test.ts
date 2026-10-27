@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { QueryClient } from "../query/client.js";
 import { QueryError } from "../query/gateway.js";
-import { BroadcastRefused, BroadcastUnknown, broadcastAndConfirm, broadcastSync, InclusionTimeout, waitForInclusion } from "./broadcast.js";
+import { BroadcastRefused, BroadcastUnknown, broadcastAndConfirm, broadcastSync, InclusionTimeout, TransactionExpired, waitForInclusion } from "./broadcast.js";
 import { txHash } from "./signdoc.js";
 
 const HASH = "861F5D4824CECE1A5A1F9FCB43280CD6AB38491D10AFF22939B94FEDE66802B0";
@@ -114,6 +114,29 @@ test("polling rides out an endpoint fault, names the last one at the deadline, a
     waitForInclusion(badHash.client, "nothex", { sleep: async () => {} }),
     (err: unknown) => err instanceof QueryError && err.httpStatus === 400,
   );
+});
+
+test("past the timeout height the wait ends with one last look, and before it polling goes on", async () => {
+  const latest = (height: string) => () => json({ block_id: null, block: null, sdk_block: { header: { height } } });
+  const expired = node([notFound, latest("11"), notFound]);
+  await assert.rejects(
+    waitForInclusion(expired.client, HASH, { timeoutHeight: 10n, sleep: async () => {} }),
+    (err: unknown) => err instanceof TransactionExpired && err.timeoutHeight === 10n && err.height === 11n,
+  );
+  assert.equal(expired.calls.length, 3, "the last look is one more request, not a wait");
+
+  const carried = node([notFound, latest("11"), included]);
+  const response = await waitForInclusion(carried.client, HASH, { timeoutHeight: 10n, sleep: async () => {} });
+  assert.equal(response.height, 7n, "a block at the height carried it between the poll and the read");
+
+  const early = node([notFound, latest("9"), notFound, latest("10"), included]);
+  const slept: number[] = [];
+  assert.equal((await waitForInclusion(early.client, HASH, { timeoutHeight: 10n, pollMs: 50, sleep: async (ms) => void slept.push(ms) })).height, 7n);
+  assert.deepEqual(slept, [50, 50], "at or below the height the wait continues");
+
+  const plain = node([notFound, included]);
+  await waitForInclusion(plain.client, HASH, { sleep: async () => {} });
+  assert.ok(!plain.calls.some((c) => c.includes("blocks/latest")), "without a timeout height no block is read");
 });
 
 test("an aborted signal ends the wait at once", async () => {

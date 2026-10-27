@@ -169,5 +169,6 @@ export async function sendTx(input: PrepareInput, options: SendOptions = {}): Pr
 
 async function attempt(input: PrepareInput, options: InclusionOptions): Promise<Sent> {
   const prepared = await prepareAndSign(input);
-  return { ...prepared, ...(await broadcastAndConfirm(input.client, prepared.signed.txBytes, options)) };
+  const inclusion = { ...options, timeoutHeight: options.timeoutHeight ?? input.timeoutHeight };
+  return { ...prepared, ...(await broadcastAndConfirm(input.client, prepared.signed.txBytes, inclusion)) };
 }
