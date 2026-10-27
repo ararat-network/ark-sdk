@@ -120,23 +120,44 @@ const mismatch = () =>
 const included = () =>
   json({ tx_response: { txhash: HASH, code: 0, codespace: "", raw_log: "", height: "7", gas_wanted: "250000", gas_used: "98227", events: [], logs: [] } });
 
-test("sendTx broadcasts and confirms, and retries once on a sequence mismatch", async () => {
+test("sendTx broadcasts and confirms, and signs again at the sequence the chain names after a mismatch", async () => {
   const n = node();
   n.extra.push(broadcastOk, included);
   const sent = await sendTx(base(n.client), { sleep: async () => {} });
   assert.equal(sent.response.height, 7n);
   assert.equal(sent.broadcast.hash, HASH);
 
+  // CheckTx names the sequence; the committed account still shows the old one
+  // while the earlier transaction is pending, so the log is what is used.
   const r = node();
-  let served = 0;
-  r.replies["GET /cosmos/auth/v1beta1/account_info/"] = () =>
-    json({ info: { address: signer.address, pub_key: null, account_number: "3", sequence: served++ === 0 ? "2" : "3" } });
   r.extra.push(mismatch, broadcastOk, included);
   const retried = await sendTx(base(r.client), { sleep: async () => {} });
-  assert.equal(retried.sequence, 3n, "the second attempt signs with the refreshed sequence");
-  assert.equal(r.calls.filter((c) => c.includes("account_info")).length, 2);
+  assert.equal(retried.sequence, 3n, "the second attempt signs with the sequence the chain expects");
+  assert.equal(r.calls.filter((c) => c.includes("account_info")).length, 2, "the account is read again for its number only");
+
+  // Simulation runs against the mempool's state and names the sequence first.
+  const s = node();
+  let simulations = 0;
+  s.replies["POST /cosmos/tx/v1beta1/simulate"] = () =>
+    simulations++ === 0
+      ? json(
+          { code: 2, message: "rpc error: code = Unknown desc = account sequence mismatch, expected 3, got 2: incorrect account sequence", details: [] },
+          500,
+        )
+      : json({ gas_info: { gas_wanted: "0", gas_used: "217391" }, result: null });
+  s.extra.push(broadcastOk, included);
+  const resimulated = await sendTx(base(s.client), { sleep: async () => {} });
+  assert.equal(resimulated.sequence, 3n);
+  assert.equal(simulations, 2);
 
   const once = node();
   once.extra.push(mismatch);
   await assert.rejects(sendTx(base(once.client), { retryOnSequenceMismatch: false }), BroadcastRefused);
+  const given = node();
+  given.extra.push(mismatch);
+  await assert.rejects(
+    sendTx({ ...base(given.client), account: { accountNumber: 3n, sequence: 2n } }),
+    BroadcastRefused,
+    "a given sequence is the caller's to fix",
+  );
 });
