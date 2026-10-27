@@ -157,16 +157,28 @@ export class GatewayClient {
       headers["content-type"] = "application/json";
       init.body = JSON.stringify(route.body);
     }
-    const timeout = AbortSignal.timeout(options.timeoutMs ?? this.#timeoutMs);
-    init.signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
+    // An explicit, referenced timer: AbortSignal.timeout's timer does not keep
+    // the event loop alive on every runtime, and the deadline must fire even
+    // when the request is the only thing pending.
+    const controller = new AbortController();
+    const timeoutMs = options.timeoutMs ?? this.#timeoutMs;
+    const timer = setTimeout(() => controller.abort(new DOMException(`request timed out after ${timeoutMs} ms`, "TimeoutError")), timeoutMs);
+    const forwardAbort = () => controller.abort(options.signal?.reason);
+    options.signal?.addEventListener("abort", forwardAbort, { once: true });
+    if (options.signal?.aborted) forwardAbort();
+    init.signal = controller.signal;
 
     let response: Response;
+    let text: string;
     try {
       response = await this.#fetch(url, init);
+      text = await response.text();
     } catch (err) {
       throw new TransportError(url, err);
+    } finally {
+      clearTimeout(timer);
+      options.signal?.removeEventListener("abort", forwardAbort);
     }
-    const text = await response.text();
     let json: JsonValue;
     try {
       json = JSON.parse(text) as JsonValue;
