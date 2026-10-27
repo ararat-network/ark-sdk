@@ -1,0 +1,75 @@
+{
+  "$schema": "../chain.schema.json",
+  "chain_name": "arklocal",
+  "chain_type": "cosmos",
+  "chain_id": "localark",
+  "status": "upcoming",
+  "network_type": "devnet",
+  "pretty_name": "Ark Localnet",
+  "website": "https://ararat.network",
+  "bech32_prefix": "ark",
+  "slip44": 330,
+  "fees": {
+    "fee_tokens": [
+      {
+        "denom": "anoah",
+        "fixed_min_gas_price": 100000000000
+      }
+    ]
+  },
+  "staking": {
+    "staking_tokens": [
+      {
+        "denom": "anoah"
+      }
+    ]
+  },
+  "codebase": {
+    "git_repo": "https://github.com/ararat-network/ark",
+    "recommended_version": "v0.1.0-alpha.1",
+    "compatible_versions": [
+      "v0.1.0-alpha.1"
+    ],
+    "sdk": {
+      "type": "cosmos",
+      "version": "v0.54.4"
+    },
+    "consensus": {
+      "type": "cometbft",
+      "version": "v0.39.4"
+    },
+    "cosmwasm": {
+      "version": "v3.0.9",
+      "enabled": true
+    },
+    "genesis": {
+      "genesis_url": "https://raw.githubusercontent.com/ararat-network/ark/v0.1.0-alpha.1/app/genesis/testnet.json"
+    }
+  },
+  "apis": {
+    "rpc": [
+      {
+        "address": "http://localhost:26657",
+        "provider": "localnet"
+      }
+    ],
+    "rest": [
+      {
+        "address": "http://localhost:1317",
+        "provider": "localnet"
+      }
+    ],
+    "grpc": [
+      {
+        "address": "localhost:9090",
+        "provider": "localnet"
+      }
+    ]
+  },
+  "explorers": [],
+  "keywords": [
+    "stablecoin",
+    "oracle",
+    "cosmwasm"
+  ]
+}
