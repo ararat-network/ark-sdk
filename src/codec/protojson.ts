@@ -4,7 +4,7 @@
 // pointer field is null, a non-nullable one is always present, Decs read as
 // decimals, and a wasm message's JSON is inlined. The reverse direction reads
 // the same dialect back into generated messages.
-import { type DescEnum, type DescField, type DescMessage, type MessageShape, type Registry, ScalarType } from "@bufbuild/protobuf";
+import { create, type DescEnum, type DescField, type DescMessage, fromBinary, type MessageShape, type Registry, ScalarType } from "@bufbuild/protobuf";
 import { type ReflectList, type ReflectMap, type ReflectMessage, reflect } from "@bufbuild/protobuf/reflect";
 import { type Any, AnySchema, type Duration, DurationSchema, type Timestamp, TimestampSchema } from "@bufbuild/protobuf/wkt";
 
@@ -82,19 +82,10 @@ function anyToJson(any: Any, ctx: WriteContext): JsonValue {
     if (ctx.unknownAny === "raw") return { "@type": any.typeUrl, value: toBase64(any.value) };
     throw new UnknownTypeError(any.typeUrl);
   }
-  const inner = reflect(schema);
-  const value = messageToJson(reflect(schema, fromBinaryInto(schema, any.value)), ctx);
-  void inner;
+  const value = messageToJson(reflect(schema, fromBinary(schema, any.value)), ctx);
   if (value === null || typeof value !== "object" || Array.isArray(value)) return { "@type": any.typeUrl, value };
   return { "@type": any.typeUrl, ...value };
 }
-
-function fromBinaryInto<Desc extends DescMessage>(schema: Desc, bytes: Uint8Array): MessageShape<Desc> {
-  // Imported lazily through reflect's companion to keep this module's dependencies narrow.
-  return fromBinaryImpl(schema, bytes);
-}
-
-import { create, fromBinary as fromBinaryImpl } from "@bufbuild/protobuf";
 
 function fieldToJson(r: ReflectMessage, f: DescField, ctx: WriteContext): JsonValue {
   switch (f.fieldKind) {
@@ -172,7 +163,8 @@ function scalarFieldToJson(r: ReflectMessage, f: DescField & { fieldKind: "scala
   const v = r.get(f);
   // A Dec or Int travels as decimal text, in a string field or as the bytes of one.
   if (o.isLegacyDec) {
-    if (!set) return o.nullable ? null : LegacyDec.zero().toString();
+    // gogo writes a Dec that never reached the wire as "0", not at 18 places.
+    if (!set) return o.nullable ? null : "0";
     return LegacyDec.fromWire(numericText(v)).toString();
   }
   if (o.customtype !== undefined && o.isMathInt) {

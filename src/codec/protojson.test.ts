@@ -7,9 +7,11 @@ import { create } from "@bufbuild/protobuf";
 import { AnySchema } from "@bufbuild/protobuf/wkt";
 
 import { PricesResponseSchema } from "../gen/ark/pricefeed/v1/pricefeed_pb.js";
+import { CommissionRatesSchema } from "../gen/cosmos/staking/v1beta1/staking_pb.js";
 import { AccessConfigSchema, AccessType } from "../gen/cosmwasm/wasm/v1/types_pb.js";
 import { UnknownTypeError } from "./any.js";
 import { utf8Encode } from "./bytes.js";
+import { LegacyDec } from "./dec.js";
 import { fromProtoJson, ProtoJsonError, toProtoJson } from "./protojson.js";
 
 test("map fields render as objects and read back", () => {
@@ -37,4 +39,13 @@ test("unknown members are ignored by default and refused on request; unknown Any
   assert.throws(() => toProtoJson(AnySchema, any), UnknownTypeError);
   assert.deepEqual(toProtoJson(AnySchema, any, { unknownAny: "raw" }), { "@type": "/ark.future.v1.Msg", value: "CAE=" });
   assert.throws(() => fromProtoJson(AnySchema, { "@type": "/ark.future.v1.Msg" }), UnknownTypeError);
+});
+
+test('a non-nullable Dec that never reached the wire renders as gogo\'s "0", a set one at 18 places', () => {
+  assert.deepEqual(toProtoJson(CommissionRatesSchema, create(CommissionRatesSchema)), { rate: "0", max_rate: "0", max_change_rate: "0" });
+  assert.deepEqual(toProtoJson(CommissionRatesSchema, create(CommissionRatesSchema, { rate: LegacyDec.fromString("0.1").toWire() })), {
+    rate: "0.100000000000000000",
+    max_rate: "0",
+    max_change_rate: "0",
+  });
 });

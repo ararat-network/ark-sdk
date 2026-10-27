@@ -7,12 +7,17 @@
 import assert from "node:assert/strict";
 
 import type { JsonObject } from "../codec/json.js";
+import { MsgUpdateParamsSchema as ConsensusMsgUpdateParamsSchema } from "../gen/cosmos/consensus/v1/tx_pb.js";
 
 export const knownJsonGaps: Record<string, (tx: JsonObject) => void> = {
   gov_proposal_cosmos: (tx) => {
+    assert.ok(
+      !ConsensusMsgUpdateParamsSchema.fields.some((f) => f.name === "auth"),
+      "cosmos.consensus.v1.MsgUpdateParams.auth is in the schema now; retire this gap",
+    );
     const messages = ((tx.body as JsonObject).messages as JsonObject[])[0]!.messages as JsonObject[];
     const consensus = messages.find((m) => m["@type"] === "/cosmos.consensus.v1.MsgUpdateParams")!;
-    assert.ok("auth" in consensus, "cosmos.consensus.v1.MsgUpdateParams.auth is in the schema now; retire this gap");
+    assert.ok("auth" in consensus, "the fixture no longer carries auth; the gap has nothing to remove");
     delete consensus.auth;
   },
 };
