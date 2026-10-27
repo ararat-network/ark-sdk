@@ -1,8 +1,9 @@
 // Against ark's Docker localnet (make localnet-start in ark): reads the open
 // member tranche, then simulates, prices, signs, broadcasts, and confirms a
-// bank send from node0's development key, and reads the result back through
-// the decoder. Runs only with ARK_LOCALNET_REST set, so CI without Docker
-// skips it: ARK_LOCALNET_REST=http://localhost:1317 pnpm test:smoke
+// bank send from node0's development key, reads the result back through the
+// decoder, and finds it again by search. A second send goes through sendTx.
+// Runs only with ARK_LOCALNET_REST set, so CI without Docker skips it:
+// ARK_LOCALNET_REST=http://localhost:1317 pnpm test:smoke
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
@@ -21,12 +22,17 @@ import {
   decodeEvents,
   decodeTx,
   feeFromQuote,
+  fetchTx,
   formatCoin,
   packMessages,
   quoteFee,
+  searchTxs,
+  sendTx,
   signTx,
   simulationTxBytes,
+  txQuery,
   typed,
+  vestedCoins,
   type ArkJson,
   type AssetListJson,
   type ChainJson,
@@ -99,4 +105,28 @@ test("localnet: tranche, simulate, price, sign, broadcast, confirm, decode", { s
   const decoded = decodeTx(signed.txBytes);
   assert.equal(decoded.messages[0]?.typeUrl, "/cosmos.bank.v1beta1.MsgSend");
   assert.equal(decoded.memo, "ark-sdk smoke test");
+
+  const found = await fetchTx(client, signed.hash);
+  assert.ok(found);
+  assert.deepEqual(found.outcome, { kind: "ok" });
+  assert.deepEqual(found.responses.map((r) => r.typeUrl), ["/cosmos.bank.v1beta1.MsgSendResponse"]);
+  const byRecipient = await searchTxs(client, txQuery.byRecipient(recipient));
+  assert.ok(byRecipient.items.some((t) => t.hash === signed.hash), "search finds the send by recipient");
+
+  // A localnet validator holds a seat: a continuous vesting account from the testnet artefact.
+  const decodedAccount = await client.auth.decodedAccount(signer.address);
+  assert.equal(decodedAccount.kind, "continuous_vesting");
+  assert.ok(decodedAccount.sequence > info.info.sequence);
+  const now = BigInt(Math.floor(Date.now() / 1000));
+  console.log(`seat: ${formatCoin(decodedAccount.vesting!.originalVesting[0]!, network, { locale: "en-GB" })} vesting, ${vestedCoins(decodedAccount, now).length === 0 ? "none vested yet" : "some vested"}`);
+
+  const again = await sendTx(
+    { client, signer, address: signer.address, chainId: network.chainId, messages: [send], memo: "ark-sdk smoke test 2", feeDenom: "anoah", headroom: arkdPolicy.headroom, gasAdjustment: arkdPolicy.gasAdjustment },
+    { timeoutMs: 90_000, pollMs: 1_000 },
+  );
+  assert.deepEqual(classifyResult(again.response), { kind: "ok" }, again.response.rawLog);
+  assert.equal(again.sequence, decodedAccount.sequence);
+  console.log(`sendTx included at height ${again.response.height}, declared ${again.quote.declared.map((c) => c.amount + c.denom).join(",")}`);
+  const balanceAfter = await client.bank.balance(recipient, "anoah");
+  assert.equal(balanceAfter.balance?.amount, (2n * 10n ** 18n).toString());
 });

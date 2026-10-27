@@ -21,12 +21,15 @@ export * from "./codec/gogo.js";
 
 export * from "./query/gateway.js";
 export * from "./query/client.js";
+export * from "./query/pagination.js";
+export * from "./query/search.js";
 
 export * from "./tx/body.js";
 export * from "./tx/signdoc.js";
 export * from "./tx/fee.js";
 export * from "./tx/builder.js";
 export * from "./tx/broadcast.js";
+export * from "./tx/prepare.js";
 
 export * from "./adr036/document.js";
 export * from "./adr036/signbytes.js";
@@ -35,6 +38,8 @@ export * from "./adr036/sign.js";
 export * from "./decode/tx.js";
 export * from "./decode/events.js";
 export * from "./decode/result.js";
+export * from "./decode/account.js";
+export * from "./decode/responses.js";
 
 export * from "./format/amount.js";
 export * from "./format/address.js";

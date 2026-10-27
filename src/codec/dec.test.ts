@@ -55,3 +55,19 @@ test("ceil, floor, and truncate on negatives", () => {
   assert.equal(d.compare(LegacyDec.zero()), -1);
   assert.equal(LegacyDec.one().add(d).toString(), "-0.500000000000000000");
 });
+
+test("quo carries 36 places and rounds like Go, roundInt ties to even", () => {
+  const third = LegacyDec.fromInt(1n).quo(LegacyDec.fromInt(3n));
+  assert.equal(third.toString(), "0.333333333333333333");
+  assert.equal(LegacyDec.fromInt(2n).quo(LegacyDec.fromInt(3n)).toString(), "0.666666666666666667");
+  assert.equal(LegacyDec.fromInt(1n).quo(LegacyDec.fromString("0.5")).toString(), "2.000000000000000000");
+  assert.equal(LegacyDec.fromInt(7n).quoInt(2).toString(), "3.500000000000000000");
+  assert.throws(() => LegacyDec.one().quo(LegacyDec.zero()), DecError);
+  assert.equal(LegacyDec.fromString("2.5").roundInt(), 2n);
+  assert.equal(LegacyDec.fromString("3.5").roundInt(), 4n);
+  assert.equal(LegacyDec.fromString("3.4999").roundInt(), 3n);
+  assert.equal(LegacyDec.fromString("-2.5").roundInt(), -2n);
+  // A continuous vesting seat halfway: 5,000,000 NOAH × (t−start)/(end−start) with the SDK's Dec arithmetic.
+  const s = LegacyDec.fromInt(63_072_000n).quo(LegacyDec.fromInt(126_144_000n));
+  assert.equal(LegacyDec.fromInt(5_000_000n * 10n ** 18n).mul(s).roundInt(), 2_500_000n * 10n ** 18n);
+});
