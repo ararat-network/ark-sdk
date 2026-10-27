@@ -9,6 +9,7 @@ import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import type { Coin } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import type { Signer } from "../keys/signer.js";
 import type { QueryClient } from "../query/client.js";
+import { QueryError } from "../query/gateway.js";
 import { packMessages, type TxMessage } from "./body.js";
 import { BroadcastRefused, broadcastAndConfirm, type Confirmed, type InclusionOptions } from "./broadcast.js";
 import { feeFromQuote, type SignedTx, type SigningMode, signTx, simulationTxBytes } from "./builder.js";
@@ -129,24 +130,44 @@ async function fetchAccount(client: QueryClient, address: string): Promise<Accou
 }
 
 export interface SendOptions extends InclusionOptions {
-  /** On a sequence mismatch at CheckTx, refetch the account and prepare once more; on by default. */
+  /** On a sequence mismatch, at simulation or at CheckTx, sign once more at the sequence the chain named; on by default. */
   retryOnSequenceMismatch?: boolean;
 }
 
 export type Sent = Prepared & Confirmed;
 
 const SEQUENCE_MISMATCH = 32;
+const EXPECTED_SEQUENCE = /account sequence mismatch, expected (\d+), got \d+/;
 
-/** prepareAndSign, broadcast, and the block, with one retry when another transaction took the sequence. */
+/**
+ * The sequence the chain expects, when an error is a sequence mismatch. It
+ * surfaces at simulation, which runs against the mempool's state and so sees
+ * a pending transaction, as a query error; or at CheckTx as the SDK's code
+ * 32. Either way the log names the expected sequence, which the committed
+ * account does not show while the earlier transaction is still pending.
+ */
+export function expectedSequence(err: unknown): bigint | undefined {
+  let log: string | undefined;
+  if (err instanceof BroadcastRefused && err.result.codespace === "sdk" && err.result.code === SEQUENCE_MISMATCH) log = err.result.rawLog;
+  else if (err instanceof QueryError) log = err.message;
+  const m = log === undefined ? null : EXPECTED_SEQUENCE.exec(log);
+  return m ? BigInt(m[1] as string) : undefined;
+}
+
+/** prepareAndSign, broadcast, and the block, signing once more at the chain's sequence when another transaction took it. */
 export async function sendTx(input: PrepareInput, options: SendOptions = {}): Promise<Sent> {
   const retry = options.retryOnSequenceMismatch ?? true;
-  let prepared = await prepareAndSign(input);
   try {
-    return { ...prepared, ...(await broadcastAndConfirm(input.client, prepared.signed.txBytes, options)) };
+    return await attempt(input, options);
   } catch (err) {
-    const mismatch = err instanceof BroadcastRefused && err.result.codespace === "sdk" && err.result.code === SEQUENCE_MISMATCH;
-    if (!retry || !mismatch || input.account) throw err;
+    const expected = retry && !input.account ? expectedSequence(err) : undefined;
+    if (expected === undefined) throw err;
+    const { accountNumber } = await fetchAccount(input.client, input.address);
+    return attempt({ ...input, account: { accountNumber, sequence: expected } }, options);
   }
-  prepared = await prepareAndSign(input);
+}
+
+async function attempt(input: PrepareInput, options: InclusionOptions): Promise<Sent> {
+  const prepared = await prepareAndSign(input);
   return { ...prepared, ...(await broadcastAndConfirm(input.client, prepared.signed.txBytes, options)) };
 }

@@ -11,7 +11,7 @@ import { MsgSendSchema } from "../gen/cosmos/bank/v1beta1/tx_pb.js";
 import { Service as TxService } from "../gen/cosmos/tx/v1beta1/service_pb.js";
 import { fixtureKeys } from "../testing/fixtures.js";
 import { QueryClient } from "./client.js";
-import { GatewayClient, GrpcCode, QueryError, routeFor, TransportError } from "./gateway.js";
+import { EndpointsExhausted, GatewayClient, GrpcCode, QueryError, routeFor, TransportError } from "./gateway.js";
 
 interface Seen {
   url: string;
@@ -154,7 +154,54 @@ test("several endpoints: a call moves past one that cannot answer and stays on t
   assert.ok(calls[3]!.startsWith("http://c/"));
 });
 
-test("a request error does not fail over, and every endpoint failing surfaces the last error", async () => {
+test("a 500 blames the request and stays put; a rate limit or a gateway fault moves on", async () => {
+  const simulateFailed = (async (input: string | URL | Request) => {
+    seen.push(String(input));
+    return json({ code: 2, message: "rpc error: code = Unknown desc = account sequence mismatch, expected 3, got 2", details: [] }, { status: 500 });
+  }) as typeof fetch;
+  const seen: string[] = [];
+  await assert.rejects(
+    new QueryClient(["http://a", "http://b"], { fetch: simulateFailed }).tx.simulate(new Uint8Array([1])),
+    (err: unknown) => err instanceof QueryError && err.httpStatus === 500,
+  );
+  assert.equal(seen.length, 1, "a deterministic failure is not replayed on the next endpoint");
+
+  for (const status of [429, 502, 504]) {
+    const calls: string[] = [];
+    const faulty = (async (input: string | URL | Request) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.startsWith("http://a/")) return json({ code: 14, message: "unavailable", details: [] }, { status });
+      return json({ default_node_info: { network: "localark" }, application_version: null });
+    }) as typeof fetch;
+    const info = await new QueryClient(["http://a", "http://b"], { fetch: faulty }).node.info();
+    assert.equal(info.defaultNodeInfo?.network, "localark", `${status} moves on`);
+    assert.equal(calls.length, 2, `${status} moves on`);
+  }
+});
+
+test("a broadcast is sent once, to one endpoint, whatever happens", async () => {
+  let attempts = 0;
+  const down = (async () => {
+    attempts++;
+    throw new TypeError("fetch failed");
+  }) as typeof fetch;
+  await assert.rejects(new QueryClient(["http://a", "http://b"], { fetch: down }).tx.broadcast(new Uint8Array([1])), TransportError);
+  assert.equal(attempts, 1, "the second endpoint never sees the transaction");
+
+  attempts = 0;
+  const unavailable = (async () => {
+    attempts++;
+    return json({ code: 14, message: "unavailable", details: [] }, { status: 503 });
+  }) as typeof fetch;
+  await assert.rejects(
+    new QueryClient(["http://a", "http://b"], { fetch: unavailable }).tx.broadcast(new Uint8Array([1])),
+    (err: unknown) => err instanceof QueryError && err.httpStatus === 503,
+  );
+  assert.equal(attempts, 1);
+});
+
+test("a request error does not fail over, and every endpoint at fault names each attempt", async () => {
   const seen: string[] = [];
   const notFound = (async (input: string | URL | Request) => {
     seen.push(String(input));
@@ -167,7 +214,18 @@ test("a request error does not fail over, and every endpoint failing surfaces th
   const down = (async () => {
     throw new TypeError("fetch failed");
   }) as typeof fetch;
-  await assert.rejects(new QueryClient(["http://a", "http://b"], { fetch: down }).node.info(), TransportError);
+  await assert.rejects(new QueryClient(["http://a", "http://b"], { fetch: down }).node.info(), (err: unknown) => {
+    assert.ok(err instanceof EndpointsExhausted);
+    assert.deepEqual(
+      err.attempts.map((a) => a.url),
+      ["http://a", "http://b"],
+    );
+    assert.ok(err.attempts.every((a) => a.error instanceof TransportError));
+    assert.ok(err.cause instanceof TransportError, "the last attempt's error is the cause");
+    assert.match(err.message, /http:\/\/a.*fetch failed.*http:\/\/b/);
+    return true;
+  });
+  await assert.rejects(new QueryClient("http://a", { fetch: down }).node.info(), TransportError, "one endpoint's error is thrown as it is");
 
   const aborted = new AbortController();
   aborted.abort();

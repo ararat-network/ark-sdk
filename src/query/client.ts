@@ -20,7 +20,7 @@ import { Query as GovQuery } from "../gen/cosmos/gov/v1/query_pb.js";
 import { Query as StakingQuery } from "../gen/cosmos/staking/v1beta1/query_pb.js";
 import { BroadcastMode, OrderBy, Service as TxService } from "../gen/cosmos/tx/v1beta1/service_pb.js";
 import { type Network, RegistryError } from "../registry/network.js";
-import { GatewayClient, type GatewayOptions } from "./gateway.js";
+import { type CallOptions, GatewayClient, type GatewayOptions } from "./gateway.js";
 
 export class NetworkMismatch extends Error {
   override readonly name: string = "NetworkMismatch";
@@ -200,8 +200,9 @@ export class QueryClient {
   readonly tx = {
     /** Runs the transaction without committing it: gas used and the result. */
     simulate: (txBytes: Uint8Array) => this.#value(TxService, "simulate", { txBytes }),
-    /** Hands the transaction to the node's mempool; sync mode returns the CheckTx result. */
-    broadcast: (txBytes: Uint8Array, mode: BroadcastMode = BroadcastMode.SYNC) => this.#value(TxService, "broadcastTx", { txBytes, mode }),
+    /** Hands the transaction to the node's mempool, once, to one endpoint; sync mode returns the CheckTx result. */
+    broadcast: (txBytes: Uint8Array, mode: BroadcastMode = BroadcastMode.SYNC) =>
+      this.#value(TxService, "broadcastTx", { txBytes, mode }, { idempotent: false }),
     /** A committed transaction by hash; NotFound while it is pending. */
     getTx: (hash: string) => this.#value(TxService, "getTx", { hash }),
     /** Committed transactions matching a CometBFT event query such as message.sender='ark1...'; needs a node that indexes transactions. */
@@ -221,8 +222,9 @@ export class QueryClient {
     service: S,
     method: M,
     request: MessageInitShape<S["method"][M]["input"]>,
+    options?: CallOptions,
   ) {
-    return (await this.gateway.call(service, method, request)).value;
+    return (await this.gateway.call(service, method, request, options)).value;
   }
 }
 

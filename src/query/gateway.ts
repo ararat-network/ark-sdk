@@ -3,8 +3,9 @@
 // the generated descriptor, so one caller serves every service. Responses are
 // the gateway's gogoproto JSON, read by the codec's dialect reader, and every
 // result carries the block height the node answered at. Given several
-// endpoints, a call that cannot reach one, or gets a server error from it,
-// moves to the next and stays there.
+// endpoints, a call that cannot reach one, or finds it unavailable, moves to
+// the next and stays there; an answer that blames the request is final, and
+// a call that must not be repeated is never re-sent.
 import { create, type DescMethod, getOption, hasOption, type MessageInitShape, type MessageShape, type Registry } from "@bufbuild/protobuf";
 import type { GenService, GenServiceMethods } from "@bufbuild/protobuf/codegenv2";
 
@@ -63,6 +64,37 @@ export class TransportError extends Error {
   }
 }
 
+export interface EndpointAttempt {
+  url: string;
+  error: unknown;
+}
+
+/** Every endpoint was at fault for one call; each attempt's error is kept, the last as the cause. */
+export class EndpointsExhausted extends Error {
+  override readonly name: string = "EndpointsExhausted";
+  constructor(readonly attempts: readonly EndpointAttempt[]) {
+    super(`every endpoint failed: ${attempts.map((a) => `${a.url}: ${describe(a.error)}`).join("; ")}`, { cause: attempts[attempts.length - 1]?.error });
+  }
+}
+
+function describe(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** HTTP statuses that say the endpoint, not the request, is at fault: rate limited, or a gateway that cannot reach its node. */
+const ENDPOINT_FAULT_STATUSES: ReadonlySet<number> = new Set([429, 502, 503, 504]);
+
+/**
+ * Whether an error blames the endpoint rather than the request: it could not
+ * be reached, timed out, or answered with one of the statuses above. A 500 is
+ * the gateway's rendering of an Unknown or Internal error from the node, which
+ * a failed simulation or a bad search query produces deterministically, so it
+ * does not qualify.
+ */
+export function isEndpointFault(err: unknown): boolean {
+  return err instanceof TransportError || (err instanceof QueryError && ENDPOINT_FAULT_STATUSES.has(err.httpStatus));
+}
+
 export interface GatewayOptions {
   fetch?: typeof fetch;
   /** Headers sent with every request, for a node behind authentication. */
@@ -79,6 +111,8 @@ export interface CallOptions {
   signal?: AbortSignal;
   /** Overrides the client's request timeout for this call. */
   timeoutMs?: number;
+  /** False for a call that must not be repeated, such as a broadcast: it is sent once, to one endpoint, whatever happens. True by default. */
+  idempotent?: boolean;
 }
 
 export const DEFAULT_TIMEOUT_MS = 15_000;
@@ -123,7 +157,11 @@ export class GatewayClient {
     return this.baseUrls[this.#current] as string;
   }
 
-  /** Calls one unary method of a generated service, moving to the next endpoint when one cannot answer. */
+  /**
+   * Calls one unary method of a generated service, moving to the next endpoint
+   * when one is at fault. With several endpoints all at fault the error names
+   * every attempt; otherwise the one error is thrown as it is.
+   */
   async call<S extends GenService<GenServiceMethods>, M extends MethodNames<S>>(
     service: S,
     method: M,
@@ -134,19 +172,22 @@ export class GatewayClient {
     const input = desc.input as InputOf<S, M>;
     const message = create(input, request);
     const route = routeFor(desc, toProtoJson(input, message, { registry: this.#registry }) as JsonObject);
-    let lastError: unknown;
-    for (let attempt = 0; attempt < this.baseUrls.length; attempt++) {
+    const attempts: EndpointAttempt[] = [];
+    const tries = options.idempotent === false ? 1 : this.baseUrls.length;
+    for (let attempt = 0; attempt < tries; attempt++) {
       const index = (this.#current + attempt) % this.baseUrls.length;
+      const baseUrl = this.baseUrls[index] as string;
       try {
-        const result = await this.#request<MessageShape<OutputOf<S, M>>>(this.baseUrls[index] as string, route, desc, options);
+        const result = await this.#request<MessageShape<OutputOf<S, M>>>(baseUrl, route, desc, options);
         this.#current = index;
         return result;
       } catch (err) {
-        lastError = err;
-        if (options.signal?.aborted || !failsOver(err)) throw err;
+        if (options.signal?.aborted || !isEndpointFault(err)) throw err;
+        attempts.push({ url: baseUrl, error: err });
       }
     }
-    throw lastError;
+    if (attempts.length === 1) throw attempts[0]?.error;
+    throw new EndpointsExhausted(attempts);
   }
 
   async #request<T>(baseUrl: string, route: Route, desc: DescMethod, options: CallOptions): Promise<GatewayResult<T>> {
@@ -192,11 +233,6 @@ export class GatewayClient {
     const height = heightHeader !== null && /^\d+$/.test(heightHeader) ? BigInt(heightHeader) : undefined;
     return { value: fromProtoJson(desc.output, json, { registry: this.#registry }) as T, height };
   }
-}
-
-/** Whether an error says the endpoint, not the request, is at fault. */
-function failsOver(err: unknown): boolean {
-  return err instanceof TransportError || (err instanceof QueryError && err.httpStatus >= 500);
 }
 
 function gatewayError(json: JsonValue, status: number, url: string): QueryError {
