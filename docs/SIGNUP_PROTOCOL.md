@@ -115,8 +115,8 @@ its data.
 What each signer does with it:
 
 - The Ark app's signer interface signs the document through its sign-arbitrary call.
-- Keplr and Leap sign it through `signArbitrary` with the document bytes as the data; their verification helper
-  accepts the result.
+- Keplr and Leap sign it through `signArbitrary` with the document text as the data, which they show as it is and
+  sign as its bytes; their verification helper accepts the result.
 - A Ledger signs the amino sign bytes. The device shows the document in expert mode, with `data` as base64.
 
 ## 6. Submission

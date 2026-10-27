@@ -17,8 +17,13 @@ import { SECP256K1_PUBLIC_KEY_URL, SignerError } from "./signer.js";
 function wallet(
   privateKeyHex: string,
   address: string,
-): OfflineSignerLike & { signArbitrary(chainId: string, signer: string, data: string | Uint8Array): Promise<OfflineStdSignature> } {
+): OfflineSignerLike & {
+  signArbitrary(chainId: string, signer: string, data: string | Uint8Array): Promise<OfflineStdSignature>;
+  /** What signArbitrary was handed, in order. */
+  received: (string | Uint8Array)[];
+} {
   const priv = fromHex(privateKeyHex);
+  const received: (string | Uint8Array)[] = [];
   const pub = publicKeyFromPrivate(priv);
   const std = (bytes: Uint8Array): OfflineStdSignature => ({
     pub_key: { type: "tendermint/PubKeySecp256k1", value: toBase64(pub) },
@@ -40,8 +45,11 @@ function wallet(
       return { signed: { ...doc, accountNumber: doc.accountNumber.toString() }, signature: std(bytes) };
     },
     signAmino: async (_address: string, doc: AminoSignDoc) => ({ signed: doc, signature: std(aminoSignDocBytes(doc)) }),
-    signArbitrary: async (_chainId: string, signer: string, data: string | Uint8Array) =>
-      std(adr036SignBytes(signer, typeof data === "string" ? utf8Encode(data) : data)),
+    signArbitrary: async (_chainId: string, signer: string, data: string | Uint8Array) => {
+      received.push(data);
+      return std(adr036SignBytes(signer, typeof data === "string" ? utf8Encode(data) : data));
+    },
+    received,
   };
 }
 
@@ -73,6 +81,26 @@ test("an OfflineSigner signs direct, amino, and ADR-036 through the Signer inter
   assert.equal(toBase64(arbitrary.signature), v.signature);
   assert.equal(arbitrary.publicKey.typeUrl, SECP256K1_PUBLIC_KEY_URL);
   assert.deepEqual(await MemorySigner.fromPrivateKey(fromHex(member.private_key_hex)).accounts(), await memberSigner.accounts());
+});
+
+test("ADR-036 data reaches the wallet as text when it is UTF-8, so Keplr shows it, and as bytes otherwise", async () => {
+  const member = signupVectors().keys.find((k) => k.name === "member")!;
+  const v = signupVectors().vectors.find((x) => x.name === "challenge_ok")!;
+  const w = wallet(member.private_key_hex, member.address);
+  const signer = fromOfflineSigner(w, { chainId: "ark-1", arbitrary: w });
+
+  const document = await signer.signArbitrary(member.address, utf8Encode(v.data));
+  assert.equal(w.received[0], v.data, "the document goes as the text itself");
+  assert.equal(toBase64(document.signature), v.signature, "and the signature is still the vector's");
+
+  const bom = new Uint8Array([0xef, 0xbb, 0xbf, 0x7b, 0x7d]);
+  await signer.signArbitrary(member.address, bom);
+  assert.equal(w.received[1], "\ufeff{}", "a leading byte-order mark is kept, not stripped");
+
+  const raw = new Uint8Array([0xff, 0xfe, 0x01]);
+  const opaque = await signer.signArbitrary(member.address, raw);
+  assert.deepEqual(w.received[2], raw, "bytes that are not UTF-8 go as bytes");
+  assert.equal(toBase64(opaque.signature), toBase64(signMessage(adr036SignBytes(member.address, raw), fromHex(member.private_key_hex))));
 });
 
 test("a wallet without a mode or without signArbitrary is refused with the reason", async () => {

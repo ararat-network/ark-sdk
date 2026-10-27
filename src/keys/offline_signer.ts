@@ -7,7 +7,7 @@ import type { Any } from "@bufbuild/protobuf/wkt";
 
 import type { AminoSignDoc } from "../codec/aminojson.js";
 import { packAny } from "../codec/any.js";
-import { fromBase64 } from "../codec/bytes.js";
+import { bytesEqual, fromBase64 } from "../codec/bytes.js";
 import { PubKeySchema } from "../gen/cosmos/crypto/secp256k1/keys_pb.js";
 import { type SignDoc, SignDocSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { type AminoSignature, type ArbitrarySignature, type DirectSignature, type Signer, type SignerAccount, SignerError } from "./signer.js";
@@ -84,7 +84,10 @@ export function fromOfflineSigner(offline: OfflineSignerLike, options: OfflineSi
     },
     async signArbitrary(address: string, data: Uint8Array): Promise<ArbitrarySignature> {
       if (!options.arbitrary || !options.chainId) throw new SignerError("ADR-036 signing needs the wallet's signArbitrary and the chain ID");
-      const signature = await options.arbitrary.signArbitrary(options.chainId, address, data);
+      // Keplr and Leap show a string as text and bytes as base64, and sign the
+      // same bytes either way; a signup document is printable ASCII, so the
+      // member reads it. Data that is not UTF-8 goes as bytes.
+      const signature = await options.arbitrary.signArbitrary(options.chainId, address, asText(data) ?? data);
       if (signature.pub_key.type !== SECP256K1_AMINO_TYPE)
         throw new SignerError(`ADR-036 needs a secp256k1 key, the wallet signed with ${signature.pub_key.type}`);
       return { signature: fromBase64(signature.signature), publicKey: secp256k1Any(fromBase64(signature.pub_key.value)) };
@@ -94,4 +97,14 @@ export function fromOfflineSigner(offline: OfflineSignerLike, options: OfflineSi
 
 function secp256k1Any(key: Uint8Array): Any {
   return packAny(PubKeySchema, create(PubKeySchema, { key }));
+}
+
+/** The text whose UTF-8 encoding is exactly `data`, or undefined. */
+function asText(data: Uint8Array): string | undefined {
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(data);
+    return bytesEqual(new TextEncoder().encode(text), data) ? text : undefined;
+  } catch {
+    return undefined;
+  }
 }
