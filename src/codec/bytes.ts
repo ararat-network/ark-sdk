@@ -41,3 +41,10 @@ export function concatBytes(...parts: Uint8Array[]): Uint8Array {
   }
   return out;
 }
+
+/** Removes every trailing occurrence of one character, without a regular expression. */
+export function stripTrailing(s: string, char: string): string {
+  let end = s.length;
+  while (end > 0 && s[end - 1] === char) end--;
+  return s.slice(0, end);
+}

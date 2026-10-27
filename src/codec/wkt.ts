@@ -4,6 +4,8 @@
 import { create } from "@bufbuild/protobuf";
 import { type Duration, DurationSchema, type Timestamp, TimestampSchema } from "@bufbuild/protobuf/wkt";
 
+import { stripTrailing } from "./bytes.js";
+
 const NANOS = 1_000_000_000n;
 
 /** Go's zero time.Time, 0001-01-01T00:00:00Z, which a non-nullable Timestamp holds when unset. */
@@ -32,7 +34,7 @@ export function timestampToProtoJson(ts: Timestamp): string {
 /** Go's time.RFC3339 when nanos are zero, RFC3339Nano otherwise: trailing zeros dropped. */
 export function timestampToAmino(ts: Timestamp): string {
   if (ts.nanos < 0) throw new WktError(`timestamp nanos must be non-negative: ${ts.nanos}`);
-  const frac = ts.nanos === 0 ? "" : `.${String(ts.nanos).padStart(9, "0").replace(/0+$/, "")}`;
+  const frac = ts.nanos === 0 ? "" : `.${stripTrailing(String(ts.nanos).padStart(9, "0"), "0")}`;
   return `${isoSeconds(ts.seconds) + frac}Z`;
 }
 

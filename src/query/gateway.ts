@@ -8,6 +8,7 @@
 import { create, type DescMethod, getOption, hasOption, type MessageInitShape, type MessageShape, type Registry } from "@bufbuild/protobuf";
 import type { GenService, GenServiceMethods } from "@bufbuild/protobuf/codegenv2";
 
+import { stripTrailing } from "../codec/bytes.js";
 import type { JsonObject, JsonValue } from "../codec/json.js";
 import { fromProtoJson, toProtoJson } from "../codec/protojson.js";
 import { registry as defaultRegistry } from "../codec/registry.js";
@@ -108,7 +109,7 @@ export class GatewayClient {
   #current = 0;
 
   constructor(baseUrl: string | readonly string[], options: GatewayOptions = {}) {
-    const urls = (typeof baseUrl === "string" ? [baseUrl] : [...baseUrl]).map((u) => u.replace(/\/+$/, ""));
+    const urls = (typeof baseUrl === "string" ? [baseUrl] : [...baseUrl]).map((u) => stripTrailing(u, "/"));
     if (urls.length === 0) throw new Error("a gateway client needs at least one endpoint");
     this.baseUrls = urls;
     this.#fetch = options.fetch ?? globalThis.fetch;
