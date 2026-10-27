@@ -13,10 +13,10 @@ protocol's ADR-036 proof, and a decoder, every byte checked against the chain's 
 | [src/registry/](src/registry/) | The network registry: chain ID, prefix, coin type, assets and display units, endpoints, feature flags, and the genesis hash check, from [ark-registry](https://github.com/ararat-network/ark-registry). |
 | [src/keys/](src/keys/) | Bech32 addresses, secp256k1, BIP-39 derivation at coin type 330, the `Signer` interface, and an in-memory signer for tests and development. |
 | [src/codec/](src/codec/) | The chain's JSON dialect both ways, the amino JSON encoder a Ledger signs, `LegacyDec`, Any packing, and the type registry. |
-| [src/query/](src/query/) | The gateway client, routes read from the generated descriptors, and typed facades for Ark's and the Cosmos modules. |
-| [src/tx/](src/tx/) | Body, fee, sign documents, signing in direct or amino mode, broadcast, and confirmation by polling. |
+| [src/query/](src/query/) | The gateway client over one endpoint or several, routes read from the generated descriptors, typed facades for Ark's and the Cosmos modules, pagination, and transaction search. |
+| [src/tx/](src/tx/) | Body, fee, sign documents, signing in direct or amino mode, broadcast, confirmation by polling, and the whole flow in one call. |
 | [src/adr036/](src/adr036/) | The signup challenge and vouch document, its canonical bytes, the proof, and the stateless checks. |
-| [src/decode/](src/decode/) | Transactions, typed events, and results, read the one way every Ark reader must. |
+| [src/decode/](src/decode/) | Transactions, typed events, results, message responses, and accounts with their vesting schedules, read the one way every Ark reader must. |
 | [src/format/](src/format/) | Amounts in display units for a locale, coin text, shortened addresses. |
 | [src/gen/](src/gen/) | Every message, query, and event the SDK can meet, generated from the protos at the pins below; importable as `@ararat-network/sdk/gen/...`. |
 | [testdata/decoding/](testdata/decoding/) | `ark`'s decoding fixtures at the tag in [ARK_VERSION](ARK_VERSION): the byte-for-byte contract the codec, builder, and decoder are tested against. |
@@ -28,16 +28,25 @@ protocol's ADR-036 proof, and a decoder, every byte checked against the chain's 
 pnpm add @ararat-network/sdk
 ```
 
-A network comes from the registry, a client from its REST endpoint, and the client checks it reached that chain:
+A network comes from the registry, a client from its REST endpoints, and the client checks it reached that chain.
+Given several endpoints, a call that cannot reach one, or gets a server error from it, moves to the next and stays
+there:
 
 ```ts
-import { loadNetwork, QueryClient } from "@ararat-network/sdk";
+import { collectAll, loadNetwork, QueryClient, searchTxs, txQuery } from "@ararat-network/sdk";
 
 const network = await loadNetwork("arktestnet");
 const client = QueryClient.forNetwork(network);
 await client.verifyNetwork(network);
 const { grant } = await client.disbursement.member(address);
+const account = await client.auth.decodedAccount(address);
+const delegations = await collectAll((pagination) => client.staking.delegatorDelegations(address, pagination), (p) => p.delegationResponses);
+const sent = await searchTxs(client, txQuery.bySender(address), { limit: 20n });
 ```
+
+`decodedAccount` names the account's type and, for a vesting account such as a seat, its schedule; `vestedCoins`
+computes what has vested at a time as the chain does. `searchTxs` needs a node that indexes transactions and returns
+each match decoded: its messages, typed events, message responses, and outcome.
 
 A transaction is simulated, priced per the [fee contract](https://github.com/ararat-network/ark/blob/main/docs/clients/CLIENT_FEES.md),
 signed through a `Signer`, broadcast, and confirmed. The chain publishes the tax and the gas price sheet; the
@@ -67,10 +76,21 @@ const { response } = await broadcastAndConfirm(client, signed.txBytes);
 const outcome = classifyResult(response);
 ```
 
+`sendTx` runs those steps in that order on the same messages, with the headroom, gas adjustment, and fee
+denomination still yours, and retries once when another transaction took the sequence; `prepareAndSign` stops
+before the broadcast:
+
+```ts
+import { arkdPolicy, sendTx } from "@ararat-network/sdk";
+
+const sent = await sendTx({ client, signer, address: fromAddress, chainId: network.chainId, messages: [send], feeDenom: "ausd", headroom: arkdPolicy.headroom, gasAdjustment: arkdPolicy.gasAdjustment });
+```
+
 `quote` says what is declared and why: the tax legs, the gas leg at the sheet's price and the height that priced it,
 each leg's lift, and the most a NOAH leg can leave as tip. `broadcastAndConfirm` keeps the mempool's verdict and
 the block's result apart, and `classifyResult` names an SDK refusal, an execution failure, or a module error with its
-log. Nothing summarises a tax, a tip, a price age, or a pending transaction away.
+log. `decodeMsgResponses` reads the responses the messages returned from the result's data. Nothing summarises a
+tax, a tip, a price age, or a pending transaction away.
 
 The signup proof and the vouch go through the same signer:
 
@@ -165,4 +185,5 @@ types CosmJS lags, Ark's own messages are not in any shared library, and Ledger 
 protos carry; the fixtures prove the encoding byte for byte instead. Queries go over the node's gRPC gateway, which
 every node serves and the fee contract names; gRPC-web left the SDK in v0.50 and would need a proxy. pnpm is the
 package manager, TypeScript the only language, `tsx` the one test-time dependency, and nothing in the package holds
-or sees a key.
+or sees a key. The type registry holds every generated type so any message decodes; a consumer that wants a smaller
+bundle builds its own with `createRegistry` and passes it to the gateway client and the decoders.
