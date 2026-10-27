@@ -76,3 +76,12 @@ test("quo carries 36 places and rounds like Go, roundInt ties to even", () => {
     2_500_000n * 10n ** 18n,
   );
 });
+
+test("the range is Go's: up to 2^256 × 10^18 − 1 in scaled units, either sign", () => {
+  const top = 2n ** 256n * 10n ** 18n - 1n;
+  assert.equal(LegacyDec.fromScaled(top).scaled, top);
+  assert.equal(LegacyDec.fromScaled(-top).scaled, -top);
+  assert.equal(LegacyDec.fromScaled(2n ** 315n).scaled, 2n ** 315n, "316 bits is inside the range, not past it");
+  assert.throws(() => LegacyDec.fromScaled(top + 1n), DecError);
+  assert.throws(() => LegacyDec.fromScaled(-top - 1n), DecError);
+});

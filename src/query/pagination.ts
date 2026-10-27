@@ -15,6 +15,13 @@ export interface PaginateOptions {
 
 export class PaginationError extends Error {
   override readonly name: string = "PaginationError";
+  constructor(
+    message: string,
+    /** What collectAll had gathered when the budget ran out, so nothing read is lost. */
+    readonly partial: readonly unknown[] = [],
+  ) {
+    super(message);
+  }
 }
 
 /** Yields every item of a paginated query, page by page. */
@@ -43,6 +50,11 @@ export async function collectAll<R extends { pagination?: PageResponse | undefin
   options: PaginateOptions = {},
 ): Promise<T[]> {
   const out: T[] = [];
-  for await (const item of paginate(fetchPage, items, options)) out.push(item);
+  try {
+    for await (const item of paginate(fetchPage, items, options)) out.push(item);
+  } catch (err) {
+    if (err instanceof PaginationError) throw new PaginationError(err.message, out);
+    throw err;
+  }
   return out;
 }

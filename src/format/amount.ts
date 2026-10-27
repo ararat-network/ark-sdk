@@ -66,10 +66,10 @@ function formatDecimal(decimal: string, asset: Asset, options: FormatOptions): s
   return options.symbol === false ? number : `${number} ${asset.symbol}`;
 }
 
-/** Formats a coin through the network's asset list; an unlisted denomination is shown in base units as is. */
+/** Formats a coin through the network's asset list; an unlisted denomination is shown as the chain's coin text, in base units. */
 export function formatCoin(c: { denom: string; amount: string | bigint }, network: Network, options: FormatOptions = {}): string {
   const asset = network.asset(c.denom);
-  if (!asset) return `${c.amount.toString()} ${c.denom}`;
+  if (!asset) return `${c.amount.toString()}${c.denom}`;
   return formatAssetAmount(c.amount, asset, options);
 }
 
@@ -109,7 +109,7 @@ export function parseDecCoin(text: string): DecCoin {
 export function formatDecCoin(c: { denom: string; amount: string }, network: Network, options: FormatOptions = {}): string {
   const asset = network.asset(c.denom);
   const dec = LegacyDec.fromWire(c.amount);
-  if (!asset) return `${dec.toString()} ${c.denom}`;
+  if (!asset) return `${dec.toString()}${c.denom}`;
   // The wire form is base units × 10^18; display units are base units ÷ 10^exponent.
   return formatDecimal(toDisplayUnits(dec.scaled, 18 + asset.exponent), asset, options);
 }
