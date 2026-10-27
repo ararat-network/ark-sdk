@@ -4,6 +4,7 @@
 // decoder, and finds it again by search. A second send goes through sendTx.
 // Runs only with ARK_LOCALNET_REST set, so CI without Docker skips it:
 // ARK_LOCALNET_REST=http://localhost:1317 pnpm test:smoke
+// The key comes from ARK_LOCALNET_MNEMONIC or node0's key_seed.json.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
@@ -41,6 +42,13 @@ import {
 const rest = process.env.ARK_LOCALNET_REST;
 const data = process.env.ARK_LOCALNET_DATA ?? new URL("../../../ark/.testnets", import.meta.url).pathname;
 
+/** node0's mnemonic: from the environment where the data directory is not readable, else from its key seed file. */
+function developmentMnemonic(): string {
+  const fromEnv = process.env.ARK_LOCALNET_MNEMONIC;
+  if (fromEnv) return fromEnv;
+  return (JSON.parse(readFileSync(`${data}/node0/arkd/key_seed.json`, "utf8")) as { secret: string }).secret;
+}
+
 const read = <T>(file: string): T => JSON.parse(readFileSync(new URL(`../../testdata/registry/arklocal/${file}`, import.meta.url), "utf8")) as T;
 
 test("localnet: tranche, simulate, price, sign, broadcast, confirm, decode", { skip: rest ? false : "ARK_LOCALNET_REST is not set" }, async () => {
@@ -48,8 +56,7 @@ test("localnet: tranche, simulate, price, sign, broadcast, confirm, decode", { s
   const client = new QueryClient(rest!);
   await client.verifyNetwork(network);
 
-  const seed = JSON.parse(readFileSync(`${data}/node0/arkd/key_seed.json`, "utf8")) as { secret: string };
-  const signer = MemorySigner.fromMnemonic(seed.secret);
+  const signer = MemorySigner.fromMnemonic(developmentMnemonic());
   const [account] = await signer.accounts();
   assert.ok(account);
 

@@ -49,10 +49,13 @@ jobs:
       - name: Wait for blocks and a rate
         working-directory: chain
         run: make localnet-liveness
+      # The container's user owns the key seed, so it is read through the
+      # container rather than from the volume.
+      - name: Read node0's development key
+        run: echo "ARK_LOCALNET_MNEMONIC=$(docker exec ark-node0 cat /data/node0/arkd/key_seed.json | jq -r .secret)" >> "$GITHUB_ENV"
       - name: Run the smoke test
         env:
           ARK_LOCALNET_REST: http://localhost:1317
-          ARK_LOCALNET_DATA: ${{ github.workspace }}/chain/.testnets
         run: pnpm test:smoke
       - name: Node logs on failure
         if: failure()
