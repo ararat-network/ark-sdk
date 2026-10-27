@@ -1,0 +1,64 @@
+name: localnet-smoke
+
+# The one end-to-end proof: ark's Docker localnet at the tag in ARK_VERSION,
+# and the smoke test against it, which simulates, prices, signs, broadcasts,
+# confirms, decodes, and searches. On pull requests that touch the SDK, weekly,
+# and on demand. The image build is the cost, a few minutes.
+on:
+  pull_request:
+    paths:
+      - "src/**"
+      - "test/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "ARK_VERSION"
+      - ".github/workflows/localnet-smoke.yml"
+  schedule:
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: localnet-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Smoke test against ark's localnet
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: version
+        run: echo "ref=$(cat ARK_VERSION)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ararat-network/ark
+          ref: ${{ steps.version.outputs.ref }}
+          path: chain
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Build the image and start one validator
+        working-directory: chain
+        run: VALIDATORS=1 make localnet-start
+      - name: Wait for blocks and a rate
+        working-directory: chain
+        run: make localnet-liveness
+      - name: Run the smoke test
+        env:
+          ARK_LOCALNET_REST: http://localhost:1317
+          ARK_LOCALNET_DATA: ${{ github.workspace }}/chain/.testnets
+        run: pnpm test:smoke
+      - name: Node logs on failure
+        if: failure()
+        working-directory: chain
+        run: docker compose -f contrib/localnet/docker-compose.yml logs --tail 200 node0 pricefeed0
+      - name: Stop the localnet
+        if: always()
+        working-directory: chain
+        run: make localnet-stop
