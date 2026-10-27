@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { fromBinary } from "@bufbuild/protobuf";
 import { fromHex, toBase64 } from "../codec/bytes.js";
 import { fromProtoJson } from "../codec/protojson.js";
-import { TxBodySchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
+import { AuthInfoSchema, TxBodySchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { MemorySigner } from "../keys/memory_signer.js";
 import { QueryClient } from "../query/client.js";
 import { fixture, fixtureKey } from "../testing/fixtures.js";
@@ -88,6 +89,13 @@ test("a given gas limit or account skips the query for it, and an unlisted fee d
   assert.equal(toBase64(prepared.signed.txBytes), f.tx_bytes);
   assert.ok(!calls.some((c) => c.includes("simulate") || c.includes("account_info")));
   await assert.rejects(prepareAndSign({ ...base(client), feeDenom: "ajpy" }), FeeError);
+  const tipped = await prepareAndSign({ ...base(client), gasLimit: 250000n, account: { accountNumber: 3n, sequence: 2n }, tip: 5n });
+  assert.equal(tipped.quote.tip?.amount, "5");
+  assert.deepEqual(
+    fromBinary(AuthInfoSchema, tipped.signed.authInfoBytes).fee?.amount.map((c) => c.amount + c.denom),
+    [...f.fee!.declared.map((c) => c.amount + c.denom), "5anoah"],
+    "the tip is the last leg of the signed fee",
+  );
   const missing = node();
   missing.replies["GET /cosmos/auth/v1beta1/account_info/"] = () => json({ info: null });
   await assert.rejects(prepareAndSign(base(missing.client)), PrepareError);
