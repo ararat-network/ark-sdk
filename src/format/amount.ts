@@ -2,7 +2,10 @@
 // registry says how many make one display unit. Conversion is exact over
 // bigint, and only the final rendering rounds, by the reader's locale, down
 // by default so a balance never shows more than it is.
-import type { Coin } from "../gen/cosmos/base/v1beta1/coin_pb.js";
+import { create } from "@bufbuild/protobuf";
+
+import { LegacyDec } from "../codec/dec.js";
+import { DecCoinSchema, type Coin, type DecCoin } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import type { Asset, Network } from "../registry/network.js";
 import { coin } from "../tx/body.js";
 
@@ -49,11 +52,13 @@ export interface FormatOptions {
 
 /** Formats base units of an asset in its display unit for a locale. */
 export function formatAssetAmount(base: bigint | string, asset: Asset, options: FormatOptions = {}): string {
-  const exponent = asset.exponent;
-  const decimal = toDisplayUnits(base, exponent);
+  return formatDecimal(toDisplayUnits(base, asset.exponent), asset, options);
+}
+
+function formatDecimal(decimal: string, asset: Asset, options: FormatOptions): string {
   const formatter = new Intl.NumberFormat(options.locale, {
     minimumFractionDigits: options.minimumFractionDigits ?? 0,
-    maximumFractionDigits: Math.min(options.maximumFractionDigits ?? 6, exponent, 20),
+    maximumFractionDigits: Math.min(options.maximumFractionDigits ?? 6, 20),
     roundingMode: options.roundingMode ?? "trunc",
   });
   const number = formatter.format(decimal as unknown as number);
@@ -80,6 +85,32 @@ export function parseCoin(text: string): Coin {
 export function parseCoins(text: string): Coin[] {
   if (text.trim() === "") return [];
   return text.split(",").map(parseCoin);
+}
+
+/** The chain's text for a coin list: amounts and denominations in denomination order, comma-separated. */
+export function coinsToString(coins: readonly { denom: string; amount: string | bigint }[]): string {
+  return [...coins]
+    .sort((a, b) => (a.denom < b.denom ? -1 : a.denom > b.denom ? 1 : 0))
+    .map((c) => `${c.amount.toString()}${c.denom}`)
+    .join(",");
+}
+
+const DEC_COIN = /^(\d+(?:\.\d{1,18})?)([a-zA-Z][a-zA-Z0-9/:._-]{2,127})$/;
+
+/** Parses decimal coin text such as "1.5ausd", a DecCoin in base units with its amount in wire form. */
+export function parseDecCoin(text: string): DecCoin {
+  const m = DEC_COIN.exec(text.trim());
+  if (!m) throw new AmountError(`not a decimal coin: ${text}`);
+  return create(DecCoinSchema, { denom: m[2] as string, amount: LegacyDec.fromString(m[1] as string).toWire() });
+}
+
+/** Formats a DecCoin, whose amount is a decimal of base units, in the asset's display unit. */
+export function formatDecCoin(c: { denom: string; amount: string }, network: Network, options: FormatOptions = {}): string {
+  const asset = network.asset(c.denom);
+  const dec = LegacyDec.fromWire(c.amount);
+  if (!asset) return `${dec.toString()} ${c.denom}`;
+  // The wire form is base units × 10^18; display units are base units ÷ 10^exponent.
+  return formatDecimal(toDisplayUnits(dec.scaled, 18 + asset.exponent), asset, options);
 }
 
 /** Display units of an asset to a coin in its base denomination. */

@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { Network } from "../registry/network.js";
 import type { ArkJson, AssetListJson, ChainJson } from "../registry/types.js";
 import { shortenAddress } from "./address.js";
-import { AmountError, coinFromDisplay, formatAssetAmount, formatCoin, fromDisplayUnits, parseCoin, parseCoins, toDisplayUnits } from "./amount.js";
+import { AmountError, coinFromDisplay, coinsToString, formatAssetAmount, formatCoin, formatDecCoin, fromDisplayUnits, parseCoin, parseCoins, parseDecCoin, toDisplayUnits } from "./amount.js";
 
 const read = <T>(file: string): T => JSON.parse(readFileSync(new URL(`../../testdata/registry/arklocal/${file}`, import.meta.url), "utf8")) as T;
 const network = Network.fromRegistry({ chain: read<ChainJson>("chain.json"), assets: read<AssetListJson>("assetlist.json"), ark: read<ArkJson>("ark.json") });
@@ -61,3 +61,20 @@ test("shortenAddress keeps the prefix and both ends", () => {
   assert.equal(shortenAddress("arkvaloper107sn6n6ylxxl6md3wtwy9n4u0j5a3azeu70grj", { head: 4, tail: 4 }), "arkvaloper107sn…0grj");
   assert.equal(shortenAddress("short"), "short");
 });
+
+test("coin lists, decimal coins, and their display", () => {
+  assert.equal(coinsToString([{ denom: "ausd", amount: "5" }, { denom: "aeur", amount: 2n }]), "2aeur,5ausd");
+  assert.equal(coinsToString([]), "");
+  const fee = parseDecCoin("1234.5ausd");
+  assert.equal(fee.denom, "ausd");
+  assert.equal(fee.amount, "1234500000000000000000");
+  assert.equal(formatDecCoin(fee, network, { locale: "en-GB", maximumFractionDigits: 18 }), "0.000000000000001234 arkUSD", "truncated at 18 places of the display unit");
+  assert.equal(formatDecCoin({ denom: "ausd", amount: LegacyDecWire("2500000000000000000.5") }, network, { locale: "en-GB", maximumFractionDigits: 6 }), "2.5 arkUSD");
+  assert.equal(formatDecCoin({ denom: "ausd-venue", amount: "1500000000000000000" }, network), "1.500000000000000000 ausd-venue");
+  assert.throws(() => parseDecCoin("1.5"), AmountError);
+});
+
+function LegacyDecWire(decimal: string): string {
+  const [whole, frac = ""] = decimal.split(".");
+  return `${whole}${frac.padEnd(18, "0")}`;
+}

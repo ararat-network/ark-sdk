@@ -98,6 +98,24 @@ export class LegacyDec {
     return new LegacyDec(chopPrecisionAndRound(this.scaled * other.scaled));
   }
 
+  /** Go's Quo: the quotient carried to 36 places, truncated, then rounded half to even at the 18th. */
+  quo(other: LegacyDec): LegacyDec {
+    if (other.scaled === 0n) throw new DecError("division by zero");
+    return new LegacyDec(chopPrecisionAndRound((this.scaled * UNIT * UNIT) / other.scaled));
+  }
+
+  /** Go's QuoInt: the value divided by an integer, truncated at the 18th place. */
+  quoInt(n: bigint | number): LegacyDec {
+    const d = BigInt(n);
+    if (d === 0n) throw new DecError("division by zero");
+    return new LegacyDec(this.scaled / d);
+  }
+
+  /** Go's RoundInt: the nearest integer, ties to even. */
+  roundInt(): bigint {
+    return chopPrecisionAndRound(this.scaled);
+  }
+
   /** The integer part, toward zero. */
   truncateInt(): bigint {
     return this.scaled / UNIT;

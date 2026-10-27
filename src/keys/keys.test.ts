@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { fromBase64, fromHex, toBase64, toHex, utf8Encode } from "../codec/bytes.js";
 import { fixtureKeys, signupVectors } from "../testing/fixtures.js";
-import { AddressError, addressBytes, decodeAddress, encodeAddress, isAccountAddress, publicKeyToAddress, toValidatorAddress, validatorPrefix } from "./address.js";
+import { AddressError, addressBytes, decodeAddress, encodeAddress, fromValidatorAddress, isAccountAddress, publicKeyToAddress, toValidatorAddress, validatorPrefix } from "./address.js";
 import { hdPath, isValidMnemonic, privateKeyFromMnemonic } from "./hd.js";
 import { isCompressedPublicKey, isLowS, publicKeyFromPrivate, signMessage, verifyMessage } from "./secp256k1.js";
 
@@ -23,6 +23,8 @@ test("the validator operator address is the account address under arkvaloper", (
   const validator = keys.accounts.find((a) => a.name === "validator");
   assert.ok(validator);
   assert.equal(toValidatorAddress(validator.address), keys.validator.operator);
+  assert.equal(fromValidatorAddress(keys.validator.operator), validator.address);
+  assert.throws(() => fromValidatorAddress(validator.address), AddressError, "an account address is not an operator address");
   assert.equal(validatorPrefix(), "arkvaloper");
   assert.equal(decodeAddress(keys.validator.operator, { prefix: "arkvaloper" }).bytes.length, 20);
 });

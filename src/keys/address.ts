@@ -81,3 +81,9 @@ export function toValidatorAddress(address: string, prefix = DEFAULT_PREFIX): st
   const { bytes } = decodeAddress(address, { prefix, lengths: [ADDRESS_LENGTH] });
   return encodeAddress(bytes, validatorPrefix(prefix));
 }
+
+/** Re-encodes a validator operator address as the account address of the same key. */
+export function fromValidatorAddress(address: string, prefix = DEFAULT_PREFIX): string {
+  const { bytes } = decodeAddress(address, { prefix: validatorPrefix(prefix), lengths: [ADDRESS_LENGTH] });
+  return encodeAddress(bytes, prefix);
+}
