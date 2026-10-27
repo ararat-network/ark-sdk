@@ -6,7 +6,12 @@ import { AnySchema } from "@bufbuild/protobuf/wkt";
 
 import { packAny } from "../codec/any.js";
 import { BaseAccountSchema, ModuleAccountSchema } from "../gen/cosmos/auth/v1beta1/auth_pb.js";
-import { ContinuousVestingAccountSchema, DelayedVestingAccountSchema, PeriodicVestingAccountSchema, PermanentLockedAccountSchema } from "../gen/cosmos/vesting/v1beta1/vesting_pb.js";
+import {
+  ContinuousVestingAccountSchema,
+  DelayedVestingAccountSchema,
+  PeriodicVestingAccountSchema,
+  PermanentLockedAccountSchema,
+} from "../gen/cosmos/vesting/v1beta1/vesting_pb.js";
 import { QueryClient } from "../query/client.js";
 import { coin } from "../tx/body.js";
 import { decodeAccount, vestedCoins, vestingCoins } from "./account.js";
@@ -48,7 +53,12 @@ test("continuous vesting rounds as the SDK's Dec does", () => {
 });
 
 test("delayed, periodic, and permanently locked accounts follow their schedules", () => {
-  const delayed = decodeAccount(packAny(DelayedVestingAccountSchema, create(DelayedVestingAccountSchema, { baseVestingAccount: { baseAccount: base, originalVesting: [coin("anoah", 10n)], endTime: 1000n } })));
+  const delayed = decodeAccount(
+    packAny(
+      DelayedVestingAccountSchema,
+      create(DelayedVestingAccountSchema, { baseVestingAccount: { baseAccount: base, originalVesting: [coin("anoah", 10n)], endTime: 1000n } }),
+    ),
+  );
   assert.equal(delayed.kind, "delayed_vesting");
   assert.equal(delayed.vesting?.startTime, undefined);
   assert.deepEqual(amounts(vestedCoins(delayed, 999n)), []);
@@ -74,7 +84,12 @@ test("delayed, periodic, and permanently locked accounts follow their schedules"
   assert.deepEqual(amounts(vestingCoins(periodic, 1_000n + 2_592_000n)), ["5anoah"]);
   assert.deepEqual(amounts(vestedCoins(periodic, 1_000n + 2n * 2_592_000n)), ["10anoah", "4ausd"]);
 
-  const locked = decodeAccount(packAny(PermanentLockedAccountSchema, create(PermanentLockedAccountSchema, { baseVestingAccount: { baseAccount: base, originalVesting: [coin("anoah", 10n)] } })));
+  const locked = decodeAccount(
+    packAny(
+      PermanentLockedAccountSchema,
+      create(PermanentLockedAccountSchema, { baseVestingAccount: { baseAccount: base, originalVesting: [coin("anoah", 10n)] } }),
+    ),
+  );
   assert.equal(locked.kind, "permanent_locked");
   assert.deepEqual(amounts(vestedCoins(locked, 10n ** 12n)), []);
   assert.deepEqual(amounts(vestingCoins(locked, 10n ** 12n)), ["10anoah"]);
@@ -85,7 +100,16 @@ test("base, module, and unknown accounts", () => {
   assert.equal(plain.kind, "base");
   assert.equal(plain.sequence, 1n);
   assert.equal(plain.vesting, undefined);
-  const mod = decodeAccount(packAny(ModuleAccountSchema, create(ModuleAccountSchema, { baseAccount: { address: "ark1d0sh6wpev05edp6tdxjs6alazqd7suyqzxee35", accountNumber: 9n }, name: "treasury", permissions: ["burner", "minter"] })));
+  const mod = decodeAccount(
+    packAny(
+      ModuleAccountSchema,
+      create(ModuleAccountSchema, {
+        baseAccount: { address: "ark1d0sh6wpev05edp6tdxjs6alazqd7suyqzxee35", accountNumber: 9n },
+        name: "treasury",
+        permissions: ["burner", "minter"],
+      }),
+    ),
+  );
   assert.equal(mod.kind, "module");
   assert.deepEqual(mod.module, { name: "treasury", permissions: ["burner", "minter"] });
   assert.equal(mod.accountNumber, 9n);

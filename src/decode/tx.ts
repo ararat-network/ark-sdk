@@ -2,17 +2,15 @@
 // through the registry, and the JSON view in the chain's own dialect, which
 // the fixtures pin. An unknown message stays an Any, named as unknown and
 // never given a reassuring label.
-import { fromBinary, type DescMessage, type Message, type Registry } from "@bufbuild/protobuf";
+import { create, type DescMessage, fromBinary, type Message, type Registry } from "@bufbuild/protobuf";
 import type { Any } from "@bufbuild/protobuf/wkt";
-
 import { typeNameOf } from "../codec/any.js";
 import type { JsonValue } from "../codec/json.js";
 import { toProtoJson } from "../codec/protojson.js";
 import { registry as defaultRegistry } from "../codec/registry.js";
-import { AuthInfoSchema, TxBodySchema, TxRawSchema, TxSchema, type AuthInfo, type Fee, type Tx, type TxBody } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
-import { SignMode } from "../gen/cosmos/tx/signing/v1beta1/signing_pb.js";
+import type { SignMode } from "../gen/cosmos/tx/signing/v1beta1/signing_pb.js";
+import { type AuthInfo, AuthInfoSchema, type Fee, type Tx, type TxBody, TxBodySchema, TxRawSchema, TxSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { txHash } from "../tx/signdoc.js";
-import { create } from "@bufbuild/protobuf";
 
 export interface TxDecodeOptions {
   registry?: Registry;
@@ -59,7 +57,13 @@ export function decodeMessage(any: Any, options: TxDecodeOptions = {}): DecodedM
     return { typeUrl: any.typeUrl, schema: undefined, message: undefined, known: false, json: toProtoJson(AnySchemaRef, any, { registry, unknownAny: "raw" }) };
   }
   const message = fromBinary(schema, any.value);
-  return { typeUrl: any.typeUrl, schema, message, known: true, json: { "@type": any.typeUrl, ...(toProtoJson(schema, message, { registry, unknownAny: "raw" }) as object) } };
+  return {
+    typeUrl: any.typeUrl,
+    schema,
+    message,
+    known: true,
+    json: { "@type": any.typeUrl, ...(toProtoJson(schema, message, { registry, unknownAny: "raw" }) as object) },
+  };
 }
 
 import { AnySchema as AnySchemaRef } from "@bufbuild/protobuf/wkt";

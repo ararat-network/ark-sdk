@@ -6,8 +6,7 @@ import { create, toBinary } from "@bufbuild/protobuf";
 import { sha256 } from "@noble/hashes/sha2.js";
 
 import { toHex } from "../codec/bytes.js";
-import { SignDocSchema, TxRawSchema, type AuthInfo, type SignDoc, type TxBody } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
-import { AuthInfoSchema, TxBodySchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
+import { type AuthInfo, AuthInfoSchema, type SignDoc, SignDocSchema, type TxBody, TxBodySchema, TxRawSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 
 export function encodeTxBody(body: TxBody): Uint8Array {
   return toBinary(TxBodySchema, body);

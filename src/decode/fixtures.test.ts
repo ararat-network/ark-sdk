@@ -9,7 +9,7 @@ import { AnySchema } from "@bufbuild/protobuf/wkt";
 import { fromBase64 } from "../codec/bytes.js";
 import type { JsonObject } from "../codec/json.js";
 import { SignMode } from "../gen/cosmos/tx/signing/v1beta1/signing_pb.js";
-import { fixtures, type Fixture } from "../testing/fixtures.js";
+import { type Fixture, fixtures } from "../testing/fixtures.js";
 import { expectedTxJson } from "../testing/gaps.js";
 import { decodeEvent, decodeEvents, eventsByMessage } from "./events.js";
 import { classifyResult, describeOutcome } from "./result.js";
@@ -22,14 +22,14 @@ for (const f of all) {
   test(`${f.name}: decodeTx names every message and renders the chain's JSON`, () => {
     const decoded = decodeTx(fromBase64(f.tx_bytes!));
     assert.equal(decoded.hash, f.tx_hash);
-    const messages = ((f.tx as JsonObject)["body"] as JsonObject)["messages"] as JsonObject[];
+    const messages = ((f.tx as JsonObject).body as JsonObject).messages as JsonObject[];
     assert.deepEqual(
       decoded.messages.map((m) => m.typeUrl),
       messages.map((m) => m["@type"]),
     );
     assert.ok(decoded.messages.every((m) => m.known && m.message !== undefined && m.schema !== undefined));
     assert.deepEqual(decoded.json, expectedTxJson(f.name, f.tx));
-    assert.equal(decoded.memo, ((f.tx as JsonObject)["body"] as JsonObject)["memo"]);
+    assert.equal(decoded.memo, ((f.tx as JsonObject).body as JsonObject).memo);
     assert.equal(decoded.signers.length, 1);
     assert.equal(decoded.signers[0]?.sequence, BigInt(f.signer!.sequence));
     assert.equal(decoded.signers[0]?.mode, SignMode.DIRECT);

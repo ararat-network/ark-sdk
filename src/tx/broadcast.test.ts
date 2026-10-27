@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { QueryClient } from "../query/client.js";
-import { BroadcastRefused, InclusionTimeout, broadcastAndConfirm, broadcastSync, waitForInclusion } from "./broadcast.js";
+import { BroadcastRefused, broadcastAndConfirm, broadcastSync, InclusionTimeout, waitForInclusion } from "./broadcast.js";
 
 const HASH = "861F5D4824CECE1A5A1F9FCB43280CD6AB38491D10AFF22939B94FEDE66802B0";
 
@@ -19,9 +19,11 @@ function node(script: ((url: string, body: string | undefined) => Response)[]): 
 }
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
-const broadcastOk = () => json({ tx_response: { txhash: HASH, code: 0, codespace: "", raw_log: "", height: "0", gas_wanted: "0", gas_used: "0", events: [], logs: [] } });
+const broadcastOk = () =>
+  json({ tx_response: { txhash: HASH, code: 0, codespace: "", raw_log: "", height: "0", gas_wanted: "0", gas_used: "0", events: [], logs: [] } });
 const notFound = () => json({ code: 5, message: "tx not found", details: [] }, 404);
-const included = () => json({ tx_response: { txhash: HASH, code: 0, codespace: "", raw_log: "", height: "7", gas_wanted: "250000", gas_used: "98227", events: [], logs: [] } });
+const included = () =>
+  json({ tx_response: { txhash: HASH, code: 0, codespace: "", raw_log: "", height: "7", gas_wanted: "250000", gas_used: "98227", events: [], logs: [] } });
 
 test("broadcastSync returns CheckTx's verdict with the hash", async () => {
   const { client, calls } = node([broadcastOk]);
@@ -45,13 +47,35 @@ test("waitForInclusion gives up after the timeout and names the hash", async () 
   const { client } = node([notFound, notFound, notFound, notFound]);
   let clock = 0;
   await assert.rejects(
-    waitForInclusion(client, HASH, { timeoutMs: 1000, pollMs: 400, sleep: async (ms) => void (clock += ms), now: () => clock }),
+    waitForInclusion(client, HASH, {
+      timeoutMs: 1000,
+      pollMs: 400,
+      sleep: async (ms) => {
+        clock += ms;
+      },
+      now: () => clock,
+    }),
     (err: unknown) => err instanceof InclusionTimeout && err.hash === HASH,
   );
 });
 
 test("broadcastAndConfirm fails on a CheckTx refusal and otherwise returns the block result", async () => {
-  const refused = node([() => json({ tx_response: { txhash: HASH, code: 13, codespace: "sdk", raw_log: "fee 1anoah does not cover transfer tax 2ausd", height: "0", gas_wanted: "0", gas_used: "0", events: [], logs: [] } })]);
+  const refused = node([
+    () =>
+      json({
+        tx_response: {
+          txhash: HASH,
+          code: 13,
+          codespace: "sdk",
+          raw_log: "fee 1anoah does not cover transfer tax 2ausd",
+          height: "0",
+          gas_wanted: "0",
+          gas_used: "0",
+          events: [],
+          logs: [],
+        },
+      }),
+  ]);
   await assert.rejects(broadcastAndConfirm(refused.client, new Uint8Array([1])), (err: unknown) => {
     assert.ok(err instanceof BroadcastRefused);
     assert.equal(err.result.code, 13);

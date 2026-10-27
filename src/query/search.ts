@@ -3,10 +3,10 @@
 // one that does not answers with an error the caller sees as it is.
 import type { Registry } from "@bufbuild/protobuf";
 
-import { decodeEvents, type DecodedEvent } from "../decode/events.js";
+import { type DecodedEvent, decodeEvents } from "../decode/events.js";
 import { decodeMsgResponses } from "../decode/responses.js";
 import { classifyResult, type Outcome } from "../decode/result.js";
-import { decodeTxMessages, type DecodedMessage } from "../decode/tx.js";
+import { type DecodedMessage, decodeTxMessages } from "../decode/tx.js";
 import type { TxResponse } from "../gen/cosmos/base/abci/v1beta1/abci_pb.js";
 import type { OrderBy } from "../gen/cosmos/tx/v1beta1/service_pb.js";
 import type { Tx } from "../gen/cosmos/tx/v1beta1/tx_pb.js";

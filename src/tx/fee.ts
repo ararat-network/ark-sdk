@@ -120,7 +120,9 @@ function rank(order: readonly string[], denom: string): number {
 /** Gas for the limit: ceil(simulated × adjustment); the adjustment is the caller's. */
 export function adjustGas(gasUsed: bigint, adjustment: number): bigint {
   if (!(adjustment >= 1)) throw new FeeError(`gas adjustment ${adjustment} is below 1`);
-  return LegacyDec.fromInt(gasUsed).mul(LegacyDec.fromString(adjustment.toFixed(6))).ceil();
+  return LegacyDec.fromInt(gasUsed)
+    .mul(LegacyDec.fromString(adjustment.toFixed(6)))
+    .ceil();
 }
 
 export interface FeeDenomChoiceInput {

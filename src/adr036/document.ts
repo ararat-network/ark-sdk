@@ -56,7 +56,7 @@ export function validateDocument(doc: SignupDocument): void {
 /** The canonical bytes: members in name order, no whitespace, nothing escaped. */
 export function documentBytes(doc: SignupDocument): Uint8Array {
   validateDocument(doc);
-  return utf8Encode("{" + MEMBERS.map((m) => `"${m}":"${doc[m]}"`).join(",") + "}");
+  return utf8Encode(`{${MEMBERS.map((m) => `"${m}":"${doc[m]}"`).join(",")}}`);
 }
 
 /** Parses document bytes, refusing anything that does not re-encode to the same bytes (rule 4). */

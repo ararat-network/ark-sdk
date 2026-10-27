@@ -5,10 +5,10 @@
 // result carries the block height the node answered at. Given several
 // endpoints, a call that cannot reach one, or gets a server error from it,
 // moves to the next and stays there.
-import { getOption, hasOption, type DescMethod, type MessageInitShape, type MessageShape, type Registry } from "@bufbuild/protobuf";
-import { create } from "@bufbuild/protobuf";
+import { create, type DescMethod, getOption, hasOption, type MessageInitShape, type MessageShape, type Registry } from "@bufbuild/protobuf";
 import type { GenService, GenServiceMethods } from "@bufbuild/protobuf/codegenv2";
 
+import { stripTrailing } from "../codec/bytes.js";
 import type { JsonObject, JsonValue } from "../codec/json.js";
 import { fromProtoJson, toProtoJson } from "../codec/protojson.js";
 import { registry as defaultRegistry } from "../codec/registry.js";
@@ -69,13 +69,19 @@ export interface GatewayOptions {
   headers?: Record<string, string>;
   /** The types Any fields resolve against; every generated type by default. */
   registry?: Registry;
+  /** How long one request may take before the endpoint counts as unreachable; 15 seconds by default. */
+  timeoutMs?: number;
 }
 
 export interface CallOptions {
   /** Query committed state at this height instead of the latest. */
   height?: bigint;
   signal?: AbortSignal;
+  /** Overrides the client's request timeout for this call. */
+  timeoutMs?: number;
 }
+
+export const DEFAULT_TIMEOUT_MS = 15_000;
 
 export interface GatewayResult<T> {
   value: T;
@@ -99,15 +105,17 @@ export class GatewayClient {
   readonly #fetch: typeof fetch;
   readonly #headers: Record<string, string>;
   readonly #registry: Registry;
+  readonly #timeoutMs: number;
   #current = 0;
 
   constructor(baseUrl: string | readonly string[], options: GatewayOptions = {}) {
-    const urls = (typeof baseUrl === "string" ? [baseUrl] : [...baseUrl]).map((u) => u.replace(/\/+$/, ""));
+    const urls = (typeof baseUrl === "string" ? [baseUrl] : [...baseUrl]).map((u) => stripTrailing(u, "/"));
     if (urls.length === 0) throw new Error("a gateway client needs at least one endpoint");
     this.baseUrls = urls;
     this.#fetch = options.fetch ?? globalThis.fetch;
     this.#headers = { ...options.headers };
     this.#registry = options.registry ?? defaultRegistry;
+    this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 
   /** The endpoint the last successful call used. */
@@ -150,15 +158,28 @@ export class GatewayClient {
       headers["content-type"] = "application/json";
       init.body = JSON.stringify(route.body);
     }
-    if (options.signal) init.signal = options.signal;
+    // An explicit, referenced timer: AbortSignal.timeout's timer does not keep
+    // the event loop alive on every runtime, and the deadline must fire even
+    // when the request is the only thing pending.
+    const controller = new AbortController();
+    const timeoutMs = options.timeoutMs ?? this.#timeoutMs;
+    const timer = setTimeout(() => controller.abort(new DOMException(`request timed out after ${timeoutMs} ms`, "TimeoutError")), timeoutMs);
+    const forwardAbort = () => controller.abort(options.signal?.reason);
+    options.signal?.addEventListener("abort", forwardAbort, { once: true });
+    if (options.signal?.aborted) forwardAbort();
+    init.signal = controller.signal;
 
     let response: Response;
+    let text: string;
     try {
       response = await this.#fetch(url, init);
+      text = await response.text();
     } catch (err) {
       throw new TransportError(url, err);
+    } finally {
+      clearTimeout(timer);
+      options.signal?.removeEventListener("abort", forwardAbort);
     }
-    const text = await response.text();
     let json: JsonValue;
     try {
       json = JSON.parse(text) as JsonValue;
@@ -180,9 +201,9 @@ function failsOver(err: unknown): boolean {
 
 function gatewayError(json: JsonValue, status: number, url: string): QueryError {
   if (json !== null && typeof json === "object" && !Array.isArray(json)) {
-    const code = typeof json["code"] === "number" ? json["code"] : GrpcCode.Unknown;
-    const message = typeof json["message"] === "string" ? json["message"] : typeof json["error"] === "string" ? json["error"] : JSON.stringify(json);
-    const details = Array.isArray(json["details"]) ? json["details"] : [];
+    const code = typeof json.code === "number" ? json.code : GrpcCode.Unknown;
+    const message = typeof json.message === "string" ? json.message : typeof json.error === "string" ? json.error : JSON.stringify(json);
+    const details = Array.isArray(json.details) ? json.details : [];
     return new QueryError(code, message, status, url, details);
   }
   return new QueryError(GrpcCode.Unknown, JSON.stringify(json), status, url);
@@ -229,6 +250,5 @@ function queryString(fields: JsonObject): string {
   };
   for (const [k, v] of Object.entries(fields)) add(k, v);
   const s = params.toString();
-  return s === "" ? "" : "?" + s;
+  return s === "" ? "" : `?${s}`;
 }
-

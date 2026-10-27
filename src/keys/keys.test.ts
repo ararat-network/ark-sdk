@@ -3,7 +3,17 @@ import { test } from "node:test";
 
 import { fromBase64, fromHex, toBase64, toHex, utf8Encode } from "../codec/bytes.js";
 import { fixtureKeys, signupVectors } from "../testing/fixtures.js";
-import { AddressError, addressBytes, decodeAddress, encodeAddress, fromValidatorAddress, isAccountAddress, publicKeyToAddress, toValidatorAddress, validatorPrefix } from "./address.js";
+import {
+  AddressError,
+  addressBytes,
+  decodeAddress,
+  encodeAddress,
+  fromValidatorAddress,
+  isAccountAddress,
+  publicKeyToAddress,
+  toValidatorAddress,
+  validatorPrefix,
+} from "./address.js";
 import { hdPath, isValidMnemonic, privateKeyFromMnemonic } from "./hd.js";
 import { isCompressedPublicKey, isLowS, publicKeyFromPrivate, signMessage, verifyMessage } from "./secp256k1.js";
 
@@ -41,7 +51,7 @@ test("decodeAddress accepts canonical addresses and refuses the rest", () => {
     ["uppercase", good.toUpperCase()],
     ["mixed case", "Ark10s999mwwwxzwd0hqg0s8xp67jxwhpu09g74u3s"],
     ["other prefix", "cosmos10s999mwwwxzwd0hqg0s8xp67jxwhpu09hwlyrh"],
-    ["bad checksum", good.slice(0, -1) + "t"],
+    ["bad checksum", `${good.slice(0, -1)}t`],
     ["not bech32", "not-an-address"],
   ];
   for (const [name, address] of bad) {
@@ -71,7 +81,8 @@ const hdVectors = [
     signature: "+/HaD8bDS565uABRGve+BQ7OO+qWJBBuRkwhJ2iro9NaAQRT+/+EvWwfzdtgkMd/2GkOG9LP2292FdFLAIVKLw==",
   },
   {
-    mnemonic: "notice oak worry limit wrap speak medal online prefer cluster roof addict wrist behave treat actual wasp year salad speed social layer crew genius",
+    mnemonic:
+      "notice oak worry limit wrap speak medal online prefer cluster roof addict wrist behave treat actual wasp year salad speed social layer crew genius",
     index: 0,
     privateKey: "da02ede4c818876fe19b5a789f84e8591debd74fd4c134546c9cd7c95e9233a6",
     publicKey: "AjszqFJDRAYbEjZMuiD+ChqzbUSGq/RRu3zr0R6iJB5b",
@@ -79,7 +90,8 @@ const hdVectors = [
     signature: "1gUAbkraYTeYBHEaX3fGh/u7t5s9YEWQeaSL6gIQM41o8V8Qec/gkhNZWmpZxh8itURKq0fSOQcqrxUCGV/C/A==",
   },
   {
-    mnemonic: "notice oak worry limit wrap speak medal online prefer cluster roof addict wrist behave treat actual wasp year salad speed social layer crew genius",
+    mnemonic:
+      "notice oak worry limit wrap speak medal online prefer cluster roof addict wrist behave treat actual wasp year salad speed social layer crew genius",
     index: 1,
     privateKey: "46cde6da59b8a38747efb2946b22da527bdbdd848f26ca49c167ea5bcf4c5ad3",
     publicKey: "Ani4Fl+Q1jN45/L6k6l1vnl+kDHvqX+PmN35CyK0x1pd",

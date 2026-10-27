@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-
-import { fromProtoJson } from "../codec/protojson.js";
 import { fromHex, toBase64 } from "../codec/bytes.js";
+import { fromProtoJson } from "../codec/protojson.js";
 import { TxBodySchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { MemorySigner } from "../keys/memory_signer.js";
 import { QueryClient } from "../query/client.js";
@@ -27,7 +26,10 @@ function node(sequence = "2") {
     "POST /cosmos/tx/v1beta1/simulate": () => json({ gas_info: { gas_wanted: "0", gas_used: "217391" }, result: null }),
     "POST /ark/treasury/v1/compute_tax": () => json({ tax: f.fee!.tax, tax_base: [{ denom: "ausd", amount: "10000000000000000000" }] }),
     "GET /ark/treasury/v1/gas_prices": () =>
-      json({ gas_prices: [f.fee!.gas_price, { denom: "anoah", gas_price: "100000000000.000000000000000000", derived_height: "0" }], reference_gas_price: { denom: "axdr", gas_price: "100000000000.000000000000000000", derived_height: "0" } }),
+      json({
+        gas_prices: [f.fee!.gas_price, { denom: "anoah", gas_price: "100000000000.000000000000000000", derived_height: "0" }],
+        reference_gas_price: { denom: "axdr", gas_price: "100000000000.000000000000000000", derived_height: "0" },
+      }),
   };
   const extra: (() => Response)[] = [];
   const fetchStub = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -57,13 +59,24 @@ test("prepareAndSign reproduces a fixture from a node's answers", async () => {
   const prepared = await prepareAndSign(base(client));
   assert.equal(prepared.simulatedGas, 217391n);
   assert.equal(prepared.gasLimit, 250000n, "ceil(217391 × 1.15)");
-  assert.deepEqual(prepared.quote.declared.map((c) => c.amount + c.denom), f.fee!.declared.map((c) => c.amount + c.denom));
-  assert.deepEqual(prepared.taxBase.map((c) => c.amount + c.denom), ["10000000000000000000ausd"]);
+  assert.deepEqual(
+    prepared.quote.declared.map((c) => c.amount + c.denom),
+    f.fee!.declared.map((c) => c.amount + c.denom),
+  );
+  assert.deepEqual(
+    prepared.taxBase.map((c) => c.amount + c.denom),
+    ["10000000000000000000ausd"],
+  );
   assert.equal(toBase64(prepared.signed.txBytes), f.tx_bytes);
   assert.equal(prepared.signed.hash, HASH);
   assert.deepEqual(
     calls.map((c) => c.split("?")[0]),
-    [`GET /cosmos/auth/v1beta1/account_info/${signer.address}`, "POST /cosmos/tx/v1beta1/simulate", "POST /ark/treasury/v1/compute_tax", "GET /ark/treasury/v1/gas_prices"],
+    [
+      `GET /cosmos/auth/v1beta1/account_info/${signer.address}`,
+      "POST /cosmos/tx/v1beta1/simulate",
+      "POST /ark/treasury/v1/compute_tax",
+      "GET /ark/treasury/v1/gas_prices",
+    ],
     "the steps run in the contract's order",
   );
 });
@@ -80,9 +93,24 @@ test("a given gas limit or account skips the query for it, and an unlisted fee d
   await assert.rejects(prepareAndSign(base(missing.client)), PrepareError);
 });
 
-const broadcastOk = () => json({ tx_response: { txhash: HASH, code: 0, codespace: "", raw_log: "", height: "0", gas_wanted: "0", gas_used: "0", events: [], logs: [] } });
-const mismatch = () => json({ tx_response: { txhash: HASH, code: 32, codespace: "sdk", raw_log: "account sequence mismatch, expected 3, got 2: incorrect account sequence", height: "0", gas_wanted: "0", gas_used: "0", events: [], logs: [] } });
-const included = () => json({ tx_response: { txhash: HASH, code: 0, codespace: "", raw_log: "", height: "7", gas_wanted: "250000", gas_used: "98227", events: [], logs: [] } });
+const broadcastOk = () =>
+  json({ tx_response: { txhash: HASH, code: 0, codespace: "", raw_log: "", height: "0", gas_wanted: "0", gas_used: "0", events: [], logs: [] } });
+const mismatch = () =>
+  json({
+    tx_response: {
+      txhash: HASH,
+      code: 32,
+      codespace: "sdk",
+      raw_log: "account sequence mismatch, expected 3, got 2: incorrect account sequence",
+      height: "0",
+      gas_wanted: "0",
+      gas_used: "0",
+      events: [],
+      logs: [],
+    },
+  });
+const included = () =>
+  json({ tx_response: { txhash: HASH, code: 0, codespace: "", raw_log: "", height: "7", gas_wanted: "250000", gas_used: "98227", events: [], logs: [] } });
 
 test("sendTx broadcasts and confirms, and retries once on a sequence mismatch", async () => {
   const n = node();
@@ -93,7 +121,8 @@ test("sendTx broadcasts and confirms, and retries once on a sequence mismatch", 
 
   const r = node();
   let served = 0;
-  r.replies["GET /cosmos/auth/v1beta1/account_info/"] = () => json({ info: { address: signer.address, pub_key: null, account_number: "3", sequence: served++ === 0 ? "2" : "3" } });
+  r.replies["GET /cosmos/auth/v1beta1/account_info/"] = () =>
+    json({ info: { address: signer.address, pub_key: null, account_number: "3", sequence: served++ === 0 ? "2" : "3" } });
   r.extra.push(mismatch, broadcastOk, included);
   const retried = await sendTx(base(r.client), { sleep: async () => {} });
   assert.equal(retried.sequence, 3n, "the second attempt signs with the refreshed sequence");

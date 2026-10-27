@@ -4,22 +4,21 @@
 // at, for a reader that must carry it.
 import type { MessageInitShape } from "@bufbuild/protobuf";
 import type { Any } from "@bufbuild/protobuf/wkt";
-
+import { type DecodedAccount, decodeAccount } from "../decode/account.js";
+import type { QueryGrantsRequestSchema } from "../gen/ark/disbursement/v1/query_pb.js";
 import { Query as DisbursementQuery } from "../gen/ark/disbursement/v1/query_pb.js";
 import { Query as MarketQuery } from "../gen/ark/market/v1/query_pb.js";
 import { Query as OracleQuery } from "../gen/ark/oracle/v1/query_pb.js";
 import { Query as TreasuryQuery } from "../gen/ark/treasury/v1/query_pb.js";
 import { Query as AuthQuery } from "../gen/cosmos/auth/v1beta1/query_pb.js";
 import { Query as BankQuery } from "../gen/cosmos/bank/v1beta1/query_pb.js";
+import type { PageRequestSchema } from "../gen/cosmos/base/query/v1beta1/pagination_pb.js";
 import { Service as NodeService } from "../gen/cosmos/base/tendermint/v1beta1/query_pb.js";
 import { Query as DistributionQuery } from "../gen/cosmos/distribution/v1beta1/query_pb.js";
+import type { QueryProposalsRequestSchema } from "../gen/cosmos/gov/v1/query_pb.js";
 import { Query as GovQuery } from "../gen/cosmos/gov/v1/query_pb.js";
 import { Query as StakingQuery } from "../gen/cosmos/staking/v1beta1/query_pb.js";
 import { BroadcastMode, OrderBy, Service as TxService } from "../gen/cosmos/tx/v1beta1/service_pb.js";
-import type { PageRequestSchema } from "../gen/cosmos/base/query/v1beta1/pagination_pb.js";
-import type { QueryGrantsRequestSchema } from "../gen/ark/disbursement/v1/query_pb.js";
-import type { QueryProposalsRequestSchema } from "../gen/cosmos/gov/v1/query_pb.js";
-import { decodeAccount, type DecodedAccount } from "../decode/account.js";
 import type { Network } from "../registry/network.js";
 import { GatewayClient, type GatewayOptions } from "./gateway.js";
 

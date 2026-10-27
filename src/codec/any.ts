@@ -1,8 +1,7 @@
 // Any packing the Cosmos way: the type URL is "/" plus the full type name, not
 // protobuf-es's type.googleapis.com form, which the chain would refuse.
-import { fromBinary, toBinary, type DescMessage, type Message, type MessageShape, type Registry } from "@bufbuild/protobuf";
-import { AnySchema, type Any } from "@bufbuild/protobuf/wkt";
-import { create } from "@bufbuild/protobuf";
+import { create, type DescMessage, fromBinary, type Message, type MessageShape, type Registry, toBinary } from "@bufbuild/protobuf";
+import { type Any, AnySchema } from "@bufbuild/protobuf/wkt";
 
 import { registry as defaultRegistry } from "./registry.js";
 
@@ -15,7 +14,7 @@ export class UnknownTypeError extends Error {
 
 /** The type URL of a message schema: "/" and the full name. */
 export function typeUrlOf(schema: DescMessage): string {
-  return "/" + schema.typeName;
+  return `/${schema.typeName}`;
 }
 
 /** The full type name a type URL carries, whatever its prefix. */

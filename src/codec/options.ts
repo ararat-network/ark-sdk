@@ -1,7 +1,7 @@
 // The proto options the codecs act on: gogoproto's nullable and customtype,
 // which decide how the Go chain renders a field, and the amino and
 // cosmos_proto options the amino JSON encoder follows.
-import { getOption, hasOption, type DescField, type DescMessage } from "@bufbuild/protobuf";
+import { type DescField, type DescMessage, getOption, hasOption } from "@bufbuild/protobuf";
 
 import * as amino from "../gen/amino/amino_pb.js";
 import * as cosmosProto from "../gen/cosmos_proto/cosmos_pb.js";

@@ -7,11 +7,11 @@
 import { toBinary } from "@bufbuild/protobuf";
 import type { Any } from "@bufbuild/protobuf/wkt";
 
-import { aminoSignDocBytes, makeAminoSignDoc, type AminoSignDoc } from "../codec/aminojson.js";
+import { type AminoSignDoc, aminoSignDocBytes, makeAminoSignDoc } from "../codec/aminojson.js";
 import { bytesEqual } from "../codec/bytes.js";
-import { SignDocSchema, type Fee, type SignDoc } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
-import { MULTISIG_PUBLIC_KEY_URL, SignerError, type Signer } from "../keys/signer.js";
-import { SignMode, makeAuthInfo, makeFee, makeSignerInfo, makeTxBody, type TxMessage } from "./body.js";
+import { type Fee, type SignDoc, SignDocSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
+import { MULTISIG_PUBLIC_KEY_URL, type Signer, SignerError } from "../keys/signer.js";
+import { makeAuthInfo, makeFee, makeSignerInfo, makeTxBody, SignMode, type TxMessage } from "./body.js";
 import type { FeeQuote } from "./fee.js";
 import { directSignBytes, encodeAuthInfo, encodeTxBody, encodeTxRaw, makeSignDoc, txHash } from "./signdoc.js";
 
@@ -117,5 +117,10 @@ export function simulationTxBytes(input: SimulationTxInput): Uint8Array {
 
 /** The fee a quote declares, as the Fee message a transaction carries. */
 export function feeFromQuote(quote: FeeQuote, options: { payer?: string; granter?: string } = {}): Fee {
-  return makeFee({ amount: quote.declared.map((c) => ({ denom: c.denom, amount: c.amount })), gasLimit: quote.gasLimit, payer: options.payer, granter: options.granter });
+  return makeFee({
+    amount: quote.declared.map((c) => ({ denom: c.denom, amount: c.amount })),
+    gasLimit: quote.gasLimit,
+    payer: options.payer,
+    granter: options.granter,
+  });
 }

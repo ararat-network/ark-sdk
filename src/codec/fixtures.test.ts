@@ -28,7 +28,11 @@ for (const f of fixtures()) {
 
     const rebuilt = fromProtoJson(TxSchema, f.tx as never);
     assert.equal(toBase64(toBinary(TxBodySchema, materialise(TxBodySchema, rebuilt.body!))), f.sign_mode_direct!.body_bytes, "body bytes from JSON");
-    assert.equal(toBase64(toBinary(AuthInfoSchema, materialise(AuthInfoSchema, rebuilt.authInfo!))), f.sign_mode_direct!.auth_info_bytes, "auth info bytes from JSON");
+    assert.equal(
+      toBase64(toBinary(AuthInfoSchema, materialise(AuthInfoSchema, rebuilt.authInfo!))),
+      f.sign_mode_direct!.auth_info_bytes,
+      "auth info bytes from JSON",
+    );
 
     const doc = makeAminoSignDoc({
       body,

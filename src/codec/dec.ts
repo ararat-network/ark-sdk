@@ -65,7 +65,7 @@ export class LegacyDec {
     const negative = this.scaled < 0n;
     const digits = (negative ? -this.scaled : this.scaled).toString().padStart(DEC_PRECISION + 1, "0");
     const point = digits.length - DEC_PRECISION;
-    return (negative ? "-" : "") + digits.slice(0, point) + "." + digits.slice(point);
+    return `${(negative ? "-" : "") + digits.slice(0, point)}.${digits.slice(point)}`;
   }
 
   isZero(): boolean {

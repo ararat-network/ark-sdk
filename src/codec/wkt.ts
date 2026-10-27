@@ -2,7 +2,9 @@
 // proto JSON, Go's time formatting for amino JSON. Both trim fractional
 // seconds, but differently, so each has its own function.
 import { create } from "@bufbuild/protobuf";
-import { DurationSchema, TimestampSchema, type Duration, type Timestamp } from "@bufbuild/protobuf/wkt";
+import { type Duration, DurationSchema, type Timestamp, TimestampSchema } from "@bufbuild/protobuf/wkt";
+
+import { stripTrailing } from "./bytes.js";
 
 const NANOS = 1_000_000_000n;
 
@@ -24,16 +26,16 @@ function isoSeconds(seconds: bigint): string {
 /** jsonpb: RFC 3339 with 0, 3, 6, or 9 fractional digits. */
 export function timestampToProtoJson(ts: Timestamp): string {
   if (ts.nanos < 0 || ts.nanos >= 1_000_000_000) throw new WktError(`timestamp nanos out of range: ${ts.nanos}`);
-  let frac = "." + String(ts.nanos).padStart(9, "0");
+  let frac = `.${String(ts.nanos).padStart(9, "0")}`;
   for (const suffix of ["000", "000", ".000"]) if (frac.endsWith(suffix)) frac = frac.slice(0, -suffix.length);
-  return isoSeconds(ts.seconds) + frac + "Z";
+  return `${isoSeconds(ts.seconds) + frac}Z`;
 }
 
 /** Go's time.RFC3339 when nanos are zero, RFC3339Nano otherwise: trailing zeros dropped. */
 export function timestampToAmino(ts: Timestamp): string {
   if (ts.nanos < 0) throw new WktError(`timestamp nanos must be non-negative: ${ts.nanos}`);
-  const frac = ts.nanos === 0 ? "" : "." + String(ts.nanos).padStart(9, "0").replace(/0+$/, "");
-  return isoSeconds(ts.seconds) + frac + "Z";
+  const frac = ts.nanos === 0 ? "" : `.${stripTrailing(String(ts.nanos).padStart(9, "0"), "0")}`;
+  return `${isoSeconds(ts.seconds) + frac}Z`;
 }
 
 const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/;
@@ -62,7 +64,7 @@ export function durationToProtoJson(d: Duration): string {
   const total = d.seconds * NANOS + BigInt(d.nanos);
   const sign = total < 0n ? "-" : "";
   const abs = total < 0n ? -total : total;
-  let frac = "." + String(abs % NANOS).padStart(9, "0");
+  let frac = `.${String(abs % NANOS).padStart(9, "0")}`;
   for (const suffix of ["000", "000", ".000"]) if (frac.endsWith(suffix)) frac = frac.slice(0, -suffix.length);
   return `${sign}${abs / NANOS}${frac}s`;
 }

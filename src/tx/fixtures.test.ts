@@ -7,7 +7,7 @@ import { test } from "node:test";
 
 import { fromBinary } from "@bufbuild/protobuf";
 
-import { fromBase64, fromHex, toBase64 } from "../codec/bytes.js";
+import { fromHex, toBase64 } from "../codec/bytes.js";
 import { fromProtoJson } from "../codec/protojson.js";
 import { GasPriceSchema } from "../gen/ark/treasury/v1/treasury_pb.js";
 import { SignDocSchema, TxBodySchema, TxSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
@@ -61,7 +61,11 @@ for (const f of fixtures()) {
     assert.equal(quote.required.amount, f.fee!.required.amount, "required gas leg");
     assert.equal(quote.derivedHeight, BigInt(f.fee!.gas_price.derived_height));
     if (overriddenDeclaration.has(f.name)) {
-      assert.notDeepEqual(quote.declared.map((c) => c.amount + c.denom), f.fee!.declared.map((c) => c.amount + c.denom), "the override differs from the quote");
+      assert.notDeepEqual(
+        quote.declared.map((c) => c.amount + c.denom),
+        f.fee!.declared.map((c) => c.amount + c.denom),
+        "the override differs from the quote",
+      );
       return;
     }
     assert.deepEqual(

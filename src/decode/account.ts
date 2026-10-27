@@ -2,7 +2,7 @@
 // vesting accounts, which the seats are. The vesting arithmetic mirrors
 // x/auth/vesting's GetVestedCoins exactly, Dec division and rounding
 // included, so a view agrees with what the chain lets the account move.
-import { type Message, type Registry } from "@bufbuild/protobuf";
+import type { Message, Registry } from "@bufbuild/protobuf";
 import type { Any } from "@bufbuild/protobuf/wkt";
 
 import { unpackAny } from "../codec/any.js";
@@ -10,7 +10,13 @@ import { LegacyDec } from "../codec/dec.js";
 import { registry as defaultRegistry } from "../codec/registry.js";
 import type { BaseAccount, ModuleAccount } from "../gen/cosmos/auth/v1beta1/auth_pb.js";
 import type { Coin } from "../gen/cosmos/base/v1beta1/coin_pb.js";
-import type { BaseVestingAccount, ContinuousVestingAccount, DelayedVestingAccount, PeriodicVestingAccount, PermanentLockedAccount } from "../gen/cosmos/vesting/v1beta1/vesting_pb.js";
+import type {
+  BaseVestingAccount,
+  ContinuousVestingAccount,
+  DelayedVestingAccount,
+  PeriodicVestingAccount,
+  PermanentLockedAccount,
+} from "../gen/cosmos/vesting/v1beta1/vesting_pb.js";
 import { coin } from "../tx/body.js";
 import { sumCoins } from "../tx/fee.js";
 
@@ -58,7 +64,17 @@ const KINDS: Record<string, AccountKind> = {
 
 /** Decodes the Any an account query returns. */
 export function decodeAccount(any: Any, registry: Registry = defaultRegistry): DecodedAccount {
-  const unknown: DecodedAccount = { kind: "unknown", typeUrl: any.typeUrl, address: "", accountNumber: 0n, sequence: 0n, publicKey: undefined, message: undefined, module: undefined, vesting: undefined };
+  const unknown: DecodedAccount = {
+    kind: "unknown",
+    typeUrl: any.typeUrl,
+    address: "",
+    accountNumber: 0n,
+    sequence: 0n,
+    publicKey: undefined,
+    message: undefined,
+    module: undefined,
+    vesting: undefined,
+  };
   const unpacked = unpackAny(any, registry);
   if (!unpacked) return unknown;
   const kind = KINDS[unpacked.schema.typeName] ?? "unknown";
@@ -90,7 +106,13 @@ export function decodeAccount(any: Any, registry: Registry = defaultRegistry): D
     }
     case "periodic_vesting": {
       const m = message as PeriodicVestingAccount;
-      return withBase(m.baseVestingAccount?.baseAccount, { vesting: schedule(m.baseVestingAccount, m.startTime, m.vestingPeriods.map((p) => ({ length: p.length, amount: [...p.amount] }))) });
+      return withBase(m.baseVestingAccount?.baseAccount, {
+        vesting: schedule(
+          m.baseVestingAccount,
+          m.startTime,
+          m.vestingPeriods.map((p) => ({ length: p.length, amount: [...p.amount] })),
+        ),
+      });
     }
     case "permanent_locked": {
       const m = message as PermanentLockedAccount;

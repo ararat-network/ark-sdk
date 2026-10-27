@@ -19,7 +19,15 @@ import { MultisigNeedsAmino, SignerAlteredDocument, signTx, simulationTxBytes } 
 const trader = fixtureKey("trader");
 const signer = MemorySigner.fromPrivateKey(fromHex(trader.private_key_hex));
 const send = typed(MsgSendSchema, create(MsgSendSchema, { fromAddress: signer.address, toAddress: signer.address, amount: [{ denom: "anoah", amount: "1" }] }));
-const base = { signer, address: signer.address, chainId: "localark", accountNumber: 3n, sequence: 9n, messages: [send], fee: makeFee({ amount: [{ denom: "anoah", amount: "42" }], gasLimit: 200000n }) };
+const base = {
+  signer,
+  address: signer.address,
+  chainId: "localark",
+  accountNumber: 3n,
+  sequence: 9n,
+  messages: [send],
+  fee: makeFee({ amount: [{ denom: "anoah", amount: "42" }], gasLimit: 200000n }),
+};
 
 test("amino mode signs the amino document and marks the signer info", async () => {
   const signed = await signTx({ ...base, mode: "amino" });

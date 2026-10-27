@@ -4,8 +4,9 @@
 // by default so a balance never shows more than it is.
 import { create } from "@bufbuild/protobuf";
 
+import { stripTrailing } from "../codec/bytes.js";
 import { LegacyDec } from "../codec/dec.js";
-import { DecCoinSchema, type Coin, type DecCoin } from "../gen/cosmos/base/v1beta1/coin_pb.js";
+import { type Coin, type DecCoin, DecCoinSchema } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import type { Asset, Network } from "../registry/network.js";
 import { coin } from "../tx/body.js";
 
@@ -24,8 +25,8 @@ export function toDisplayUnits(base: bigint | string, exponent: number): string 
   const negative = value < 0n;
   const digits = (negative ? -value : value).toString().padStart(exponent + 1, "0");
   const point = digits.length - exponent;
-  const fraction = digits.slice(point).replace(/0+$/, "");
-  return (negative ? "-" : "") + digits.slice(0, point) + (fraction === "" ? "" : "." + fraction);
+  const fraction = stripTrailing(digits.slice(point), "0");
+  return (negative ? "-" : "") + digits.slice(0, point) + (fraction === "" ? "" : `.${fraction}`);
 }
 
 /** A decimal in display units to base units; refuses more places than the exponent allows. */

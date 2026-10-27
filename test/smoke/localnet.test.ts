@@ -4,19 +4,20 @@
 // decoder, and finds it again by search. A second send goes through sendTx.
 // Runs only with ARK_LOCALNET_REST set, so CI without Docker skips it:
 // ARK_LOCALNET_REST=http://localhost:1317 pnpm test:smoke
+// The key comes from ARK_LOCALNET_MNEMONIC or node0's key_seed.json.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { create } from "@bufbuild/protobuf";
-
+import { MsgSendSchema } from "../../src/gen/cosmos/bank/v1beta1/tx_pb.js";
 import {
-  MemorySigner,
-  Network,
-  QueryClient,
+  type ArkJson,
+  type AssetListJson,
   adjustGas,
   arkdPolicy,
   broadcastAndConfirm,
+  type ChainJson,
   classifyResult,
   coin,
   decodeEvents,
@@ -24,7 +25,10 @@ import {
   feeFromQuote,
   fetchTx,
   formatCoin,
+  MemorySigner,
+  Network,
   packMessages,
+  QueryClient,
   quoteFee,
   searchTxs,
   sendTx,
@@ -33,14 +37,17 @@ import {
   txQuery,
   typed,
   vestedCoins,
-  type ArkJson,
-  type AssetListJson,
-  type ChainJson,
 } from "../../src/index.js";
-import { MsgSendSchema } from "../../src/gen/cosmos/bank/v1beta1/tx_pb.js";
 
-const rest = process.env["ARK_LOCALNET_REST"];
-const data = process.env["ARK_LOCALNET_DATA"] ?? new URL("../../../ark/.testnets", import.meta.url).pathname;
+const rest = process.env.ARK_LOCALNET_REST;
+const data = process.env.ARK_LOCALNET_DATA ?? new URL("../../../ark/.testnets", import.meta.url).pathname;
+
+/** node0's mnemonic: from the environment where the data directory is not readable, else from its key seed file. */
+function developmentMnemonic(): string {
+  const fromEnv = process.env.ARK_LOCALNET_MNEMONIC;
+  if (fromEnv) return fromEnv;
+  return (JSON.parse(readFileSync(`${data}/node0/arkd/key_seed.json`, "utf8")) as { secret: string }).secret;
+}
 
 const read = <T>(file: string): T => JSON.parse(readFileSync(new URL(`../../testdata/registry/arklocal/${file}`, import.meta.url), "utf8")) as T;
 
@@ -49,8 +56,7 @@ test("localnet: tranche, simulate, price, sign, broadcast, confirm, decode", { s
   const client = new QueryClient(rest!);
   await client.verifyNetwork(network);
 
-  const seed = JSON.parse(readFileSync(`${data}/node0/arkd/key_seed.json`, "utf8")) as { secret: string };
-  const signer = MemorySigner.fromMnemonic(seed.secret);
+  const signer = MemorySigner.fromMnemonic(developmentMnemonic());
   const [account] = await signer.accounts();
   assert.ok(account);
 
@@ -109,19 +115,37 @@ test("localnet: tranche, simulate, price, sign, broadcast, confirm, decode", { s
   const found = await fetchTx(client, signed.hash);
   assert.ok(found);
   assert.deepEqual(found.outcome, { kind: "ok" });
-  assert.deepEqual(found.responses.map((r) => r.typeUrl), ["/cosmos.bank.v1beta1.MsgSendResponse"]);
+  assert.deepEqual(
+    found.responses.map((r) => r.typeUrl),
+    ["/cosmos.bank.v1beta1.MsgSendResponse"],
+  );
   const byRecipient = await searchTxs(client, txQuery.byRecipient(recipient));
-  assert.ok(byRecipient.items.some((t) => t.hash === signed.hash), "search finds the send by recipient");
+  assert.ok(
+    byRecipient.items.some((t) => t.hash === signed.hash),
+    "search finds the send by recipient",
+  );
 
   // A localnet validator holds a seat: a continuous vesting account from the testnet artefact.
   const decodedAccount = await client.auth.decodedAccount(signer.address);
   assert.equal(decodedAccount.kind, "continuous_vesting");
   assert.ok(decodedAccount.sequence > info.info.sequence);
   const now = BigInt(Math.floor(Date.now() / 1000));
-  console.log(`seat: ${formatCoin(decodedAccount.vesting!.originalVesting[0]!, network, { locale: "en-GB" })} vesting, ${vestedCoins(decodedAccount, now).length === 0 ? "none vested yet" : "some vested"}`);
+  console.log(
+    `seat: ${formatCoin(decodedAccount.vesting!.originalVesting[0]!, network, { locale: "en-GB" })} vesting, ${vestedCoins(decodedAccount, now).length === 0 ? "none vested yet" : "some vested"}`,
+  );
 
   const again = await sendTx(
-    { client, signer, address: signer.address, chainId: network.chainId, messages: [send], memo: "ark-sdk smoke test 2", feeDenom: "anoah", headroom: arkdPolicy.headroom, gasAdjustment: arkdPolicy.gasAdjustment },
+    {
+      client,
+      signer,
+      address: signer.address,
+      chainId: network.chainId,
+      messages: [send],
+      memo: "ark-sdk smoke test 2",
+      feeDenom: "anoah",
+      headroom: arkdPolicy.headroom,
+      gasAdjustment: arkdPolicy.gasAdjustment,
+    },
     { timeoutMs: 90_000, pollMs: 1_000 },
   );
   assert.deepEqual(classifyResult(again.response), { kind: "ok" }, again.response.rawLog);

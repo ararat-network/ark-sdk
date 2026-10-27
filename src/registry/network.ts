@@ -150,7 +150,7 @@ export class Network {
 
   /** The address prefix for a validator operator. */
   get validatorPrefix(): string {
-    return this.bech32Prefix + "valoper";
+    return `${this.bech32Prefix}valoper`;
   }
 
   /** The first REST endpoint, which a client reaches the gateway through. */
@@ -197,6 +197,10 @@ export async function loadNetwork(name: string, options: LoadOptions = {}): Prom
     if (!response.ok) throw new RegistryError(`${url}: ${response.status} ${response.statusText}`);
     return (await response.json()) as T;
   };
-  const [chain, assets, ark] = await Promise.all([read<ChainJson>("chain.json"), read<import("./types.js").AssetListJson>("assetlist.json"), read<ArkJson>("ark.json")]);
+  const [chain, assets, ark] = await Promise.all([
+    read<ChainJson>("chain.json"),
+    read<import("./types.js").AssetListJson>("assetlist.json"),
+    read<ArkJson>("ark.json"),
+  ]);
   return Network.fromRegistry({ chain, assets, ark });
 }

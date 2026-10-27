@@ -9,8 +9,8 @@ import { unpackAnyAs } from "../codec/any.js";
 import { fromBase64, toBase64, utf8Decode } from "../codec/bytes.js";
 import { PubKeySchema } from "../gen/cosmos/crypto/secp256k1/keys_pb.js";
 import { ADDRESS_LENGTH, decodeAddress, publicKeyToAddress } from "../keys/address.js";
-import { PUBLIC_KEY_LENGTH, SIGNATURE_LENGTH, isLowS, verifyMessage } from "../keys/secp256k1.js";
-import { SECP256K1_PUBLIC_KEY_URL, SignerError, type Signer } from "../keys/signer.js";
+import { isLowS, PUBLIC_KEY_LENGTH, SIGNATURE_LENGTH, verifyMessage } from "../keys/secp256k1.js";
+import { SECP256K1_PUBLIC_KEY_URL, type Signer, SignerError } from "../keys/signer.js";
 import { documentBytes, parseDocument, type SignupDocument } from "./document.js";
 import { adr036SignBytes } from "./signbytes.js";
 
