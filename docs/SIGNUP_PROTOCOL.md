@@ -1,8 +1,8 @@
 # Ark member signup protocol
 
-For the Ark app and SDK, the member platform, security reviewers, and anyone building a signup flow for a member who
-signs with an external wallet. The test vectors in [testdata/signup/vectors.json](../testdata/signup/vectors.json)
-are part of this specification: a producer must reproduce their bytes and a verifier must return their refusals.
+For the Ark app and SDK, the membership service, security reviewers, and anyone building a signup flow for a member who
+signs with an external wallet. The test vectors in [testdata/signup/vectors.json](../testdata/signup/vectors.json) are
+part of this specification: a producer must reproduce their bytes and a verifier must return their refusals.
 
 ## Contents
 
@@ -20,8 +20,8 @@ are part of this specification: a producer must reproduce their bytes and a veri
 
 ## 1. Purpose
 
-A member grant pays to one address for a year and the registration is permanent. The chain never sees a person: the
-link between an admitted person and the address that is paid is made once, off chain, by the member platform. This
+A member grant pays to one address for a year and the registration is permanent. The chain never sees a person: the link
+between an admitted person and the address that is paid is made once, off chain, by the membership service. This
 protocol is that link. It gives the platform two signatures:
 
 - a **proof of possession**: the member signs a challenge the platform issued, which proves the submitted address is
@@ -40,7 +40,7 @@ because a member holds nothing until the grant's first payment.
 | --- | --- |
 | Member | A person admitted by the platform; after registration, the holder of a member grant. |
 | Admission | The platform's record that a person passed the identity check or was vouched for, which basis it rests on, and the vouch if any. It names no person. |
-| Platform | The member platform, the backend behind the Ark app. It issues documents and verifies signatures. |
+| Platform | The membership service, `ark-membership`, the backend behind the Ark app. It issues documents and verifies signatures. |
 | Verifier | The third-party identity check. Its attestation is opaque to this protocol. |
 | Voucher | A member whose address the chain lists, whom the platform has not suspended, and whose standing under the admission rules allows another vouch. |
 | Address | Canonical lowercase Bech32, prefix `ark`, 20-byte payload: RIPEMD-160 of SHA-256 of a compressed secp256k1 key. |
