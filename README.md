@@ -29,8 +29,8 @@ pnpm add @ararat-network/sdk
 ```
 
 A network comes from the registry, a client from its REST endpoints, and the client checks it reached that chain.
-Given several endpoints, a call that cannot reach one, or gets a server error from it, moves to the next and stays
-there:
+Given several endpoints, a call that cannot reach one, or finds it unavailable, moves to the next and stays there;
+an answer that blames the request is final, and a broadcast is never re-sent:
 
 ```ts
 import { collectAll, loadNetwork, QueryClient, searchTxs, txQuery } from "@ararat-network/sdk";
@@ -77,8 +77,8 @@ const outcome = classifyResult(response);
 ```
 
 `sendTx` runs those steps in that order on the same messages, with the headroom, gas adjustment, and fee
-denomination still yours, and retries once when another transaction took the sequence; `prepareAndSign` stops
-before the broadcast:
+denomination still yours, and, when another transaction took the sequence, signs once more at the sequence the
+chain names, whether the mismatch surfaced at simulation or at CheckTx; `prepareAndSign` stops before the broadcast:
 
 ```ts
 import { arkdPolicy, sendTx } from "@ararat-network/sdk";
@@ -93,7 +93,9 @@ a stable leg's slack before it lets NOAH pay and would then charge the whole NOA
 before inclusion refuses the transaction for a new quote. `tip`, in NOAH base units, buys priority: its own leg
 beside a stable gas leg, part of the NOAH leg when NOAH carries the gas, and `quote.tip` is what will be charged as
 tip, exact, since NOAH is charged whole. `broadcastAndConfirm` keeps the mempool's verdict and the block's result
-apart, and `classifyResult` names an SDK refusal, an execution failure, or a module error with its log.
+apart: a broadcast whose answer never arrives is an unknown outcome that carries the hash to poll, a node that
+already holds the transaction counts as an acceptance, and polling rides out an unavailable endpoint until the
+deadline. `classifyResult` names an SDK refusal, an execution failure, or a module error with its log.
 `decodeMsgResponses` reads the responses the messages returned from the result's data. Nothing summarises a tax, a
 tip, a price age, or a pending transaction away.
 
