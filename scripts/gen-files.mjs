@@ -1,8 +1,8 @@
 // Writes src/codec/files.ts: every generated file descriptor, so the registry
 // that resolves Any type URLs and event types knows each message the chain
 // can emit. Runs after buf generate; gen:check diffs the result.
-import { readdirSync, statSync, readFileSync, writeFileSync } from "node:fs";
-import { join, relative, dirname } from "node:path";
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -22,7 +22,7 @@ const entries = [];
 for (const path of walk(gen, [])) {
   const match = readFileSync(path, "utf8").match(/^export const (file_\w+): GenFile/m);
   if (!match) continue;
-  const spec = "../gen/" + relative(gen, path).replace(/\.ts$/, ".js");
+  const spec = `../gen/${relative(gen, path).replace(/\.ts$/, ".js")}`;
   entries.push({ name: match[1], spec });
 }
 

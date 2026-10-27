@@ -14,7 +14,7 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./gen/*": {
+    "./gen/*.js": {
       "types": "./dist/gen/*.d.ts",
       "default": "./dist/gen/*.js"
     }
@@ -36,9 +36,15 @@
     "fixtures:sync": "./scripts/sync-fixtures.sh",
     "fixtures:check": "./scripts/sync-fixtures.sh && git diff --exit-code --stat -- testdata/decoding",
     "check": "tsc --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
     "test": "node --import tsx --test 'src/**/*.test.ts'",
+    "test:coverage": "node --import tsx --test --experimental-test-coverage --test-coverage-include='src/**/*.ts' --test-coverage-exclude='src/gen/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/testing/**' --test-coverage-lines=85 --test-coverage-branches=75 'src/**/*.test.ts'",
     "test:smoke": "node --import tsx --test 'test/smoke/*.test.ts'",
-    "build": "rm -rf dist && tsc -p tsconfig.build.json"
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "check:package": "./scripts/check-package.sh",
+    "check:browser": "node scripts/check-browser.mjs"
   },
   "dependencies": {
     "@bufbuild/protobuf": "2.16.0",
@@ -49,9 +55,13 @@
     "@scure/bip39": "2.4.0"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.5",
+    "@biomejs/biome": "2.6.3",
     "@bufbuild/buf": "1.75.0",
     "@bufbuild/protoc-gen-es": "2.16.0",
     "@types/node": "22.20.5",
+    "esbuild": "0.28.2",
+    "publint": "0.3.25",
     "tsx": "4.23.15",
     "typescript": "7.0.2"
   }
