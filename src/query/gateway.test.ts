@@ -113,3 +113,49 @@ test("facades send enum and bigint request fields as the gateway expects", async
   await client.tx.simulate(new Uint8Array([1, 2]));
   assert.equal(JSON.parse(seen[2]!.body!).tx_bytes, "AQI=");
 });
+
+test("several endpoints: a call moves past one that cannot answer and stays on the one that did", async () => {
+  const calls: string[] = [];
+  const fetchStub = (async (input: string | URL | Request) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.startsWith("http://a/")) throw new TypeError("fetch failed");
+    if (url.startsWith("http://b/")) return json({ code: 13, message: "overloaded", details: [] }, { status: 503 });
+    return json({ default_node_info: { network: "localark" }, application_version: null });
+  }) as typeof fetch;
+  const client = new QueryClient(["http://a", "http://b", "http://c"], { fetch: fetchStub });
+  const info = await client.node.info();
+  assert.equal(info.defaultNodeInfo?.network, "localark");
+  assert.deepEqual(calls.map((u) => u.slice(0, 9)), ["http://a/", "http://b/", "http://c/"]);
+  assert.equal(client.gateway.baseUrl, "http://c");
+  await client.node.info();
+  assert.equal(calls.length, 4, "the next call starts at the endpoint that answered");
+  assert.ok(calls[3]!.startsWith("http://c/"));
+});
+
+test("a request error does not fail over, and every endpoint failing surfaces the last error", async () => {
+  const seen: string[] = [];
+  const notFound = (async (input: string | URL | Request) => {
+    seen.push(String(input));
+    return json({ code: 5, message: "no such grant", details: [] }, { status: 404 });
+  }) as typeof fetch;
+  const client = new QueryClient(["http://a", "http://b"], { fetch: notFound });
+  await assert.rejects(client.disbursement.grant(1n), (err: unknown) => err instanceof QueryError && err.isNotFound);
+  assert.equal(seen.length, 1);
+
+  const down = (async () => {
+    throw new TypeError("fetch failed");
+  }) as typeof fetch;
+  await assert.rejects(new QueryClient(["http://a", "http://b"], { fetch: down }).node.info(), TransportError);
+
+  const aborted = new AbortController();
+  aborted.abort();
+  let attempts = 0;
+  const abortFetch = (async () => {
+    attempts++;
+    throw new DOMException("aborted", "AbortError");
+  }) as typeof fetch;
+  await assert.rejects(new QueryClient(["http://a", "http://b"], { fetch: abortFetch }).gateway.call(TreasuryQuery, "params", {}, { signal: aborted.signal }));
+  assert.equal(attempts, 1, "an aborted call tries no other endpoint");
+  assert.throws(() => new QueryClient([]), /at least one endpoint/);
+});

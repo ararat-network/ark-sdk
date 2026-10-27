@@ -15,10 +15,11 @@ import { Service as NodeService } from "../gen/cosmos/base/tendermint/v1beta1/qu
 import { Query as DistributionQuery } from "../gen/cosmos/distribution/v1beta1/query_pb.js";
 import { Query as GovQuery } from "../gen/cosmos/gov/v1/query_pb.js";
 import { Query as StakingQuery } from "../gen/cosmos/staking/v1beta1/query_pb.js";
-import { BroadcastMode, Service as TxService } from "../gen/cosmos/tx/v1beta1/service_pb.js";
+import { BroadcastMode, OrderBy, Service as TxService } from "../gen/cosmos/tx/v1beta1/service_pb.js";
 import type { PageRequestSchema } from "../gen/cosmos/base/query/v1beta1/pagination_pb.js";
 import type { QueryGrantsRequestSchema } from "../gen/ark/disbursement/v1/query_pb.js";
 import type { QueryProposalsRequestSchema } from "../gen/cosmos/gov/v1/query_pb.js";
+import { decodeAccount, type DecodedAccount } from "../decode/account.js";
 import type { Network } from "../registry/network.js";
 import { GatewayClient, type GatewayOptions } from "./gateway.js";
 
@@ -37,15 +38,15 @@ type Page = MessageInitShape<typeof PageRequestSchema> | undefined;
 export class QueryClient {
   readonly gateway: GatewayClient;
 
-  constructor(restUrl: string, options: GatewayOptions = {}) {
+  constructor(restUrl: string | readonly string[], options: GatewayOptions = {}) {
     this.gateway = new GatewayClient(restUrl, options);
   }
 
-  /** A client for the network's first REST endpoint. */
+  /** A client over the network's REST endpoints, in the registry's order, moving on when one cannot answer. */
   static forNetwork(network: Network, options: GatewayOptions = {}): QueryClient {
-    const url = network.restUrl;
-    if (!url) throw new Error(`network ${network.chainId} lists no REST endpoint`);
-    return new QueryClient(url, options);
+    const urls = network.endpoints.rest.map((e) => e.address);
+    if (urls.length === 0) throw new Error(`network ${network.chainId} lists no REST endpoint`);
+    return new QueryClient(urls, options);
   }
 
   /** Checks the node is on the network's chain, refusing another chain under the same endpoint. */
@@ -104,6 +105,12 @@ export class QueryClient {
     /** Account number and sequence, whatever the account's type. */
     accountInfo: (address: string) => this.#value(AuthQuery, "accountInfo", { address }),
     account: (address: string) => this.#value(AuthQuery, "account", { address }),
+    /** The account decoded by type: base, module, or one of the vesting accounts, with its schedule. */
+    decodedAccount: async (address: string): Promise<DecodedAccount> => {
+      const { account } = await this.#value(AuthQuery, "account", { address });
+      if (!account) throw new Error(`no account at ${address}`);
+      return decodeAccount(account);
+    },
   };
 
   readonly bank = {
@@ -146,6 +153,11 @@ export class QueryClient {
     broadcast: (txBytes: Uint8Array, mode: BroadcastMode = BroadcastMode.SYNC) => this.#value(TxService, "broadcastTx", { txBytes, mode }),
     /** A committed transaction by hash; NotFound while it is pending. */
     getTx: (hash: string) => this.#value(TxService, "getTx", { hash }),
+    /** Committed transactions matching a CometBFT event query such as message.sender='ark1...'; needs a node that indexes transactions. */
+    search: (query: string, options: { page?: bigint; limit?: bigint; orderBy?: OrderBy } = {}) =>
+      this.#value(TxService, "getTxsEvent", { query, page: options.page ?? 1n, limit: options.limit ?? 50n, orderBy: options.orderBy ?? OrderBy.DESC }),
+    /** The transactions of one block, decoded. */
+    byBlock: (height: bigint, pagination?: Page) => this.#value(TxService, "getBlockWithTxs", { height, pagination }),
   };
 
   readonly node = {
@@ -163,4 +175,4 @@ export class QueryClient {
   }
 }
 
-export { BroadcastMode };
+export { BroadcastMode, OrderBy };

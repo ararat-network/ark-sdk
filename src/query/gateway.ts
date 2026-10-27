@@ -2,13 +2,16 @@
 // A route is never written by hand: each method's google.api.http option is in
 // the generated descriptor, so one caller serves every service. Responses are
 // the gateway's gogoproto JSON, read by the codec's dialect reader, and every
-// result carries the block height the node answered at.
-import { getOption, hasOption, type DescMethod, type MessageInitShape, type MessageShape } from "@bufbuild/protobuf";
+// result carries the block height the node answered at. Given several
+// endpoints, a call that cannot reach one, or gets a server error from it,
+// moves to the next and stays there.
+import { getOption, hasOption, type DescMethod, type MessageInitShape, type MessageShape, type Registry } from "@bufbuild/protobuf";
 import { create } from "@bufbuild/protobuf";
 import type { GenService, GenServiceMethods } from "@bufbuild/protobuf/codegenv2";
 
 import type { JsonObject, JsonValue } from "../codec/json.js";
 import { fromProtoJson, toProtoJson } from "../codec/protojson.js";
+import { registry as defaultRegistry } from "../codec/registry.js";
 import { http } from "../gen/google/api/annotations_pb.js";
 
 /** gRPC status codes the gateway reports in its error body. */
@@ -64,6 +67,8 @@ export interface GatewayOptions {
   fetch?: typeof fetch;
   /** Headers sent with every request, for a node behind authentication. */
   headers?: Record<string, string>;
+  /** The types Any fields resolve against; every generated type by default. */
+  registry?: Registry;
 }
 
 export interface CallOptions {
@@ -89,17 +94,28 @@ export interface Route {
 }
 
 export class GatewayClient {
-  readonly baseUrl: string;
+  /** The endpoints, in the order they are tried. */
+  readonly baseUrls: readonly string[];
   readonly #fetch: typeof fetch;
   readonly #headers: Record<string, string>;
+  readonly #registry: Registry;
+  #current = 0;
 
-  constructor(baseUrl: string, options: GatewayOptions = {}) {
-    this.baseUrl = baseUrl.replace(/\/+$/, "");
+  constructor(baseUrl: string | readonly string[], options: GatewayOptions = {}) {
+    const urls = (typeof baseUrl === "string" ? [baseUrl] : [...baseUrl]).map((u) => u.replace(/\/+$/, ""));
+    if (urls.length === 0) throw new Error("a gateway client needs at least one endpoint");
+    this.baseUrls = urls;
     this.#fetch = options.fetch ?? globalThis.fetch;
     this.#headers = { ...options.headers };
+    this.#registry = options.registry ?? defaultRegistry;
   }
 
-  /** Calls one unary method of a generated service. */
+  /** The endpoint the last successful call used. */
+  get baseUrl(): string {
+    return this.baseUrls[this.#current] as string;
+  }
+
+  /** Calls one unary method of a generated service, moving to the next endpoint when one cannot answer. */
   async call<S extends GenService<GenServiceMethods>, M extends MethodNames<S>>(
     service: S,
     method: M,
@@ -109,8 +125,24 @@ export class GatewayClient {
     const desc = service.method[method] as DescMethod;
     const input = desc.input as InputOf<S, M>;
     const message = create(input, request);
-    const route = routeFor(desc, toProtoJson(input, message) as JsonObject);
-    const url = this.baseUrl + route.path;
+    const route = routeFor(desc, toProtoJson(input, message, { registry: this.#registry }) as JsonObject);
+    let lastError: unknown;
+    for (let attempt = 0; attempt < this.baseUrls.length; attempt++) {
+      const index = (this.#current + attempt) % this.baseUrls.length;
+      try {
+        const result = await this.#request<MessageShape<OutputOf<S, M>>>(this.baseUrls[index] as string, route, desc, options);
+        this.#current = index;
+        return result;
+      } catch (err) {
+        lastError = err;
+        if (options.signal?.aborted || !failsOver(err)) throw err;
+      }
+    }
+    throw lastError;
+  }
+
+  async #request<T>(baseUrl: string, route: Route, desc: DescMethod, options: CallOptions): Promise<GatewayResult<T>> {
+    const url = baseUrl + route.path;
     const headers: Record<string, string> = { accept: "application/json", ...this.#headers };
     if (options.height !== undefined) headers["x-cosmos-block-height"] = options.height.toString();
     const init: RequestInit = { method: route.verb, headers };
@@ -137,8 +169,13 @@ export class GatewayClient {
     if (!response.ok) throw gatewayError(json, response.status, url);
     const heightHeader = response.headers.get("grpc-metadata-x-cosmos-block-height");
     const height = heightHeader !== null && /^\d+$/.test(heightHeader) ? BigInt(heightHeader) : undefined;
-    return { value: fromProtoJson(desc.output as OutputOf<S, M>, json) as MessageShape<OutputOf<S, M>>, height };
+    return { value: fromProtoJson(desc.output, json, { registry: this.#registry }) as T, height };
   }
+}
+
+/** Whether an error says the endpoint, not the request, is at fault. */
+function failsOver(err: unknown): boolean {
+  return err instanceof TransportError || (err instanceof QueryError && err.httpStatus >= 500);
 }
 
 function gatewayError(json: JsonValue, status: number, url: string): QueryError {
