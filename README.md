@@ -87,10 +87,15 @@ const sent = await sendTx({ client, signer, address: fromAddress, chainId: netwo
 ```
 
 `quote` says what is declared and why: the tax legs, the gas leg at the sheet's price and the height that priced it,
-each leg's lift, and the most a NOAH leg can leave as tip. `broadcastAndConfirm` keeps the mempool's verdict and
-the block's result apart, and `classifyResult` names an SDK refusal, an execution failure, or a module error with its
-log. `decodeMsgResponses` reads the responses the messages returned from the result's data. Nothing summarises a
-tax, a tip, a price age, or a pending transaction away.
+each leg's lift, and the tip, exact, when NOAH carries the gas. The fee denomination is yours. Beside a stable gas
+leg every lift is free; beside a NOAH gas leg the tax legs are declared exact, since the ante takes the base fee from
+a stable leg's slack before it lets NOAH pay and would then charge the whole NOAH leg as tip, so a tax that rises
+before inclusion refuses the transaction for a new quote. `tip`, in NOAH base units, buys priority: its own leg
+beside a stable gas leg, part of the NOAH leg when NOAH carries the gas, and `quote.tip` is what will be charged as
+tip, exact, since NOAH is charged whole. `broadcastAndConfirm` keeps the mempool's verdict and the block's result
+apart, and `classifyResult` names an SDK refusal, an execution failure, or a module error with its log.
+`decodeMsgResponses` reads the responses the messages returned from the result's data. Nothing summarises a tax, a
+tip, a price age, or a pending transaction away.
 
 The signup proof and the vouch go through the same signer:
 

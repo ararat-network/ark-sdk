@@ -36,6 +36,8 @@ export interface PrepareInput {
   gasAdjustment: number;
   /** A gas limit to use instead of simulating. */
   gasLimit?: bigint;
+  /** A tip in NOAH base units: its own leg beside a stable gas leg, part of the NOAH leg when NOAH carries the gas. */
+  tip?: bigint;
   legOrder?: readonly string[];
   nativeDenom?: string;
   payer?: string;
@@ -81,7 +83,15 @@ export async function prepareAndSign(input: PrepareInput): Promise<Prepared> {
   const gasPrice =
     sheet.gasPrices.find((p) => p.denom === input.feeDenom) ?? (sheet.referenceGasPrice?.denom === input.feeDenom ? sheet.referenceGasPrice : undefined);
   if (!gasPrice) throw new FeeError(`${input.feeDenom} is not on the gas price sheet; the chain does not accept it for the base fee`);
-  const quote = quoteFee({ tax: tax.tax, gasPrice, gasLimit, headroom: input.headroom, legOrder: input.legOrder, nativeDenom: input.nativeDenom });
+  const quote = quoteFee({
+    tax: tax.tax,
+    gasPrice,
+    gasLimit,
+    headroom: input.headroom,
+    tip: input.tip,
+    legOrder: input.legOrder,
+    nativeDenom: input.nativeDenom,
+  });
 
   const signed = await signTx({
     signer: input.signer,

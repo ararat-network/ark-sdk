@@ -81,7 +81,7 @@ test("localnet: tranche, simulate, price, sign, broadcast, confirm, decode", { s
   const noahPrice = sheet.gasPrices.find((p) => p.denom === "anoah");
   assert.ok(noahPrice, "the sheet prices NOAH");
   const quote = quoteFee({ tax: tax.tax, gasPrice: noahPrice, gasLimit, headroom: arkdPolicy.headroom });
-  console.log(`gas ${gasLimit}, declared ${quote.declared.map((c) => c.amount + c.denom).join(",")}, tip at most ${quote.maxTip?.amount ?? "0"}anoah`);
+  console.log(`gas ${gasLimit}, declared ${quote.declared.map((c) => c.amount + c.denom).join(",")}, tip ${quote.tip?.amount ?? "0"}anoah`);
 
   const signed = await signTx({
     signer,
