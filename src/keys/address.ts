@@ -34,7 +34,7 @@ export interface DecodedAddress {
   bytes: Uint8Array;
 }
 
-export interface DecodeOptions {
+export interface AddressDecodeOptions {
   /** The prefix the address must carry; any prefix when omitted. */
   prefix?: string;
   /** The payload lengths accepted; 20 and 32 bytes (accounts and contracts) by default. */
@@ -42,7 +42,7 @@ export interface DecodeOptions {
 }
 
 /** Decodes a canonical Bech32 address, refusing uppercase, a wrong prefix, or a wrong length. */
-export function decodeAddress(address: string, options: DecodeOptions = {}): DecodedAddress {
+export function decodeAddress(address: string, options: AddressDecodeOptions = {}): DecodedAddress {
   if (address !== address.toLowerCase()) throw new AddressError(`address is not lowercase: ${address}`);
   let decoded: { prefix: string; words: number[] };
   try {
