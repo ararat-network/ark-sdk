@@ -3,7 +3,7 @@
 // the generated descriptor, so one caller serves every service. Responses are
 // the gateway's gogoproto JSON, read by the codec's dialect reader, and every
 // result carries the block height the node answered at.
-import { getOption, hasOption, type DescMessage, type DescMethod, type MessageInitShape, type MessageShape } from "@bufbuild/protobuf";
+import { getOption, hasOption, type DescMethod, type MessageInitShape, type MessageShape } from "@bufbuild/protobuf";
 import { create } from "@bufbuild/protobuf";
 import type { GenService, GenServiceMethods } from "@bufbuild/protobuf/codegenv2";
 
@@ -195,4 +195,3 @@ function queryString(fields: JsonObject): string {
   return s === "" ? "" : "?" + s;
 }
 
-export type { DescMessage };
