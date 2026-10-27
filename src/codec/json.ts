@@ -117,15 +117,13 @@ export function goJsonString(s: string): string {
   return `${out}"`;
 }
 
-/** Formats a number as Go's float64 marshalling does; integers are exact. */
+/**
+ * Formats a number as Go's float64 marshalling does, which is JavaScript's own
+ * formatting: shortest round-trip digits, an exponent below 1e-6 and from
+ * 1e21, and no leading zero in a negative exponent, since encoding/json
+ * rewrites strconv's e-07 as e-7.
+ */
 export function goJsonNumber(n: number): string {
   if (!Number.isFinite(n)) throw new RangeError(`json: unsupported value ${n}`);
-  const s = String(n);
-  const e = s.indexOf("e");
-  if (e < 0) return s;
-  // Go writes at least two exponent digits: 1e-07, not 1e-7.
-  const mantissa = s.slice(0, e);
-  const sign = s[e + 1] as string;
-  const digits = s.slice(e + 2);
-  return `${mantissa}e${sign}${digits.length < 2 ? `0${digits}` : digits}`;
+  return String(n);
 }

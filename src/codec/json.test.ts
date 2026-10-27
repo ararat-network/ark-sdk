@@ -23,14 +23,19 @@ test("goJsonString escapes as Go does", () => {
   for (const [input, want] of cases) assert.equal(goJsonString(input), want, JSON.stringify(input));
 });
 
-test("goJsonNumber pads the exponent like Go", () => {
+// The expected strings are encoding/json's output for the same float64 values.
+test("goJsonNumber formats as Go's encoding/json does", () => {
   const cases: [number, string][] = [
     [0, "0"],
     [-3, "-3"],
     [1.5, "1.5"],
+    [0.000001, "0.000001"],
+    [1e-7, "1e-7"],
+    [1e-8, "1e-8"],
+    [1.5e-10, "1.5e-10"],
+    [1e-21, "1e-21"],
     [1e21, "1e+21"],
     [1.5e22, "1.5e+22"],
-    [1e-7, "1e-07"],
     [123456789012345680000, "123456789012345680000"],
   ];
   for (const [input, want] of cases) assert.equal(goJsonNumber(input), want);
