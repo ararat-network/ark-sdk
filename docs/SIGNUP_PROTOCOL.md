@@ -40,7 +40,7 @@ because a member holds nothing until the grant's first payment.
 | --- | --- |
 | Member | A person admitted by the platform; after registration, the holder of a member grant. |
 | Admission | The platform's record that a person passed the identity check or was vouched for, which basis it rests on, and the vouch if any. It names no person. |
-| Platform | The membership service, `ark-membership`, the backend behind the Ark app. It issues documents and verifies signatures. |
+| Platform | The membership service in `ark-backend`, the backend behind the Ark app. It issues documents and verifies signatures. |
 | Verifier | The third-party identity check. Its attestation is opaque to this protocol. |
 | Voucher | A member whose address the chain lists, whom the platform has not suspended, and whose standing under the admission rules allows another vouch. |
 | Address | Canonical lowercase Bech32, prefix `ark`, 20-byte payload: RIPEMD-160 of SHA-256 of a compressed secp256k1 key. |
