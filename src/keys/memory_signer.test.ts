@@ -5,7 +5,7 @@ import { fromBinary } from "@bufbuild/protobuf";
 
 import { fromBase64, fromHex, toBase64, utf8Encode } from "../codec/bytes.js";
 import { SignDocSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
-import { fixture, fixtureKey, signupVectors } from "../testing/fixtures.js";
+import { fixture, fixtureKey } from "../testing/fixtures.js";
 import { MemorySigner } from "./memory_signer.js";
 import { verifyMessage } from "./secp256k1.js";
 import { SECP256K1_PUBLIC_KEY_URL, SignerError } from "./signer.js";
@@ -21,16 +21,6 @@ test("signDirect reproduces a fixture's signature over its sign document", async
   const { signature } = await signer.signDirect(signer.address, signDoc);
   assert.equal(toBase64(signature), f.signature);
   await assert.rejects(signer.signDirect("ark1other", signDoc), SignerError);
-});
-
-test("signArbitrary reproduces the signup vectors", async () => {
-  const { keys, vectors } = signupVectors();
-  const member = keys.find((k) => k.name === "member")!;
-  const signer = MemorySigner.fromPrivateKey(fromHex(member.private_key_hex));
-  const ok = vectors.find((v) => v.name === "challenge_ok")!;
-  const { signature, publicKey } = await signer.signArbitrary(signer.address, utf8Encode(ok.data));
-  assert.equal(toBase64(signature), ok.signature);
-  assert.equal(publicKey.typeUrl, SECP256K1_PUBLIC_KEY_URL);
 });
 
 test("signAmino signs the sorted JSON bytes", async () => {

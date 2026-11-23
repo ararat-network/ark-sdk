@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { bech32, bech32m } from "@scure/base";
 
 import { fromBase64, fromHex, toBase64, toHex, utf8Encode } from "../codec/bytes.js";
-import { fixtureKeys, signupVectors } from "../testing/fixtures.js";
+import { fixtureKeys } from "../testing/fixtures.js";
 import {
   AddressError,
   addressBytes,
@@ -19,9 +19,9 @@ import {
 import { hdPath, isValidMnemonic, privateKeyFromMnemonic } from "./hd.js";
 import { isCompressedPublicKey, isLowS, publicKeyFromPrivate, randomPrivateKey, signMessage, verifyMessage } from "./secp256k1.js";
 
-test("fixture and vector keys derive their public keys and addresses", () => {
-  const keys = [...fixtureKeys().accounts, ...signupVectors().keys];
-  assert.ok(keys.length >= 11);
+test("fixture keys derive their public keys and addresses", () => {
+  const keys = fixtureKeys().accounts;
+  assert.ok(keys.length >= 8);
   for (const k of keys) {
     const pub = publicKeyFromPrivate(fromHex(k.private_key_hex));
     assert.equal(toBase64(pub), k.public_key, k.name);

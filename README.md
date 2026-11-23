@@ -5,8 +5,8 @@ implements. The [tooling direction](https://github.com/ararat-network/ark/blob/m
 says what the SDK is for and where it sits among Ark's repositories.
 
 The package is `@ararat-network/sdk`. It holds what the first member tranche needs: the network registry, keys and
-addresses behind a signer interface, typed queries, transaction construction under the fee contract, the signup
-protocol's ADR-036 proof, and a decoder, every byte checked against the chain's own fixtures.
+addresses behind a signer interface, typed queries, transaction construction under the fee contract, and a decoder,
+every byte checked against the chain's own fixtures.
 
 | Path | Holds |
 | --- | --- |
@@ -15,12 +15,10 @@ protocol's ADR-036 proof, and a decoder, every byte checked against the chain's 
 | [src/codec/](src/codec/) | The chain's JSON dialect both ways, the amino JSON encoder a Ledger signs, `LegacyDec`, Any packing, and the type registry. |
 | [src/query/](src/query/) | The gateway client over one endpoint or several, routes read from the generated descriptors, typed facades for Ark's and the Cosmos modules, pagination, and transaction search. |
 | [src/tx/](src/tx/) | Body, fee, sign documents, signing in direct or amino mode, broadcast, confirmation by polling, and the whole flow in one call. |
-| [src/adr036/](src/adr036/) | The signup challenge and vouch document, its canonical bytes, the proof, and the stateless checks. |
 | [src/decode/](src/decode/) | Transactions, typed events, results, message responses, and accounts with their vesting schedules, read the one way every Ark reader must. |
 | [src/format/](src/format/) | Amounts in display units for a locale, coin text, shortened addresses. |
 | [src/gen/](src/gen/) | Every message, query, and event the SDK can meet, generated from the protos at the pins below; importable as `@ararat-network/sdk/gen/...`. |
 | [testdata/decoding/](testdata/decoding/) | `ark`'s decoding fixtures at the tag in [ARK_VERSION](ARK_VERSION): the byte-for-byte contract the codec, builder, and decoder are tested against. |
-| [testdata/signup/vectors.json](testdata/signup/vectors.json) | The vectors of the [member signup protocol](https://github.com/ararat-network/ark-app/blob/main/signer/docs/SIGNUP_PROTOCOL.md), which the producer here and the membership service's verifier both reproduce. |
 
 ## Use
 
@@ -110,15 +108,6 @@ deadline. `classifyResult` names an SDK refusal, an execution failure, or a modu
 `decodeMsgResponses` reads the responses the messages returned from the result's data. Nothing summarises a tax, a
 tip, a price age, or a pending transaction away.
 
-The signup proof and the vouch go through the same signer:
-
-```ts
-import { signDocument, submissionToJson } from "@ararat-network/sdk";
-
-const submission = await signDocument(signer, address, challengeIssuedByThePlatform);
-await fetch(`${origin}/signup/proof`, { method: "POST", body: JSON.stringify(submissionToJson(submission)) });
-```
-
 A transaction a node returns, and each event it emitted, decode to typed messages and to the chain's own JSON:
 
 ```ts
@@ -136,10 +125,11 @@ not know decodes as unknown, with its type URL and bytes, never under a label it
 
 Nothing in the package holds a private key but `MemorySigner`, which exists for tests and development against a
 localnet. `Signer` is what the SDK asks of whatever does: the accounts it can sign for, `signDirect` over the
-protobuf sign document, `signAmino` over the amino document for a Ledger, and `signArbitrary` over the ADR-036 sign
-bytes for the signup protocol. The app's signer package implements it for device keys and the Ledger;
-`fromOfflineSigner` wraps a wallet with CosmJS's OfflineSigner shape, such as Keplr or Leap, including its ADR-036
-call. The builder refuses to continue if a signer returns a different document than it was given, and refuses
+protobuf sign document and `signAmino` over the amino document for a Ledger. The app's signer package implements it
+for device keys and the Ledger; `fromOfflineSigner` wraps a wallet with CosmJS's OfflineSigner shape, such as Keplr or
+Leap. The member signup protocol's documents and their ADR-036 signature are not here: they are the
+[app's signer's](https://github.com/ararat-network/ark-app/tree/main/signer), since signup is completed in the app
+alone. The builder refuses to continue if a signer returns a different document than it was given, and refuses
 direct mode for a multisig key; a wallet that lets its user edit the fee or memo in its prompt therefore has to be
 asked not to, which for Keplr is `preferNoSetFee` and `preferNoSetMemo` on the offline signer.
 
@@ -188,8 +178,7 @@ and `pnpm check:browser` prove the built tarball installs, its types resolve, an
 from its messages and declared fee: the body and auth-info bytes, the direct sign document, the amino sign bytes a
 Ledger would sign, the deterministic signature with the fixture's key, the raw bytes, and the hash; its declared fee
 is recomputed from the tax, gas price, gas limit, and pads it records; and its transaction, every typed event in it
-and in the recorded blocks, and its result decode to what the files pin. Every one of the 16 signup vectors
-reproduces its sign bytes and, where valid, its signature, and the stateless rules return its refusal.
+and in the recorded blocks, and its result decode to what the files pin.
 
 Against `ark`'s Docker localnet (`make localnet-start` in `ark`), the smoke test reads the open member tranche,
 then simulates, prices, signs, broadcasts, and confirms a bank send from node0's development key, and decodes the

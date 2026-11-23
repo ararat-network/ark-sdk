@@ -1,5 +1,5 @@
 // Readers for the test data the SDK is checked against: ark's decoding
-// fixtures and the signup vectors. Test-only; excluded from the build.
+// fixtures. Test-only; excluded from the build.
 import { readdirSync, readFileSync } from "node:fs";
 
 const root = new URL("../../testdata/", import.meta.url);
@@ -76,31 +76,4 @@ export function fixtures(): Fixture[] {
 
 export function fixture(name: string): Fixture {
   return readJson<Fixture>(`decoding/${name}.json`);
-}
-
-export interface SignupKey {
-  name: string;
-  private_key_hex: string;
-  public_key: string;
-  address: string;
-}
-
-export interface SignupVector {
-  name: string;
-  description: string;
-  prefix: string;
-  domain: string;
-  challenge: Record<string, string> | null;
-  now: string;
-  signer: string;
-  public_key: string;
-  data: string;
-  sign_bytes: string;
-  signature: string;
-  signature_valid: boolean;
-  expect: string;
-}
-
-export function signupVectors(): { keys: SignupKey[]; vectors: SignupVector[] } {
-  return readJson<{ keys: SignupKey[]; vectors: SignupVector[] }>("signup/vectors.json");
 }

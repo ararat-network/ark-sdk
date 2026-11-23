@@ -28,11 +28,6 @@ export interface AminoSignature {
   readonly signature: Uint8Array;
 }
 
-export interface ArbitrarySignature {
-  readonly signature: Uint8Array;
-  readonly publicKey: Any;
-}
-
 export interface Signer {
   /** The accounts this signer can sign for. */
   accounts(): Promise<readonly SignerAccount[]>;
@@ -40,8 +35,6 @@ export interface Signer {
   signDirect(address: string, signDoc: SignDoc): Promise<DirectSignature>;
   /** SIGN_MODE_LEGACY_AMINO_JSON: a signature over the sorted JSON sign document, the Ledger path. */
   signAmino(address: string, signDoc: AminoSignDoc): Promise<AminoSignature>;
-  /** ADR-036: a signature over the sign bytes for `data` by this address. */
-  signArbitrary(address: string, data: Uint8Array): Promise<ArbitrarySignature>;
 }
 
 export class SignerError extends Error {

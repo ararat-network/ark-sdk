@@ -1,6 +1,6 @@
 // Ark addresses: Bech32 with the network's prefix over RIPEMD-160 of SHA-256 of
-// a compressed secp256k1 key. Canonical means lowercase, which the signup
-// protocol and the chain both require.
+// a compressed secp256k1 key. Canonical means lowercase, which the chain
+// requires.
 import { ripemd160 } from "@noble/hashes/legacy.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bech32 } from "@scure/base";

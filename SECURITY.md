@@ -42,7 +42,7 @@ exists for tests and development. What it does trust, and checks as far as it ca
 - **The chain's fixtures**, copied from `ark` at the tag in `ARK_VERSION` and reproduced byte
   for byte by the tests: the contract the codec, builder, and decoder are held to.
 - **A wallet** behind `fromOfflineSigner`: the builder refuses a sign document the wallet
-  altered, and the signup proof checks the wallet's key against the address it signed for.
+  altered.
 
 The chain's own trust boundaries are in
 [ark's threat model](https://github.com/ararat-network/ark/blob/main/docs/security/THREAT_MODEL.md).
@@ -50,8 +50,7 @@ The chain's own trust boundaries are in
 ## Scope and handling
 
 Reports may concern the codec and sign bytes, transaction construction and fee pricing,
-the signup protocol's proof, the query client, the registry loader, or the repository's
-build and release tooling. Include any relevant upstream dependency and version when
+the query client, the registry loader, or the repository's build and release tooling. Include any relevant upstream dependency and version when
 the issue involves third-party code.
 
 Maintainers will assess the report and coordinate fixes and disclosure through the

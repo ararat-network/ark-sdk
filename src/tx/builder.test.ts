@@ -47,7 +47,6 @@ test("a multisig key is refused in direct mode and not yet signed in amino", asy
     accounts: async () => [{ address: signer.address, publicKey: create(AnySchema, { typeUrl: MULTISIG_PUBLIC_KEY_URL, value: new Uint8Array() }) }],
     signDirect: () => Promise.reject(new Error("unreachable")),
     signAmino: () => Promise.reject(new Error("unreachable")),
-    signArbitrary: () => Promise.reject(new Error("unreachable")),
   };
   await assert.rejects(signTx({ ...base, signer: multisig }), MultisigNeedsAmino);
   await assert.rejects(signTx({ ...base, signer: multisig, mode: "amino" }), /multisig signing/);
@@ -64,7 +63,6 @@ test("a signer that alters the document stops the build", async () => {
       const signed = await signer.signAmino(address, doc);
       return { ...signed, signDoc: { ...doc, memo: "changed" } };
     },
-    signArbitrary: () => Promise.reject(new Error("unreachable")),
   };
   await assert.rejects(signTx({ ...base, signer: altering }), SignerAlteredDocument);
   await assert.rejects(signTx({ ...base, signer: altering, mode: "amino" }), SignerAlteredDocument);

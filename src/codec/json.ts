@@ -1,7 +1,7 @@
 // JSON the way Go's encoding/json writes it: compact, object keys in byte
-// order, and `<`, `>`, `&`, U+2028, U+2029 escaped. Amino sign bytes and the
-// ADR-036 sign document are compared byte for byte with the chain's, so the
-// serialiser has to match Go, not JSON.stringify.
+// order, and `<`, `>`, `&`, U+2028, U+2029 escaped. Amino sign bytes are
+// compared byte for byte with the chain's, so the serialiser has to match Go,
+// not JSON.stringify.
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | JsonObject;
 export interface JsonObject {
