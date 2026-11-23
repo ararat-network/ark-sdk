@@ -20,7 +20,7 @@ protocol's ADR-036 proof, and a decoder, every byte checked against the chain's 
 | [src/format/](src/format/) | Amounts in display units for a locale, coin text, shortened addresses. |
 | [src/gen/](src/gen/) | Every message, query, and event the SDK can meet, generated from the protos at the pins below; importable as `@ararat-network/sdk/gen/...`. |
 | [testdata/decoding/](testdata/decoding/) | `ark`'s decoding fixtures at the tag in [ARK_VERSION](ARK_VERSION): the byte-for-byte contract the codec, builder, and decoder are tested against. |
-| [docs/SIGNUP_PROTOCOL.md](docs/SIGNUP_PROTOCOL.md), [testdata/signup/vectors.json](testdata/signup/vectors.json) | The member signup protocol and its vectors, which the producer here and the membership service's verifier both reproduce. |
+| [testdata/signup/vectors.json](testdata/signup/vectors.json) | The vectors of the [member signup protocol](https://github.com/ararat-network/ark-app/blob/main/signer/docs/SIGNUP_PROTOCOL.md), which the producer here and the membership service's verifier both reproduce. |
 
 ## Use
 
