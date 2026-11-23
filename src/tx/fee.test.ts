@@ -2,11 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { create } from "@bufbuild/protobuf";
-
+import { coin } from "../codec/coins.js";
 import { LegacyDec } from "../codec/dec.js";
 import { GasPriceSchema } from "../gen/ark/treasury/v1/treasury_pb.js";
-import { coin } from "./body.js";
-import { adjustGas, affordableFeeDenoms, arkdPolicy, FeeError, liftLeg, quoteFee, requiredGasFee, sumCoins } from "./fee.js";
+import { adjustGas, affordableFeeDenoms, arkdPolicy, FeeError, liftLeg, quoteFee, requiredGasFee } from "./fee.js";
 
 const price = (denom: string, decimal: string, derivedHeight = 2n) =>
   create(GasPriceSchema, { denom, gasPrice: LegacyDec.fromString(decimal).toWire(), derivedHeight });
@@ -18,15 +17,6 @@ test("the gas leg is ceil(price × gas) and a lift is ceil(amount × multiplier)
   assert.equal(liftLeg(coin("ausd", "10"), "1").amount, "10");
   assert.throws(() => liftLeg(coin("ausd", "10"), "0.9"), FeeError);
   assert.throws(() => requiredGasFee(price("ausd", "1"), 0n), FeeError);
-});
-
-test("sumCoins merges per denomination in denomination order and drops zero legs", () => {
-  const out = sumCoins([coin("ausd", "5"), coin("anoah", "0")], [coin("ausd", "1"), coin("aeur", "2")]);
-  assert.deepEqual(
-    out.map((c) => c.amount + c.denom),
-    ["2aeur", "6ausd"],
-  );
-  assert.throws(() => sumCoins([coin("ausd", "-1")]), FeeError);
 });
 
 test("with a stable gas leg, tax plus the gas leg are each lifted and there is no tip", () => {

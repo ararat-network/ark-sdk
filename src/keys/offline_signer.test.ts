@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { fromBinary, toBinary } from "@bufbuild/protobuf";
 
-import { adr036SignBytes } from "../adr036/signbytes.js";
+import { adr036SignBytes } from "../codec/adr036.js";
 import { type AminoSignDoc, aminoSignDocBytes } from "../codec/aminojson.js";
 import { fromBase64, fromHex, toBase64, utf8Encode } from "../codec/bytes.js";
 import { SignDocSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";

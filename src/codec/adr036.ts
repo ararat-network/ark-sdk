@@ -2,8 +2,8 @@
 // transaction, carrying the data as a sign/MsgSignData message. The bytes are
 // what every signer signs and every verifier rebuilds (SIGNUP_PROTOCOL.md §5).
 
-import { toBase64 } from "../codec/bytes.js";
-import { marshalGoJsonBytes } from "../codec/json.js";
+import { toBase64 } from "./bytes.js";
+import { marshalGoJsonBytes } from "./json.js";
 
 export const MSG_SIGN_DATA_TYPE = "sign/MsgSignData";
 

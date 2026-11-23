@@ -5,12 +5,12 @@
 import { create, type DescMessage, fromBinary, type Message, type Registry } from "@bufbuild/protobuf";
 import type { Any } from "@bufbuild/protobuf/wkt";
 import { typeNameOf } from "../codec/any.js";
+import { txHash } from "../codec/hash.js";
 import type { JsonValue } from "../codec/json.js";
 import { toProtoJson } from "../codec/protojson.js";
 import { registry as defaultRegistry } from "../codec/registry.js";
 import type { SignMode } from "../gen/cosmos/tx/signing/v1beta1/signing_pb.js";
 import { type AuthInfo, AuthInfoSchema, type Fee, type Tx, type TxBody, TxBodySchema, TxRawSchema, TxSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
-import { txHash } from "../tx/signdoc.js";
 
 export interface TxDecodeOptions {
   registry?: Registry;

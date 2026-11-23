@@ -5,10 +5,10 @@
 import { create } from "@bufbuild/protobuf";
 
 import { stripTrailing } from "../codec/bytes.js";
+import { coin } from "../codec/coins.js";
 import { LegacyDec } from "../codec/dec.js";
 import { type Coin, type DecCoin, DecCoinSchema } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import type { Asset, Network } from "../registry/network.js";
-import { coin } from "../tx/body.js";
 
 export class AmountError extends Error {
   override readonly name: string = "AmountError";

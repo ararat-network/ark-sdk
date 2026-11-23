@@ -7,10 +7,10 @@
 // with the payer, a NOAH leg is charged whole and its excess is the tip. The
 // ante takes the base fee from a stable leg's slack before it lets NOAH pay,
 // so beside a NOAH gas leg the tax legs are declared exact, with no slack.
+import { coin, sumCoins } from "../codec/coins.js";
 import { LegacyDec } from "../codec/dec.js";
 import type { GasPrice } from "../gen/ark/treasury/v1/treasury_pb.js";
 import type { Coin } from "../gen/cosmos/base/v1beta1/coin_pb.js";
-import { coin } from "./body.js";
 
 /** The denomination charged whole, never taxed, whose excess is the tip. */
 export const NOAH_DENOM = "anoah";
@@ -48,22 +48,6 @@ function multiplier(headroom: string): LegacyDec {
 /** ceil(amount × multiplier). */
 export function liftLeg(leg: Coin, headroom: string): Coin {
   return coin(leg.denom, LegacyDec.fromInt(BigInt(leg.amount)).mul(multiplier(headroom)).ceil());
-}
-
-/** Sums coins per denomination in denomination order, dropping zero legs: sdk.Coins. */
-export function sumCoins(...lists: readonly (readonly Coin[])[]): Coin[] {
-  const byDenom = new Map<string, bigint>();
-  for (const list of lists) {
-    for (const c of list) {
-      const amount = BigInt(c.amount);
-      if (amount < 0n) throw new FeeError(`negative amount ${c.amount}${c.denom}`);
-      byDenom.set(c.denom, (byDenom.get(c.denom) ?? 0n) + amount);
-    }
-  }
-  return [...byDenom.entries()]
-    .filter(([, amount]) => amount > 0n)
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([denom, amount]) => coin(denom, amount));
 }
 
 export interface FeeQuoteInput {

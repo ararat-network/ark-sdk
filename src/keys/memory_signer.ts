@@ -4,7 +4,7 @@
 import { create, toBinary } from "@bufbuild/protobuf";
 import type { Any } from "@bufbuild/protobuf/wkt";
 
-import { adr036SignBytes } from "../adr036/signbytes.js";
+import { adr036SignBytes } from "../codec/adr036.js";
 import { type AminoSignDoc, aminoSignDocBytes } from "../codec/aminojson.js";
 import { packAny } from "../codec/any.js";
 import { PubKeySchema } from "../gen/cosmos/crypto/secp256k1/keys_pb.js";
