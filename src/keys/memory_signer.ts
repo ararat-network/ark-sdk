@@ -4,7 +4,6 @@
 import { create, toBinary } from "@bufbuild/protobuf";
 import type { Any } from "@bufbuild/protobuf/wkt";
 
-import { adr036SignBytes } from "../codec/adr036.js";
 import { type AminoSignDoc, aminoSignDocBytes } from "../codec/aminojson.js";
 import { packAny } from "../codec/any.js";
 import { PubKeySchema } from "../gen/cosmos/crypto/secp256k1/keys_pb.js";
@@ -12,7 +11,7 @@ import { type SignDoc, SignDocSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { DEFAULT_PREFIX, publicKeyToAddress } from "./address.js";
 import { type MnemonicOptions, privateKeyFromMnemonic } from "./hd.js";
 import { publicKeyFromPrivate, randomPrivateKey, signMessage } from "./secp256k1.js";
-import { type AminoSignature, type ArbitrarySignature, type DirectSignature, type Signer, type SignerAccount, SignerError } from "./signer.js";
+import { type AminoSignature, type DirectSignature, type Signer, type SignerAccount, SignerError } from "./signer.js";
 
 /** Packs a compressed secp256k1 key as the Any a signer info carries. */
 export function secp256k1PublicKey(key: Uint8Array): Any {
@@ -54,11 +53,6 @@ export class MemorySigner implements Signer {
   async signAmino(address: string, signDoc: AminoSignDoc): Promise<AminoSignature> {
     this.#check(address);
     return { signDoc, signature: signMessage(aminoSignDocBytes(signDoc), this.#privateKey) };
-  }
-
-  async signArbitrary(address: string, data: Uint8Array): Promise<ArbitrarySignature> {
-    this.#check(address);
-    return { signature: signMessage(adr036SignBytes(address, data), this.#privateKey), publicKey: secp256k1PublicKey(this.publicKey) };
   }
 
   #check(address: string): void {

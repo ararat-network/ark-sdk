@@ -1,8 +1,5 @@
 // The public surface. Generated types are importable under ./gen/*.
 
-export * from "./adr036/document.js";
-export * from "./adr036/sign.js";
-export * from "./codec/adr036.js";
 export * from "./codec/aminojson.js";
 export * from "./codec/any.js";
 export * from "./codec/bytes.js";
