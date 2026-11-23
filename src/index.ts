@@ -2,12 +2,14 @@
 
 export * from "./adr036/document.js";
 export * from "./adr036/sign.js";
-export * from "./adr036/signbytes.js";
+export * from "./codec/adr036.js";
 export * from "./codec/aminojson.js";
 export * from "./codec/any.js";
 export * from "./codec/bytes.js";
+export * from "./codec/coins.js";
 export * from "./codec/dec.js";
 export * from "./codec/gogo.js";
+export * from "./codec/hash.js";
 export * from "./codec/json.js";
 export * from "./codec/options.js";
 export * from "./codec/protojson.js";

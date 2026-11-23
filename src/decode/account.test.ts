@@ -5,6 +5,7 @@ import { create } from "@bufbuild/protobuf";
 import { AnySchema } from "@bufbuild/protobuf/wkt";
 
 import { packAny } from "../codec/any.js";
+import { coin } from "../codec/coins.js";
 import { BaseAccountSchema, ModuleAccountSchema } from "../gen/cosmos/auth/v1beta1/auth_pb.js";
 import {
   ContinuousVestingAccountSchema,
@@ -13,7 +14,6 @@ import {
   PermanentLockedAccountSchema,
 } from "../gen/cosmos/vesting/v1beta1/vesting_pb.js";
 import { QueryClient } from "../query/client.js";
-import { coin } from "../tx/body.js";
 import { decodeAccount, vestedCoins, vestingCoins } from "./account.js";
 
 const address = "ark1fec7dnxl3fre9zmc3kyvtt357de3ek9fnlu96j";

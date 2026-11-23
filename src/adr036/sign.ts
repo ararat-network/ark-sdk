@@ -4,7 +4,7 @@
 // so an app can refuse a wallet's output before sending it; the platform's
 // verifier runs every rule.
 import type { Any } from "@bufbuild/protobuf/wkt";
-
+import { adr036SignBytes } from "../codec/adr036.js";
 import { unpackAnyAs } from "../codec/any.js";
 import { fromBase64, toBase64, utf8Decode } from "../codec/bytes.js";
 import { PubKeySchema } from "../gen/cosmos/crypto/secp256k1/keys_pb.js";
@@ -12,7 +12,6 @@ import { ADDRESS_LENGTH, decodeAddress, publicKeyToAddress } from "../keys/addre
 import { isCompressedPublicKey, isLowS, SIGNATURE_LENGTH, verifyMessage } from "../keys/secp256k1.js";
 import { SECP256K1_PUBLIC_KEY_URL, type Signer, SignerError } from "../keys/signer.js";
 import { documentBytes, parseDocument, type SignupDocument } from "./document.js";
-import { adr036SignBytes } from "./signbytes.js";
 
 /** The four values of §6. */
 export interface Submission {

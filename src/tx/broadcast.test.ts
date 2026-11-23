@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-
+import { txHash } from "../codec/hash.js";
 import { QueryClient } from "../query/client.js";
 import { QueryError } from "../query/gateway.js";
 import { BroadcastRefused, BroadcastUnknown, broadcastAndConfirm, broadcastSync, InclusionTimeout, TransactionExpired, waitForInclusion } from "./broadcast.js";
-import { txHash } from "./signdoc.js";
 
 const HASH = "861F5D4824CECE1A5A1F9FCB43280CD6AB38491D10AFF22939B94FEDE66802B0";
 

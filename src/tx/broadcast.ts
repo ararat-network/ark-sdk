@@ -4,10 +4,11 @@
 // a code, a codespace, or a log, and neither reports an outcome it does not
 // know: a broadcast whose answer never arrived may have reached the mempool,
 // and says so with the hash to poll.
+
+import { txHash } from "../codec/hash.js";
 import type { TxResponse } from "../gen/cosmos/base/abci/v1beta1/abci_pb.js";
 import type { QueryClient } from "../query/client.js";
 import { EndpointsExhausted, isEndpointFault, QueryError, TransportError } from "../query/gateway.js";
-import { txHash } from "./signdoc.js";
 
 /** The SDK's code for a transaction the mempool already holds: the first broadcast reached it. */
 const TX_IN_MEMPOOL_CACHE = 19;

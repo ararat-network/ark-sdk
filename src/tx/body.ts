@@ -5,8 +5,8 @@ import { create, type DescMessage, type MessageShape } from "@bufbuild/protobuf"
 import type { Any, Timestamp } from "@bufbuild/protobuf/wkt";
 
 import { packAny } from "../codec/any.js";
+import { type CoinInput, coins } from "../codec/coins.js";
 import { materialise } from "../codec/gogo.js";
-import { type Coin, CoinSchema } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import { SignMode } from "../gen/cosmos/tx/signing/v1beta1/signing_pb.js";
 import {
   type AuthInfo,
@@ -58,19 +58,6 @@ export function makeTxBody(input: TxBodyInput): TxBody {
     timeoutTimestamp: input.timeoutTimestamp,
     unordered: input.unordered ?? false,
   });
-}
-
-export interface CoinInput {
-  denom: string;
-  amount: bigint | string;
-}
-
-export function coin(denom: string, amount: bigint | string): Coin {
-  return create(CoinSchema, { denom, amount: amount.toString() });
-}
-
-export function coins(inputs: readonly CoinInput[]): Coin[] {
-  return inputs.map((c) => coin(c.denom, c.amount));
 }
 
 export interface FeeInput {

@@ -9,11 +9,12 @@ import type { Any, Timestamp } from "@bufbuild/protobuf/wkt";
 
 import { type AminoSignDoc, aminoSignDocBytes, makeAminoSignDoc } from "../codec/aminojson.js";
 import { bytesEqual } from "../codec/bytes.js";
+import { txHash } from "../codec/hash.js";
 import { type Fee, type SignDoc, SignDocSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { MULTISIG_PUBLIC_KEY_URL, type Signer, SignerError } from "../keys/signer.js";
 import { makeAuthInfo, makeFee, makeSignerInfo, makeTxBody, SignMode, type TxMessage } from "./body.js";
 import type { FeeQuote } from "./fee.js";
-import { directSignBytes, encodeAuthInfo, encodeTxBody, encodeTxRaw, makeSignDoc, txHash } from "./signdoc.js";
+import { directSignBytes, encodeAuthInfo, encodeTxBody, encodeTxRaw, makeSignDoc } from "./signdoc.js";
 
 export type SigningMode = "direct" | "amino";
 

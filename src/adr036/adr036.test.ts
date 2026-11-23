@@ -1,13 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-
+import { adr036SignBytes } from "../codec/adr036.js";
 import { fromBase64, fromHex, toBase64, utf8Decode, utf8Encode } from "../codec/bytes.js";
 import { MemorySigner } from "../keys/memory_signer.js";
 import { signMessage } from "../keys/secp256k1.js";
 import { signupVectors } from "../testing/fixtures.js";
 import { DocumentError, documentBytes, parseDocument, type SignupDocument, validateDocument } from "./document.js";
 import { checkSubmission, type StatelessRefusal, signDocument, submissionFromJson, submissionToJson, verifySignature } from "./sign.js";
-import { adr036SignBytes } from "./signbytes.js";
 
 const { keys, vectors } = signupVectors();
 const keyFor = (publicKey: string) => keys.find((k) => k.public_key === publicKey);

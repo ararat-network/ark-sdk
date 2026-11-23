@@ -6,6 +6,7 @@ import type { Message, Registry } from "@bufbuild/protobuf";
 import type { Any } from "@bufbuild/protobuf/wkt";
 
 import { unpackAny } from "../codec/any.js";
+import { coin, sumCoins } from "../codec/coins.js";
 import { LegacyDec } from "../codec/dec.js";
 import { registry as defaultRegistry } from "../codec/registry.js";
 import type { BaseAccount, ModuleAccount } from "../gen/cosmos/auth/v1beta1/auth_pb.js";
@@ -17,8 +18,6 @@ import type {
   PeriodicVestingAccount,
   PermanentLockedAccount,
 } from "../gen/cosmos/vesting/v1beta1/vesting_pb.js";
-import { coin } from "../tx/body.js";
-import { sumCoins } from "../tx/fee.js";
 
 export type AccountKind = "base" | "module" | "continuous_vesting" | "delayed_vesting" | "periodic_vesting" | "permanent_locked" | "unknown";
 
