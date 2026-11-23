@@ -1,9 +1,14 @@
 # Changelog
 
+## 0.1.2
+
+No change to the code. The first release from the release workflow, with provenance: the workflow stages the version
+on npm and a maintainer approves it, so no workflow run publishes on its own. 0.1.0 was published by hand to create
+the package.
+
 ## 0.1.1
 
-No change to the code. The first release published by the release workflow from a tag, with provenance; 0.1.0 was
-published by hand to create the package.
+Not published. The release workflow published directly, which the package's trusted publisher does not allow.
 
 ## 0.1.0
 
