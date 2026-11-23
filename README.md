@@ -25,7 +25,7 @@ protocol's ADR-036 proof, and a decoder, every byte checked against the chain's 
 ## Use
 
 ```sh
-pnpm add @ararat-network/sdk @bufbuild/protobuf@2.16.0
+pnpm add @ararat-network/sdk @bufbuild/protobuf@2.17.0
 ```
 
 `@bufbuild/protobuf` is the runtime the generated types need and the one you call `create` on; install it beside the

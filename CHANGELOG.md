@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0
 
 The first-tranche SDK: network registry, keys and addresses behind the `Signer` interface, the chain's JSON dialect
 and amino sign bytes, typed queries over the gRPC gateway with failover and pagination, transaction construction
