@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1
+
+No change to the code. The first release published by the release workflow from a tag, with provenance; 0.1.0 was
+published by hand to create the package.
+
 ## 0.1.0
 
 The first-tranche SDK: network registry, keys and addresses behind the `Signer` interface, the chain's JSON dialect
