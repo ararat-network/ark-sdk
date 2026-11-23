@@ -1,4 +1,4 @@
-// The signup challenge and the vouch document (SIGNUP_PROTOCOL.md §4): one
+// The signup challenge and the vouch document (ark-app's SIGNUP_PROTOCOL.md §4): one
 // shape, seven string members in byte order of their names, no whitespace,
 // and no character JSON or HTML would escape, so every encoder produces the
 // same bytes and the bytes are what is signed and compared.

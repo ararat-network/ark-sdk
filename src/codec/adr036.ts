@@ -1,6 +1,6 @@
 // The ADR-036 sign document: an amino sign document that can never be a valid
 // transaction, carrying the data as a sign/MsgSignData message. The bytes are
-// what every signer signs and every verifier rebuilds (SIGNUP_PROTOCOL.md §5).
+// what every signer signs and every verifier rebuilds (ark-app's SIGNUP_PROTOCOL.md §5).
 
 import { toBase64 } from "./bytes.js";
 import { marshalGoJsonBytes } from "./json.js";
