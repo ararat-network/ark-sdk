@@ -1,11 +1,14 @@
 name: release
 
-# Publishes @ararat-network/sdk to npm from a v* tag, with provenance. The tag
-# must name the version in package.json and sit on main, so nothing publishes
+# Stages @ararat-network/sdk on npm from a v* tag, with provenance. The tag
+# must name the version in package.json and sit on main, so nothing is staged
 # that the pull request gate never saw, and every check ci.yml runs is run
-# again from the tag. npm's trusted publishing for this repository and
-# workflow must be configured on the package first; until it is, the publish
-# step fails and nothing else is affected.
+# again from the tag. The workflow stages and never publishes: the version
+# becomes public only when a maintainer approves it with `npm stage approve`
+# and two-factor authentication, so no run can release on its own. npm's
+# trusted publisher for this repository and workflow must allow staged
+# publishing; until it does, the stage step fails and nothing else is
+# affected.
 on:
   push:
     tags: ["v*"]
@@ -14,8 +17,8 @@ permissions:
   contents: read
 
 jobs:
-  publish:
-    name: Publish to npm
+  stage:
+    name: Stage on npm
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -44,4 +47,4 @@ jobs:
       - run: pnpm build
       - run: pnpm check:package
       - run: pnpm check:browser
-      - run: npm publish --provenance --access public
+      - run: npm stage publish --provenance --access public
