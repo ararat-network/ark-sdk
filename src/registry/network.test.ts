@@ -138,6 +138,29 @@ test("the prefix and coin type must be the SDK's own, and an endpoint https unle
     (err: unknown) => err instanceof RegistryError && /ark\.json indexer endpoint http:\/\/indexer\.example\.org/.test(err.message),
     "an indexer is held to the same rule, and named for the file it is in",
   );
+  // The rpc endpoints and the genesis file's address are held to the rule too: the SDK sends requests to both.
+  const rpc = registryFiles("arklocal");
+  rpc.chain.apis!.rpc = [{ address: "http://rpc.example.org:26657" }];
+  assert.throws(
+    () => Network.fromRegistry(rpc),
+    (err: unknown) => err instanceof RegistryError && /chain\.json rpc endpoint http:\/\/rpc\.example\.org/.test(err.message),
+  );
+  const genesis = registryFiles("arktestnet");
+  genesis.chain.codebase = { ...genesis.chain.codebase, genesis: { genesis_url: "http://files.example.org/genesis.json" } };
+  assert.throws(
+    () => Network.fromRegistry(genesis),
+    (err: unknown) => err instanceof RegistryError && /chain\.json genesis_url/.test(err.message),
+  );
+  // The genesis hash is compared as lowercase hex, so one written otherwise would never match.
+  const hash = registryFiles("arktestnet");
+  hash.ark.genesis_sha256 = "AB".repeat(32);
+  assert.throws(
+    () => Network.fromRegistry(hash),
+    (err: unknown) => err instanceof RegistryError && /genesis_sha256 is not 64 lowercase hex/.test(err.message),
+  );
+  hash.ark.genesis_sha256 = "ab".repeat(32);
+  assert.equal(Network.fromRegistry(hash).genesisSha256, "ab".repeat(32));
+
   const secure = registryFiles("arklocal");
   secure.chain.apis!.rest = [{ address: "https://node.example.org" }];
   secure.chain.apis!.rpc = [{ address: "http://127.0.0.1:26657" }];
@@ -171,13 +194,16 @@ test("a network is built from checked copies of what the files hold", () => {
   assert.deepEqual(n.endpoints.rest[0], { ...rest }, "the endpoint with its unnamed member, in a copy");
   assert.notEqual(n.endpoints.rest[0], rest);
   assert.equal((n.endpoints.explorers[0] as Record<string, unknown>).tx_page, "https://explorer.example/tx");
+  assert.notEqual(n.endpoints.explorers[0], f.chain.explorers[0], "an explorer is a copy too");
   assert.deepEqual(n.features, { ...named, ibc: true }, "a flag the SDK does not name yet is kept; a member that is not a flag is not");
 
   // The network shares no object with the files: changing them afterwards changes nothing.
   rest.address = "http://localhost:9999";
+  f.chain.explorers[0]!.url = "https://elsewhere.example";
   f.ark.feeds.push("ajunk");
   features.cosmwasm = !features.cosmwasm;
   assert.equal(n.restUrl, "http://localhost:1317");
+  assert.equal(n.endpoints.explorers[0]?.url, "https://explorer.example");
   assert.ok(!n.feeds.includes("ajunk"));
   assert.equal(n.features.cosmwasm, named.cosmwasm);
 });
@@ -204,4 +230,152 @@ test("loadNetwork reads the three files from a source", async () => {
     pinned.seen.every((s) => s.url.startsWith(`${registrySource("0123abcd")}/arklocal/`)),
     "a ref pins what is read",
   );
+});
+
+test("loadNetwork takes a registry directory's name and a git ref, and nothing that names other files", async () => {
+  const f = registryFiles("arklocal");
+  const registry = () => stubFetch(({ url }) => json(url.endsWith("chain.json") ? f.chain : url.endsWith("assetlist.json") ? f.assets : f.ark));
+
+  // The name and the ref become part of the URL. Each of these would have read another directory or another repository.
+  for (const name of [
+    "../../../evil/repo/main/arklocal",
+    "arklocal/../ark",
+    "arklocal/",
+    "/arklocal",
+    "..",
+    ".",
+    "",
+    "%2e%2e",
+    "ark.local",
+    "Arklocal",
+    "ark local",
+    "arklocal?x",
+    "arklocal#x",
+    "ark--local",
+  ]) {
+    const none = registry();
+    await assert.rejects(
+      loadNetwork(name, { fetch: none.fetch }),
+      (err: unknown) => err instanceof RegistryError && /not a registry directory/.test(err.message),
+      JSON.stringify(name),
+    );
+    assert.equal(none.seen.length, 0, `nothing is requested for ${JSON.stringify(name)}`);
+  }
+  for (const ref of [
+    "../../evil/repo/main",
+    "..",
+    "main/../../evil",
+    "/main",
+    "main/",
+    "a//b",
+    "%2e%2e",
+    "main?x",
+    "main#x",
+    ".hidden",
+    "a..b",
+    "v1.",
+    "main\\x",
+    "main x",
+    "",
+  ]) {
+    const none = registry();
+    await assert.rejects(
+      loadNetwork("arklocal", { ref, fetch: none.fetch }),
+      (err: unknown) => err instanceof RegistryError && /not a branch, tag, or commit/.test(err.message),
+      JSON.stringify(ref),
+    );
+    assert.equal(none.seen.length, 0, `nothing is requested for the ref ${JSON.stringify(ref)}`);
+    assert.throws(() => registrySource(ref), RegistryError);
+  }
+  // A branch, a tag, a commit, and a branch with a slash in its name all stay inside the registry's repository.
+  for (const ref of ["main", "0123abcd", "v0.1.0", "release/v1", "feature/a_b-c.1"]) {
+    const read = registry();
+    assert.equal((await loadNetwork("arklocal", { ref, fetch: read.fetch })).chainId, "localark");
+    assert.ok(read.seen.every((s) => s.url.startsWith(`https://raw.githubusercontent.com/ararat-network/ark-registry/${ref}/arklocal/`)));
+  }
+});
+
+test("loadNetwork refuses files that describe another network, and reports a failed request as a registry error", async () => {
+  // The testnet's directory serving the localnet's files: well formed, and not what was asked for.
+  const local = registryFiles("arklocal");
+  const misfiled = stubFetch(({ url }) => json(url.endsWith("chain.json") ? local.chain : url.endsWith("assetlist.json") ? local.assets : local.ark));
+  await assert.rejects(
+    loadNetwork("arktestnet", { fetch: misfiled.fetch }),
+    (err: unknown) => err instanceof RegistryError && /describes the network arklocal, not arktestnet/.test(err.message),
+  );
+  assert.equal(
+    (await loadNetwork("arklocal", { source: "https://mirror.example/registry", fetch: misfiled.fetch })).name,
+    "arklocal",
+    "a source of the caller's is held to the same",
+  );
+  await assert.rejects(loadNetwork("arktestnet", { source: "https://mirror.example/registry", fetch: misfiled.fetch }), RegistryError);
+
+  const failure = new TypeError("fetch failed");
+  const down = stubFetch(() => {
+    throw failure;
+  });
+  await assert.rejects(loadNetwork("arklocal", { fetch: down.fetch }), (err: unknown) => {
+    assert.ok(err instanceof RegistryError, "not the runtime's own error");
+    assert.match(err.message, /arklocal\/(chain|assetlist|ark)\.json: fetch failed/);
+    assert.equal(err.cause, failure);
+    return true;
+  });
+  const notJson = stubFetch(() => new Response("<html>", { status: 200 }));
+  await assert.rejects(loadNetwork("arklocal", { fetch: notJson.fetch }), (err: unknown) => err instanceof RegistryError && err.cause instanceof SyntaxError);
+});
+
+test("a name belongs to one unit of an asset, so the display unit's exponent is its own", () => {
+  const withUnits = (display: string, units: AssetJson["denom_units"]) => {
+    const f = registryFiles("arklocal");
+    const usd = f.assets.assets.find((a) => a.base === "ausd")!;
+    usd.display = display;
+    usd.denom_units = units;
+    return f;
+  };
+  // Another unit's alias matching the display: the exponent read was the alias's, 0, and one display unit became one base unit.
+  assert.throws(
+    () =>
+      Network.fromRegistry(
+        withUnits("usd", [
+          { denom: "ausd", exponent: 0, aliases: ["usd"] },
+          { denom: "usd", exponent: 18 },
+        ]),
+      ),
+    (err: unknown) => err instanceof RegistryError && /asset ausd: usd names two units, at exponents 0 and 18/.test(err.message),
+  );
+  // The display unit listed twice.
+  assert.throws(
+    () =>
+      Network.fromRegistry(
+        withUnits("usd", [
+          { denom: "ausd", exponent: 0 },
+          { denom: "usd", exponent: 6 },
+          { denom: "usd", exponent: 18 },
+        ]),
+      ),
+    RegistryError,
+  );
+  // Two units sharing an alias.
+  assert.throws(
+    () =>
+      Network.fromRegistry(
+        withUnits("usd", [
+          { denom: "ausd", exponent: 0, aliases: ["dollar"] },
+          { denom: "usd", exponent: 18, aliases: ["dollar"] },
+        ]),
+      ),
+    RegistryError,
+  );
+
+  // An alias of the unit's own is another name for it, and nothing else.
+  const aliased = Network.fromRegistry(
+    withUnits("usd", [
+      { denom: "ausd", exponent: 0, aliases: ["attousd"] },
+      { denom: "usd", exponent: 18, aliases: ["dollar", "usd"] },
+    ]),
+  );
+  const asset = aliased.asset("ausd")!;
+  assert.equal(asset.exponent, 18);
+  assert.equal(asset.unit("dollar").exponent, 18);
+  assert.equal(asset.unit("attousd").exponent, 0);
 });

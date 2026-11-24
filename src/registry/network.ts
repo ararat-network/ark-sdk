@@ -54,6 +54,18 @@ export class Asset {
     if (!this.units.some((u) => u.denom === this.display)) {
       throw new RegistryError(`asset ${json.base}: display unit ${json.display} is not among its units`);
     }
+    // A name, a unit's denomination or one of its aliases, belongs to one unit. Two units answering to one name
+    // would give an amount the exponent of whichever is listed first: the display unit's could be another's.
+    const owner = new Map<string, DenomUnit>();
+    for (const unit of this.units) {
+      for (const name of [unit.denom, ...(unit.aliases ?? [])]) {
+        const other = owner.get(name);
+        if (other && other !== unit) {
+          throw new RegistryError(`asset ${json.base}: ${name} names two units, at exponents ${other.exponent} and ${unit.exponent}`);
+        }
+        owner.set(name, unit);
+      }
+    }
   }
 
   /** The exponent of the display unit: how many base units make one. */
@@ -215,8 +227,25 @@ export const REGISTRY_REPOSITORY = "ararat-network/ark-registry";
 /** The ref the registry is read at unless one is given: the branch its endpoints are kept on. */
 export const DEFAULT_REGISTRY_REF = "main";
 
+/** A registry directory's name, as the chain registry names chains: lowercase letters and digits, single hyphens or underscores between them. */
+const NETWORK_NAME = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/;
+
+/** One part of a git ref between slashes: letters, digits, dots, hyphens, and underscores, not led by a dot. */
+const REF_PART = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
+
+/**
+ * Refuses a ref that is not a branch, tag, or commit name. The ref becomes
+ * part of the registry's URL, and one holding "..", an empty part, or a
+ * character a URL reads as structure would name another repository's files.
+ */
+function checkRef(ref: string): void {
+  const named = ref.split("/").every((part) => REF_PART.test(part) && !part.includes("..") && !part.endsWith("."));
+  if (!named) throw new RegistryError(`registry ref ${JSON.stringify(ref)} is not a branch, tag, or commit name`);
+}
+
 /** Where the published registry's files are read from, at a git ref: a branch, a tag, or a commit, which pins it. */
 export function registrySource(ref = DEFAULT_REGISTRY_REF): string {
+  checkRef(ref);
   return `https://raw.githubusercontent.com/${REGISTRY_REPOSITORY}/${ref}`;
 }
 
@@ -228,22 +257,41 @@ export interface LoadOptions {
   fetch?: typeof fetch;
 }
 
-/** Fetches the three files for a network, checks them, and builds it. */
+/**
+ * Fetches the three files for a network, checks them, and builds it. The name
+ * is a registry directory's and nothing else: it and the ref become part of
+ * the URL, and a caller may have taken either from a link or a setting. The
+ * network the files describe must be the one asked for.
+ */
 export async function loadNetwork(name: string, options: LoadOptions = {}): Promise<Network> {
+  if (!NETWORK_NAME.test(name)) {
+    throw new RegistryError(
+      `network name ${JSON.stringify(name)} is not a registry directory's: lowercase letters and digits, hyphens or underscores between them`,
+    );
+  }
   const source = options.source ?? registrySource(options.ref);
   const fetchFn = options.fetch ?? globalThis.fetch;
   const read = async (file: string): Promise<unknown> => {
     const url = `${source}/${name}/${file}`;
-    const response = await fetchFn(url);
+    let response: Response;
+    try {
+      response = await fetchFn(url);
+    } catch (err) {
+      throw new RegistryError(`${url}: ${errorMessage(err)}`, { cause: err });
+    }
     if (!response.ok) throw new RegistryError(`${url}: ${response.status} ${response.statusText}`);
     try {
       return await response.json();
     } catch (err) {
-      throw new RegistryError(`${url}: not JSON: ${errorMessage(err)}`);
+      throw new RegistryError(`${url}: not JSON: ${errorMessage(err)}`, { cause: err });
     }
   };
   const [chain, assets, ark] = await Promise.all([read("chain.json"), read("assetlist.json"), read("ark.json")]);
-  return Network.fromRegistry({ chain, assets, ark });
+  const network = Network.fromRegistry({ chain, assets, ark });
+  // A directory is named for the chain it describes. Files for another chain, well formed, would hand a caller
+  // who asked for the testnet another network's chain ID and endpoints.
+  if (network.name !== name) throw new RegistryError(`${source}/${name} describes the network ${network.name}, not ${name}`);
+  return network;
 }
 
 /** The three files before they are checked: whatever the JSON held. */

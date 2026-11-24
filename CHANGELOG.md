@@ -41,6 +41,17 @@ Fixed:
   `coinsToString`, `LegacyDec.fromWire`, the vesting and fee arithmetic, and the JSON view now give the chain's
   number, and refuse text the chain refuses; `fromProtoJson` reads an `Int`'s JSON text the same way. The amino
   document still carries a string `Int`'s text as it is, as the chain's does.
+- `loadNetwork` takes a registry directory's name and a git ref, and refuses anything else before requesting a
+  file. Both went into the URL as given, so a name or a ref holding `..` read another repository's files:
+  `loadNetwork("../../../other/repo/main/arktestnet")` built a network, chain ID and endpoints included, from them,
+  which matters to an app that takes either from a link or a setting. `registrySource` refuses such a ref too.
+- `loadNetwork` refuses files that describe another network than the one asked for. A directory serving another
+  chain's well-formed files handed a caller who asked for the testnet that chain's ID and endpoints.
+- A name belongs to one unit of an asset. A unit's alias matching the display unit's name, or the display unit
+  listed twice, gave the asset the exponent of whichever came first: with the display's at 18 read as 0, an amount
+  of one display unit was built as one base unit. Such an asset is refused.
+- `loadNetwork` reports a request that fails as a `RegistryError` with the failure as its cause; the runtime's own
+  error came through. Its "not JSON" error keeps its cause too.
 - The denomination chosen to pay the base fee pays it. `quoteFee` and `prepareAndSign` encoded the fee's legs in
   denomination order, and the ante charges the first stable leg, in encoded order, whose slack above its tax covers
   the base fee. A lifted tax leg has slack, so on a taxed send in a denomination that sorts before `feeDenom`, from

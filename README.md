@@ -31,7 +31,9 @@ SDK, at the version the SDK pins, since a package manager that keeps dependencie
 the SDK.
 
 A network comes from the registry, read at `main` unless `ref` pins a commit: every member the SDK reads is checked,
-the prefix and coin type must be Ark's, and an endpoint is accepted over https, or http on the loopback. A client
+the prefix and coin type must be Ark's, and an endpoint is accepted over https, or http on the loopback. The name is
+a registry directory's and the ref a branch, tag, or commit, neither anything that could name other files, and the
+network the files describe must be the one asked for. A client
 comes from the network's REST endpoints and checks it reached that chain; the check also reports whether the node's
 binary is a version the registry lists, refuses one that is not on request, and can hash the genesis file the
 registry names against the registry's hash. Given several endpoints, a call that cannot reach one, or finds it
