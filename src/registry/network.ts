@@ -14,7 +14,7 @@ import { isJsonObject } from "../codec/json.js";
 import { ArkSdkError, errorMessage } from "../errors.js";
 import { DEFAULT_PREFIX } from "../keys/address.js";
 import { ARK_COIN_TYPE } from "../keys/hd.js";
-import type { ArkFeatures, AssetJson, DenomUnit, Endpoint, Explorer, RegistryFiles } from "./types.js";
+import type { ArkFeatures, ArkJson, AssetJson, AssetListJson, ChainJson, DenomUnit, Endpoint, Explorer } from "./types.js";
 
 export class RegistryError extends ArkSdkError {
   override readonly name: string = "RegistryError";
@@ -100,9 +100,11 @@ export class Network {
   /** Every asset by base denomination. */
   readonly assets: ReadonlyMap<string, Asset>;
 
-  private constructor(files: RegistryFiles) {
-    checkFiles(files);
-    const { chain, assets, ark } = files;
+  private constructor(files: UncheckedFiles) {
+    // Each file is parsed into the members the SDK reads, checked one by one: nothing below reads the files themselves.
+    const chain = parseChain(files.chain);
+    const assets = parseAssets(files.assets);
+    const ark = parseArk(files.ark);
     if (ark.chain_id !== chain.chain_id) throw new RegistryError(`chain.json names ${chain.chain_id}, ark.json ${ark.chain_id}`);
     if (assets.chain_name !== chain.chain_name) throw new RegistryError(`chain.json names ${chain.chain_name}, assetlist.json ${assets.chain_name}`);
     if (ark.bech32_prefix !== chain.bech32_prefix) throw new RegistryError(`chain.json prefix ${chain.bech32_prefix}, ark.json ${ark.bech32_prefix}`);
@@ -118,12 +120,12 @@ export class Network {
     }
     const staking = chain.staking?.staking_tokens?.[0]?.denom;
     if (!staking) throw new RegistryError(`chain.json names no staking token`);
-    for (const [kind, list] of [
-      ["rest", chain.apis?.rest],
-      ["rpc", chain.apis?.rpc],
-      ["indexer", ark.indexer],
+    for (const [where, list] of [
+      ["chain.json rest endpoint", chain.apis?.rest],
+      ["chain.json rpc endpoint", chain.apis?.rpc],
+      ["ark.json indexer endpoint", ark.indexer],
     ] as const) {
-      for (const e of list ?? []) checkEndpointUrl(e.address, `chain.json ${kind} endpoint`);
+      for (const e of list ?? []) checkEndpointUrl(e.address, where);
     }
     if (chain.codebase?.genesis?.genesis_url !== undefined) checkEndpointUrl(chain.codebase.genesis.genesis_url, "chain.json genesis_url");
 
@@ -138,7 +140,7 @@ export class Network {
     this.compatibleVersions = [...(chain.codebase?.compatible_versions ?? [])];
     this.genesisUrl = chain.codebase?.genesis?.genesis_url;
     this.genesisSha256 = ark.genesis_sha256;
-    this.features = { ...ark.features };
+    this.features = ark.features;
     this.referenceDenom = ark.reference_denom;
     this.feeds = [...ark.feeds];
     this.feeDenoms = [...ark.fee_denoms];
@@ -159,8 +161,12 @@ export class Network {
     this.assets = byBase;
   }
 
-  /** Builds a network from the three parsed registry files, checking they agree. */
-  static fromRegistry(files: RegistryFiles): Network {
+  /**
+   * Builds a network from the three registry files as they were read from JSON,
+   * checking each member the SDK reads and that the files agree. `RegistryFiles`
+   * is their shape; nothing is taken on trust from a value typed as it.
+   */
+  static fromRegistry(files: UncheckedFiles): Network {
     return new Network(files);
   }
 
@@ -237,11 +243,22 @@ export async function loadNetwork(name: string, options: LoadOptions = {}): Prom
     }
   };
   const [chain, assets, ark] = await Promise.all([read("chain.json"), read("assetlist.json"), read("ark.json")]);
-  return Network.fromRegistry({ chain, assets, ark } as RegistryFiles);
+  return Network.fromRegistry({ chain, assets, ark });
 }
 
-// The checks below read the files as the unknown JSON they are, so a member
-// the SDK relies on that is missing or mistyped is refused by name.
+/** The three files before they are checked: whatever the JSON held. */
+interface UncheckedFiles {
+  chain: unknown;
+  assets: unknown;
+  ark: unknown;
+}
+
+// The parsers below read the files as the unknown JSON they are and return
+// the members the SDK reads, each one checked: a member that is missing or
+// mistyped is refused by name, and one that no parser returns cannot be read.
+// What a network hands on as it was written, an endpoint, an explorer, the
+// feature flags, keeps the members the SDK does not name beside the checked
+// ones, in a copy the files no longer share.
 
 type JsonObject = Record<string, unknown>;
 
@@ -287,93 +304,128 @@ function optionalList(o: JsonObject, key: string, where: string): unknown[] | un
   return o[key] === undefined ? undefined : list(o, key, where);
 }
 
+const isText = (x: unknown): x is string => typeof x === "string" && x !== "";
+
 function texts(o: JsonObject, key: string, where: string): string[] {
   const v = list(o, key, where);
-  if (!v.every((x) => typeof x === "string" && x !== "")) throw new RegistryError(`${where}: ${key} must be a list of non-empty strings`);
-  return v as string[];
+  if (!v.every(isText)) throw new RegistryError(`${where}: ${key} must be a list of non-empty strings`);
+  return v;
 }
 
-function endpoints(o: JsonObject, key: string, where: string): void {
-  for (const [i, e] of (optionalList(o, key, where) ?? []).entries()) {
-    const entry = object(e, `${where}: ${key}[${i}]`);
-    text(entry, "address", `${where}: ${key}[${i}]`);
-    optionalText(entry, "provider", `${where}: ${key}[${i}]`);
-  }
+function optionalTexts(o: JsonObject, key: string, where: string): string[] | undefined {
+  return o[key] === undefined ? undefined : texts(o, key, where);
 }
 
-function checkChain(value: unknown): void {
+function endpoints(o: JsonObject, key: string, where: string): Endpoint[] | undefined {
+  return optionalList(o, key, where)?.map((e, i) => {
+    const at = `${where}: ${key}[${i}]`;
+    const entry = object(e, at);
+    const address = text(entry, "address", at);
+    optionalText(entry, "provider", at);
+    return { ...entry, address };
+  });
+}
+
+function parseChain(value: unknown): ChainJson {
   const where = "chain.json";
   const chain = object(value, where);
-  text(chain, "chain_name", where);
-  text(chain, "chain_id", where);
-  optionalText(chain, "pretty_name", where);
-  optionalText(chain, "network_type", where);
-  text(chain, "bech32_prefix", where);
-  wholeNumber(chain, "slip44", where);
+  const parsed: ChainJson = {
+    chain_name: text(chain, "chain_name", where),
+    chain_id: text(chain, "chain_id", where),
+    pretty_name: optionalText(chain, "pretty_name", where),
+    network_type: optionalText(chain, "network_type", where),
+    bech32_prefix: text(chain, "bech32_prefix", where),
+    slip44: wholeNumber(chain, "slip44", where),
+  };
   if (chain.staking !== undefined) {
-    const staking = object(chain.staking, `${where}: staking`);
-    for (const [i, t] of (optionalList(staking, "staking_tokens", `${where}: staking`) ?? []).entries()) {
-      text(object(t, `${where}: staking_tokens[${i}]`), "denom", `${where}: staking_tokens[${i}]`);
-    }
+    const at = `${where}: staking`;
+    const tokens = optionalList(object(chain.staking, at), "staking_tokens", at);
+    parsed.staking = {
+      staking_tokens: tokens?.map((t, i) => ({ denom: text(object(t, `${where}: staking_tokens[${i}]`), "denom", `${where}: staking_tokens[${i}]`) })),
+    };
   }
   if (chain.codebase !== undefined) {
-    const codebase = object(chain.codebase, `${where}: codebase`);
-    optionalText(codebase, "recommended_version", `${where}: codebase`);
-    if (codebase.compatible_versions !== undefined) texts(codebase, "compatible_versions", `${where}: codebase`);
-    if (codebase.genesis !== undefined) optionalText(object(codebase.genesis, `${where}: codebase.genesis`), "genesis_url", `${where}: codebase.genesis`);
+    const at = `${where}: codebase`;
+    const codebase = object(chain.codebase, at);
+    parsed.codebase = {
+      recommended_version: optionalText(codebase, "recommended_version", at),
+      compatible_versions: optionalTexts(codebase, "compatible_versions", at),
+      genesis:
+        codebase.genesis === undefined ? undefined : { genesis_url: optionalText(object(codebase.genesis, `${at}.genesis`), "genesis_url", `${at}.genesis`) },
+    };
   }
   if (chain.apis !== undefined) {
-    const apis = object(chain.apis, `${where}: apis`);
-    for (const kind of ["rpc", "rest", "grpc"]) endpoints(apis, kind, `${where}: apis`);
+    const at = `${where}: apis`;
+    const apis = object(chain.apis, at);
+    parsed.apis = { rpc: endpoints(apis, "rpc", at), rest: endpoints(apis, "rest", at), grpc: endpoints(apis, "grpc", at) };
   }
-  for (const [i, e] of (optionalList(chain, "explorers", where) ?? []).entries()) {
-    const explorer = object(e, `${where}: explorers[${i}]`);
-    optionalText(explorer, "kind", `${where}: explorers[${i}]`);
-    optionalText(explorer, "url", `${where}: explorers[${i}]`);
-  }
+  parsed.explorers = optionalList(chain, "explorers", where)?.map((e, i): Explorer => {
+    const at = `${where}: explorers[${i}]`;
+    const explorer = object(e, at);
+    optionalText(explorer, "kind", at);
+    optionalText(explorer, "url", at);
+    return { ...explorer };
+  });
+  return parsed;
 }
 
-function checkAssets(value: unknown): void {
+function parseAssets(value: unknown): AssetListJson {
   const where = "assetlist.json";
   const assets = object(value, where);
-  text(assets, "chain_name", where);
-  for (const [i, a] of list(assets, "assets", where).entries()) {
-    const at = `${where}: assets[${i}]`;
-    const asset = object(a, at);
-    for (const key of ["base", "display", "symbol", "name"]) text(asset, key, at);
-    optionalText(asset, "description", at);
-    const units = list(asset, "denom_units", at);
-    if (units.length === 0) throw new RegistryError(`${at}: denom_units is empty`);
-    for (const [j, u] of units.entries()) {
-      const unit = object(u, `${at}.denom_units[${j}]`);
-      text(unit, "denom", `${at}.denom_units[${j}]`);
-      wholeNumber(unit, "exponent", `${at}.denom_units[${j}]`);
-      if (unit.aliases !== undefined) texts(unit, "aliases", `${at}.denom_units[${j}]`);
-    }
-  }
+  return {
+    chain_name: text(assets, "chain_name", where),
+    assets: list(assets, "assets", where).map((a, i): AssetJson => {
+      const at = `${where}: assets[${i}]`;
+      const asset = object(a, at);
+      const named = {
+        base: text(asset, "base", at),
+        display: text(asset, "display", at),
+        symbol: text(asset, "symbol", at),
+        name: text(asset, "name", at),
+        description: optionalText(asset, "description", at),
+      };
+      const units = list(asset, "denom_units", at);
+      if (units.length === 0) throw new RegistryError(`${at}: denom_units is empty`);
+      return {
+        ...named,
+        denom_units: units.map((u, j): DenomUnit => {
+          const ut = `${at}.denom_units[${j}]`;
+          const unit = object(u, ut);
+          return { denom: text(unit, "denom", ut), exponent: wholeNumber(unit, "exponent", ut), aliases: optionalTexts(unit, "aliases", ut) };
+        }),
+      };
+    }),
+  };
 }
 
-function checkArk(value: unknown): void {
+function parseFeatures(value: unknown, where: string): ArkFeatures {
+  const features = object(value, where);
+  // A flag the SDK does not name yet is kept when it is a flag, so a newer registry's reaches an app that knows it.
+  const flags = Object.fromEntries(Object.entries(features).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"));
+  return {
+    ...flags,
+    cosmwasm: flag(features, "cosmwasm", where),
+    vote_extensions: flag(features, "vote_extensions", where),
+    conversion_open: flag(features, "conversion_open", where),
+  };
+}
+
+function parseArk(value: unknown): ArkJson {
   const where = "ark.json";
   const ark = object(value, where);
-  text(ark, "chain_id", where);
-  text(ark, "ark_version", where);
-  optionalText(ark, "genesis_sha256", where);
-  text(ark, "bech32_prefix", where);
-  wholeNumber(ark, "slip44", where);
-  const features = object(member(ark, "features", where), `${where}: features`);
-  for (const key of ["cosmwasm", "vote_extensions", "conversion_open"]) flag(features, key, `${where}: features`);
-  text(ark, "reference_denom", where);
-  texts(ark, "feeds", where);
-  texts(ark, "fee_denoms", where);
-  text(ark, "fee_contract", where);
-  endpoints(ark, "indexer", where);
-}
-
-function checkFiles(files: RegistryFiles): void {
-  checkChain(files.chain);
-  checkAssets(files.assets);
-  checkArk(files.ark);
+  return {
+    chain_id: text(ark, "chain_id", where),
+    ark_version: text(ark, "ark_version", where),
+    genesis_sha256: optionalText(ark, "genesis_sha256", where),
+    bech32_prefix: text(ark, "bech32_prefix", where),
+    slip44: wholeNumber(ark, "slip44", where),
+    features: parseFeatures(member(ark, "features", where), `${where}: features`),
+    reference_denom: text(ark, "reference_denom", where),
+    feeds: texts(ark, "feeds", where),
+    fee_denoms: texts(ark, "fee_denoms", where),
+    fee_contract: text(ark, "fee_contract", where),
+    indexer: endpoints(ark, "indexer", where),
+  };
 }
 
 /** An IPv4 address in 127.0.0.0/8. URL writes every IPv4 host as four decimal octets, so nothing else is one. */

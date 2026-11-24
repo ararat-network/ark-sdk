@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { registryFiles } from "../testing/fixtures.js";
 import { json, stubFetch } from "../testing/node.js";
 import { GenesisMismatch, loadNetwork, Network, RegistryError, registrySource } from "./network.js";
-import type { ArkJson, AssetJson, RegistryFiles } from "./types.js";
+import type { ArkFeatures, ArkJson, AssetJson, Endpoint, Explorer, RegistryFiles } from "./types.js";
 
 test("the localnet entry carries ports, every asset, and no genesis hash", () => {
   const n = Network.fromRegistry(registryFiles("arklocal"));
@@ -133,7 +133,11 @@ test("the prefix and coin type must be the SDK's own, and an endpoint https unle
   }
   const indexer = registryFiles("arklocal");
   indexer.ark.indexer = [{ address: "http://indexer.example.org" }];
-  assert.throws(() => Network.fromRegistry(indexer), RegistryError, "an indexer is held to the same rule");
+  assert.throws(
+    () => Network.fromRegistry(indexer),
+    (err: unknown) => err instanceof RegistryError && /ark\.json indexer endpoint http:\/\/indexer\.example\.org/.test(err.message),
+    "an indexer is held to the same rule, and named for the file it is in",
+  );
   const secure = registryFiles("arklocal");
   secure.chain.apis!.rest = [{ address: "https://node.example.org" }];
   secure.chain.apis!.rpc = [{ address: "http://127.0.0.1:26657" }];
@@ -147,6 +151,35 @@ test("the prefix and coin type must be the SDK's own, and an endpoint https unle
   const versions = Network.fromRegistry(registryFiles("ark"));
   assert.deepEqual(versions.compatibleVersions, ["v0.1.0-alpha.1"]);
   assert.equal(versions.recommendedVersion, "v0.1.0-alpha.1");
+});
+
+test("a network is built from checked copies of what the files hold", () => {
+  const f = registryFiles("arklocal");
+  // Members the SDK does not name ride along on what a network hands on as it was written.
+  const rest = f.chain.apis!.rest![0] as Endpoint & { archive?: boolean };
+  rest.archive = true;
+  f.chain.explorers = [{ kind: "explorer", url: "https://explorer.example", tx_page: "https://explorer.example/tx" } as Explorer];
+  const features = f.ark.features as ArkFeatures & Record<string, unknown>;
+  const named = { cosmwasm: features.cosmwasm, vote_extensions: features.vote_extensions, conversion_open: features.conversion_open };
+  features.ibc = true;
+  features.note = "not a flag";
+
+  // The files as plain JSON, typed as nothing: every member is checked, none taken on trust.
+  const unchecked: { chain: unknown; assets: unknown; ark: unknown } = f;
+  const n = Network.fromRegistry(unchecked);
+  assert.equal(rest.address, "http://localhost:1317");
+  assert.deepEqual(n.endpoints.rest[0], { ...rest }, "the endpoint with its unnamed member, in a copy");
+  assert.notEqual(n.endpoints.rest[0], rest);
+  assert.equal((n.endpoints.explorers[0] as Record<string, unknown>).tx_page, "https://explorer.example/tx");
+  assert.deepEqual(n.features, { ...named, ibc: true }, "a flag the SDK does not name yet is kept; a member that is not a flag is not");
+
+  // The network shares no object with the files: changing them afterwards changes nothing.
+  rest.address = "http://localhost:9999";
+  f.ark.feeds.push("ajunk");
+  features.cosmwasm = !features.cosmwasm;
+  assert.equal(n.restUrl, "http://localhost:1317");
+  assert.ok(!n.feeds.includes("ajunk"));
+  assert.equal(n.features.cosmwasm, named.cosmwasm);
 });
 
 test("loadNetwork reads the three files from a source", async () => {

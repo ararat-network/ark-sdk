@@ -10,6 +10,8 @@ Fixed:
 - `broadcastSync` reports a 502, 503, or 504 answer as `BroadcastUnknown`, with the hash to poll and the gateway's
   answer as its cause. A proxy answers with these when the node's own answer was lost, after the node may have taken
   the transaction; they surfaced as a plain `QueryError` with no hash. A 429 is still a `QueryError`.
+- An indexer endpoint the registry's rule refuses is named as `ark.json`'s. The error said `chain.json indexer
+  endpoint`, a file that holds none.
 - `client.auth.decodedAccount` decodes with the registry the client was given. It used every generated type whatever
   the client's registry, so an account type only the client's registry knew came back with no message.
 - `QueryClient` and `GatewayClient` work in a browser without a `fetch` option. They called the stored `fetch` as a
@@ -66,6 +68,10 @@ Changed:
 - `AminoOptions`, `EventDecodeOptions`, and `TxDecodeOptions` are aliases of `RegistryOption`; `GatewayOptions`,
   `ToProtoJsonOptions`, and `FromProtoJsonOptions` are type aliases too; `SearchOptions` extends `RegistryOption`.
   Their members are unchanged.
+- `Network.fromRegistry` takes the three files as the JSON they were read as, `unknown` each, and builds the network
+  from what its checks return: a member cannot be read unless it was checked. A value typed `RegistryFiles` is still
+  accepted. The network no longer shares objects with the files, so changing an endpoint in them afterwards does not
+  change it. In `features`, a member that is not true or false is no longer carried over.
 - The main entry's `QueryClient` and `GatewayClient` extend the core entry's. A `QueryClient`'s `gateway` is the core
   class, so `client.gateway instanceof GatewayClient` is false for the main entry's `GatewayClient`.
 - `prepareAndSign` and `sendTx` encode an amino document through the client's registry; they used every generated
