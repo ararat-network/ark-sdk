@@ -128,6 +128,14 @@ Fixed:
   the endpoint it had just left: it could fail with `EndpointsExhausted` naming one endpoint twice while a healthy
   one was never tried, and a late answer from the first endpoint moved the client back to it. A call's walk is now
   fixed when it begins, and only a call that moved on moves the client.
+- `verifyNetwork` with `genesis` reports a genesis file it could not fetch as a `RegistryError` with the failure as
+  its cause, as `loadNetwork` reports a registry file; the runtime's own error came through.
+- `utf8Decode` throws an `ArkSdkError` for bytes that are not UTF-8, as `fromHex` and `fromBase64` do for their
+  text; it threw the runtime's `TypeError`, which `toProtoJson`, `aminoEncode`, and `materialise` let through for a
+  `Dec` or an `Int` carried as bytes that are not text.
+- `prepareAndSign`, `sendTx`, and `maxSendable` price a fee denomination by the sheet's reference row when the sheet
+  lists a row under the same name, as `affordableFeeDenoms` and arkd do; they took the sheet's row. The chain lists
+  the reference apart from the sheet, so no answer of its own changes.
 
 Added:
 
@@ -153,6 +161,14 @@ Added:
   `Any` takes its registry as an argument, so an app bundles only the types it names. A gateway client over one
   service bundles 11 generated files, 118 KiB minified, where the main entry bundles all 197, 440 KiB. `WithRegistry` is the required form of
   `RegistryOption`. The main entry is the core with the registry defaulted, and is otherwise unchanged.
+- A client for each service `QueryClient` reads, over a gateway: `authClient`, `bankClient`, `disbursementClient`,
+  `distributionClient`, `govClient`, `marketClient`, `nodeClient`, `oracleClient`, `stakingClient`, `treasuryClient`,
+  and `txClient`. `QueryClient` is those over its own gateway and bundles every one, 47 generated files whatever its
+  registry; a caller of the core entry who builds the ones it calls bundles those alone. Each flow's `client` is typed
+  by the services it reads, so it takes either: `searchTxs` and `fetchTx` the gateway and `tx`, `lookUpTx` and
+  `broadcastSync` `tx`, `maxSendable` `treasury`, `prepareAndSign` the gateway, `auth`, `tx`, and `treasury`, and
+  `sendTx`, `waitForInclusion`, and `broadcastAndConfirm` `node` as well. A send through four services' clients is
+  207 kB minified where through the core's `QueryClient` it is 276; a search through `txClient` is 155 where it was 254.
 - `SignTxInput.registry`, the types the amino encoder resolves the messages against. The main entry defaults it; the
   core entry needs it in amino mode only.
 - `ArkSdkError`, the base of every error the SDK throws on purpose: one `instanceof` tells a refusal the SDK made

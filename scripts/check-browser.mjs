@@ -3,7 +3,9 @@
 // so growth is visible in CI logs. The core entry must stay clear of the full
 // type registry: one import of it would put every generated file in the
 // bundle of a consumer who passed a registry of their own, so that is checked
-// here, on the whole entry and on a client built over one service.
+// here, on the whole entry and on a client built over one service. So is what
+// the per-service clients are for: a flow handed the clients of the services
+// it reads must not bundle the others.
 import { build } from "esbuild";
 
 const bundle = (options) =>
@@ -37,10 +39,54 @@ const narrow = await bundle({
 });
 console.log(`core entry, a gateway client over one service: ${size(narrow)} before minification, ${generated(narrow)} generated files`);
 
+// The query client holds a client for every service the app reads, and bundles them all whatever the registry.
+const whole = await bundle({
+  stdin: {
+    resolveDir: process.cwd(),
+    loader: "ts",
+    contents: `
+      import { createRegistry } from "@bufbuild/protobuf";
+      import { QueryClient, decodeTx } from "./src/core.ts";
+      import { file_cosmos_bank_v1beta1_tx } from "./src/gen/cosmos/bank/v1beta1/tx_pb.ts";
+      const registry = createRegistry(file_cosmos_bank_v1beta1_tx);
+      console.log(new QueryClient("https://node.example", { registry }), decodeTx);
+    `,
+  },
+});
+console.log(`core entry, the query client: ${size(whole)} before minification, ${generated(whole)} generated files`);
+
+// A send through the clients of the services it reads, each over one gateway: the other services stay out.
+const send = await bundle({
+  stdin: {
+    resolveDir: process.cwd(),
+    loader: "ts",
+    contents: `
+      import { createRegistry } from "@bufbuild/protobuf";
+      import { GatewayClient, authClient, nodeClient, sendTx, treasuryClient, txClient } from "./src/core.ts";
+      import { file_cosmos_bank_v1beta1_tx } from "./src/gen/cosmos/bank/v1beta1/tx_pb.ts";
+      const gateway = new GatewayClient("https://node.example", { registry: createRegistry(file_cosmos_bank_v1beta1_tx) });
+      const client = { gateway, tx: txClient(gateway), auth: authClient(gateway), treasury: treasuryClient(gateway), node: nodeClient(gateway) };
+      console.log(client, sendTx);
+    `,
+  },
+});
+console.log(`core entry, a send through four services' clients: ${size(send)} before minification, ${generated(send)} generated files`);
+
+// The per-service clients are what keeps a service a caller does not name out of its bundle: one that reached the
+// send would mean the clients no longer tree-shake apart, or a flow asks for the whole query client again.
+const unread = ["disbursement", "market", "oracle", "staking", "distribution", "gov"].map((service) => new RegExp(`^src/gen/.*/${service}/.*/query_pb\\.ts$`));
+const strays = inputs(send).filter((path) => unread.some((service) => service.test(path)));
+if (strays.length > 0) {
+  console.error(`a send through four services' clients bundles ${strays.join(", ")}: a service it does not read`);
+  process.exit(1);
+}
+
 const full = ["src/codec/registry.ts", "src/codec/files.ts", "src/defaults.ts"];
 for (const [name, result] of [
   ["the core entry", core],
   ["a core gateway client over one service", narrow],
+  ["the core query client", whole],
+  ["a core send through four services' clients", send],
 ]) {
   const leaked = inputs(result).filter((path) => full.includes(path));
   if (leaked.length > 0) {

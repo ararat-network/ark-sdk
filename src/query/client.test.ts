@@ -10,7 +10,7 @@ import { toBase64 } from "../codec/bytes.js";
 import { vestedCoins } from "../decode/account.js";
 import { QueryClient } from "../defaults.js";
 import { file_cosmos_auth_v1beta1_auth } from "../gen/cosmos/auth/v1beta1/auth_pb.js";
-import { GenesisMismatch, Network } from "../registry/network.js";
+import { GenesisMismatch, Network, RegistryError } from "../registry/network.js";
 import { amounts, registryFiles } from "../testing/fixtures.js";
 import { json, stubFetch } from "../testing/node.js";
 import { FUTURE_ACCOUNT_URL, registryWithFutureTypes } from "../testing/registry.js";
@@ -71,6 +71,16 @@ test("verifyNetwork checks the chain id, reports the binary against the registry
   await assert.rejects(
     new QueryClient("http://node", { fetch: serving(new TextEncoder().encode("{}")) }).verifyNetwork(withGenesis, { genesis: true }),
     GenesisMismatch,
+  );
+  // A genesis file that cannot be fetched is the registry's error with the failure as its cause, as loadNetwork's is.
+  const failure = new TypeError("fetch failed");
+  const unreachable = stubFetch(({ url }) => {
+    if (url.endsWith("genesis.json")) throw failure;
+    return info("ark-testnet-1", "v0.1.0-alpha.1");
+  }).fetch;
+  await assert.rejects(
+    new QueryClient("http://node", { fetch: unreachable }).verifyNetwork(withGenesis, { genesis: true }),
+    (err: unknown) => err instanceof RegistryError && /genesis\.json: fetch failed/.test(err.message) && err.cause === failure,
   );
   assert.equal(
     (await new QueryClient("http://node", { fetch: node("localark", "v0.1.0-alpha.1") }).verifyNetwork(network, { genesis: true })).genesis,

@@ -11,9 +11,10 @@ import { type AminoSignDoc, aminoSignDocBytes, makeAminoSignDoc } from "../codec
 import type { RegistryOption } from "../codec/any.js";
 import { bytesEqual } from "../codec/bytes.js";
 import { txHash } from "../codec/hash.js";
+import { SignMode } from "../gen/cosmos/tx/signing/v1beta1/signing_pb.js";
 import { type Fee, type SignDoc, SignDocSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { MULTISIG_PUBLIC_KEY_URL, type Signer, type SignerAccount, SignerError } from "../keys/signer.js";
-import { makeAuthInfo, makeFee, makeSignerInfo, makeTxBody, SignMode, type TxBodyInput } from "./body.js";
+import { makeAuthInfo, makeFee, makeSignerInfo, makeTxBody, type TxBodyInput } from "./body.js";
 import type { FeeQuote } from "./fee.js";
 import { directSignBytes, encodeAuthInfo, encodeTxBody, encodeTxRaw, makeSignDoc } from "./signdoc.js";
 

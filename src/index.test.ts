@@ -1,12 +1,12 @@
 // The index names every export, so what the codecs share between themselves
-// stays out of the public surface unless it is listed on purpose.
+// stays out of the public surface unless it is listed on purpose: the exact
+// list below is what holds a helper out, and a name in.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { create, createRegistry, toBinary } from "@bufbuild/protobuf";
 import { AnySchema } from "@bufbuild/protobuf/wkt";
 
-import * as options from "./codec/options.js";
 import * as core from "./core.js";
 import { BaseAccountSchema } from "./gen/cosmos/auth/v1beta1/auth_pb.js";
 import { MsgSendResponseSchema, MsgSendSchema } from "./gen/cosmos/bank/v1beta1/tx_pb.js";
@@ -16,25 +16,6 @@ import * as sdk from "./index.js";
 import { registryFiles } from "./testing/fixtures.js";
 
 const exported: Record<string, unknown> = sdk;
-
-test("the codecs' own plumbing is not part of the public surface", () => {
-  const plumbing = [
-    ...Object.keys(options),
-    "stripTrailing",
-    "anyJson",
-    "errorMessage",
-    "decimalParts",
-    "scaleDecimal",
-    "fixedPointText",
-    // The gateway's route builder and the pieces of the sorted-JSON serialiser: the whole-document functions are the surface.
-    "routeFor",
-    "compareUtf8",
-    "goJsonString",
-    "goJsonNumber",
-  ];
-  assert.ok(plumbing.length >= 19);
-  for (const name of plumbing) assert.ok(!(name in exported), `${name} is internal`);
-});
 
 test("the names the app's signer imports are exported", () => {
   // What ark-app's signer takes from the package: bytes, the chain's sorted JSON, address decoding, and secp256k1.
@@ -167,6 +148,8 @@ const EXPORTED = [
   "aminoSignDocBytes",
   "anyFromUnknownJson",
   "arkdPolicy",
+  "authClient",
+  "bankClient",
   "broadcastAndConfirm",
   "broadcastSync",
   "bytesEqual",
@@ -186,6 +169,8 @@ const EXPORTED = [
   "decodeTxMessages",
   "describeOutcome",
   "directSignBytes",
+  "disbursementClient",
+  "distributionClient",
   "durationFromText",
   "durationToAmino",
   "durationToProtoJson",
@@ -207,6 +192,7 @@ const EXPORTED = [
   "fromOfflineSigner",
   "fromProtoJson",
   "fromValidatorAddress",
+  "govClient",
   "hdPath",
   "intFromWire",
   "isAccountAddress",
@@ -224,10 +210,13 @@ const EXPORTED = [
   "makeSignDoc",
   "makeSignerInfo",
   "makeTxBody",
+  "marketClient",
   "marshalGoJson",
   "marshalGoJsonBytes",
   "materialise",
   "maxSendable",
+  "nodeClient",
+  "oracleClient",
   "packAny",
   "packMessages",
   "paginate",
@@ -253,6 +242,7 @@ const EXPORTED = [
   "signTx",
   "simulationTxBytes",
   "sortKeys",
+  "stakingClient",
   "sumCoins",
   "timestampFromText",
   "timestampToAmino",
@@ -262,6 +252,8 @@ const EXPORTED = [
   "toHex",
   "toProtoJson",
   "toValidatorAddress",
+  "treasuryClient",
+  "txClient",
   "txHash",
   "txQuery",
   "typeNameOf",

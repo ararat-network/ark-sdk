@@ -19,7 +19,7 @@ import {
 } from "@bufbuild/protobuf";
 import type { GenService, GenServiceMethods } from "@bufbuild/protobuf/codegenv2";
 import { reflect } from "@bufbuild/protobuf/reflect";
-import type { WithRegistry } from "../codec/any.js";
+import { requireRegistry, type WithRegistry } from "../codec/any.js";
 import { fromBase64, stripTrailing, toBase64 } from "../codec/bytes.js";
 import { isJsonObject, type JsonObject, type JsonValue } from "../codec/json.js";
 import { fromProtoJson, ProtoJsonError, toProtoJson } from "../codec/protojson.js";
@@ -163,11 +163,10 @@ export class GatewayClient {
     if (urls.length === 0) throw new ArkSdkError("a gateway client needs at least one endpoint");
     this.baseUrls = urls;
     // The types say a registry is given. A caller the types do not reach is told so here, not by the first Any.
-    if (!options?.registry)
-      throw new ArkSdkError("a gateway client needs a registry, the types its Any fields resolve against; the main entry's client defaults it");
+    const registry = requireRegistry(options?.registry, "a gateway client");
     this.#fetch = options.fetch ?? globalThis.fetch;
     this.#headers = { ...options.headers };
-    this.registry = options.registry;
+    this.registry = registry;
     this.#timeoutMs = checkTimeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   }
 

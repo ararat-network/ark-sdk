@@ -1,7 +1,14 @@
 // Fixed-point decimal text and the scaled integer behind it: the one
 // conversion LegacyDec's 18 places and an asset's display units share. Each
 // caller keeps its own bound on the places and its own error. Internal: not
-// re-exported from the package's index.
+// exported from the core entry.
+
+import { utf8Decode } from "./bytes.js";
+
+/** The text of an Int or a Dec field: they travel as decimal text, in a string field or as the bytes of one. */
+export function numericText(value: unknown): string {
+  return value instanceof Uint8Array ? utf8Decode(value) : String(value);
+}
 
 /** An integer in decimal text, with an optional sign. */
 export const INTEGER_TEXT = /^-?\d+$/;

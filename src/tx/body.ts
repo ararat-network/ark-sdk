@@ -7,7 +7,7 @@ import { type Any, AnySchema, type Timestamp } from "@bufbuild/protobuf/wkt";
 import { packAny, UnknownTypeError, unknownAnyJson } from "../codec/any.js";
 import { type CoinInput, coins } from "../codec/coins.js";
 import { materialise } from "../codec/gogo.js";
-import { SignMode } from "../gen/cosmos/tx/signing/v1beta1/signing_pb.js";
+import type { SignMode } from "../gen/cosmos/tx/signing/v1beta1/signing_pb.js";
 import {
   type AuthInfo,
   AuthInfoSchema,
@@ -90,5 +90,3 @@ export function makeSignerInfo(publicKey: Any, sequence: bigint, mode: SignMode)
 export function makeAuthInfo(signerInfos: readonly SignerInfo[], fee: Fee): AuthInfo {
   return create(AuthInfoSchema, { signerInfos: [...signerInfos], fee });
 }
-
-export { SignMode };

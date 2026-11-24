@@ -8,7 +8,7 @@ export class ArkSdkError extends Error {
   override readonly name: string = "ArkSdkError";
 }
 
-/** The message of whatever was thrown: an Error's own, or the value as text. Internal: not re-exported from the index. */
+/** The message of whatever was thrown: an Error's own, or the value as text. Internal: not exported from the core entry. */
 export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }

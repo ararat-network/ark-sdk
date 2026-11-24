@@ -32,7 +32,11 @@ export function utf8Encode(s: string): Uint8Array {
 }
 
 export function utf8Decode(bytes: Uint8Array): string {
-  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch (err) {
+    throw new ArkSdkError(`not UTF-8: ${errorMessage(err)}`, { cause: err });
+  }
 }
 
 export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {

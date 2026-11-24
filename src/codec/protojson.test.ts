@@ -6,13 +6,14 @@ import { test } from "node:test";
 
 import { create, createRegistry, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { AnySchema, DurationSchema } from "@bufbuild/protobuf/wkt";
-import { aminoEncodeAny, decodeMessage, fromProtoJson, toProtoJson, unpackAny } from "../defaults.js";
+import { aminoEncode, aminoEncodeAny, decodeMessage, fromProtoJson, toProtoJson, unpackAny } from "../defaults.js";
 import { ArkSdkError } from "../errors.js";
 import { PricesResponseSchema } from "../gen/ark/pricefeed/v1/pricefeed_pb.js";
 import { BaseAccountSchema } from "../gen/cosmos/auth/v1beta1/auth_pb.js";
 import { MsgSendSchema } from "../gen/cosmos/bank/v1beta1/tx_pb.js";
 import { TxResponseSchema } from "../gen/cosmos/base/abci/v1beta1/abci_pb.js";
 import { ProposalSchema, ProposalStatus } from "../gen/cosmos/gov/v1/gov_pb.js";
+import { TallyParamsSchema } from "../gen/cosmos/gov/v1beta1/gov_pb.js";
 import { CommissionRatesSchema } from "../gen/cosmos/staking/v1beta1/staking_pb.js";
 import { TxBodySchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { AcceptedMessagesFilterSchema } from "../gen/cosmwasm/wasm/v1/authz_pb.js";
@@ -23,6 +24,7 @@ import { UnknownTypeError, unknownAnyJson, unpackAnyAs } from "./any.js";
 import { fromHex, utf8Decode, utf8Encode } from "./bytes.js";
 import { CoinError } from "./coins.js";
 import { LegacyDec } from "./dec.js";
+import { materialise } from "./gogo.js";
 import { isJsonObject } from "./json.js";
 import { ProtoJsonError, unknownEnumNames } from "./protojson.js";
 
@@ -202,6 +204,19 @@ test("a scalar that is not what its field holds is refused by name, with the SDK
     (err: unknown) => err instanceof ProtoJsonError && /PubKey\.key/.test(err.message),
   );
   assert.throws(() => fromHex("zz"), ArkSdkError);
+});
+
+test("bytes that are not UTF-8 are refused by an SDK error, in a Dec field's as in the decoder itself", () => {
+  const notText = new Uint8Array([0xff]);
+  assert.throws(
+    () => utf8Decode(notText),
+    (err: unknown) => err instanceof ArkSdkError && /not UTF-8/.test(err.message) && err.cause instanceof TypeError,
+  );
+  // gov v1beta1 carries its Decs as bytes: the JSON view, the amino document, and the builder's pass all read them as text.
+  const tally = create(TallyParamsSchema, { quorum: notText });
+  assert.throws(() => toProtoJson(TallyParamsSchema, tally), ArkSdkError);
+  assert.throws(() => aminoEncode(TallyParamsSchema, tally), ArkSdkError);
+  assert.throws(() => materialise(TallyParamsSchema, tally), ArkSdkError);
 });
 
 test("bytes cast to HexBytes are uppercase hex in the chain's JSON, and a list of inline JSON is a list of what each holds", () => {

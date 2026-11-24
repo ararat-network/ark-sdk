@@ -5,7 +5,7 @@ import type { JsonValue } from "../codec/json.js";
 import { registry } from "../codec/registry.js";
 import { QueryClient } from "../defaults.js";
 import { fixture } from "../testing/fixtures.js";
-import { json, stubFetch } from "../testing/node.js";
+import { fakeNode, json, notFound, stubFetch } from "../testing/node.js";
 import { FUTURE_MSG_URL, registryWithFutureTypes } from "../testing/registry.js";
 import { fetchTx, lookUpTx, searchTxs, txQuery, WrongTransaction } from "./search.js";
 
@@ -33,13 +33,8 @@ const found = {
   total: "1",
 };
 
-function stub(reply: () => Response) {
-  const { fetch, seen } = stubFetch(reply);
-  return { client: new QueryClient("http://node", { fetch }), seen };
-}
-
 test("searchTxs sends the query and decodes each result the one way", async () => {
-  const { client, seen } = stub(() => json(found));
+  const { client, requests: seen } = fakeNode(() => json(found));
   const sender = f.signer!.address;
   const result = await searchTxs(client, txQuery.bySender(sender), { limit: 20n });
   const url = new URL(seen[0]!.url);
@@ -69,7 +64,7 @@ test("a message of a type the registry lacks is one unknown message, not a faile
   const tx = structuredClone(f.tx!);
   (tx.body.messages as JsonValue[]).push(future);
   const page = { ...found, txs: [tx], tx_responses: [{ ...found.tx_responses[0], tx: { "@type": "/cosmos.tx.v1beta1.Tx", ...tx } }] };
-  const { client } = stub(() => json(page));
+  const { client } = fakeNode(() => json(page));
   const [item] = (await searchTxs(client, "message.sender='ark1x'")).items;
   assert.ok(item);
   assert.deepEqual(
@@ -138,23 +133,23 @@ test("a known message around one the registry lacks is unknown with the node's J
 });
 
 test("fetchTx returns undefined for a pending hash and the decoded transaction otherwise", async () => {
-  const notFound = stub(() => json({ code: 5, message: "tx not found", details: [] }, 404));
+  const pending = fakeNode(notFound);
   // A found transaction carries its messages' schemas, so this too is compared with ===.
-  assert.ok((await fetchTx(notFound.client, f.tx_hash!)) === undefined);
-  const ok = stub(() => json({ tx: f.tx, tx_response: found.tx_responses[0] }));
+  assert.ok((await fetchTx(pending.client, f.tx_hash!)) === undefined);
+  const ok = fakeNode(() => json({ tx: f.tx, tx_response: found.tx_responses[0] }));
   const item = await fetchTx(ok.client, f.tx_hash!);
   assert.equal(item?.messages.length, 2);
-  const broken = stub(() => new Response("<html>", { status: 500 }));
+  const broken = fakeNode(() => new Response("<html>", { status: 500 }));
   await assert.rejects(fetchTx(broken.client, f.tx_hash!));
 });
 
 test("fetchTx refuses an answer for another transaction, and takes the hash in either case", async () => {
-  const answer = stub(() => json({ tx: f.tx, tx_response: found.tx_responses[0] }));
+  const answer = fakeNode(() => json({ tx: f.tx, tx_response: found.tx_responses[0] }));
   const other = "AA".repeat(32);
   await assert.rejects(fetchTx(answer.client, other), (err: unknown) => err instanceof WrongTransaction && err.hash === other && err.answered === f.tx_hash);
   assert.equal((await fetchTx(answer.client, f.tx_hash!.toLowerCase()))?.hash, f.tx_hash, "case is not a difference");
   // An answer that names no transaction is refused too: empty, it would read as a success at height zero.
-  const unnamed = stub(() => json({ tx: null, tx_response: {} }));
+  const unnamed = fakeNode(() => json({ tx: null, tx_response: {} }));
   await assert.rejects(fetchTx(unnamed.client, other), (err: unknown) => err instanceof WrongTransaction && err.hash === other && err.answered === "");
   const [raw] = [await lookUpTx(answer.client, f.tx_hash!)];
   assert.equal(raw?.response.txhash, f.tx_hash, "lookUpTx returns the node's answer undecoded");

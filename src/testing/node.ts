@@ -1,7 +1,7 @@
-import { QueryClient } from "../defaults.js";
 // A stand-in for a node's gateway in tests: a fetch that records each request
-// and answers from the test's own function, and a client over a scripted node.
-// Test-only; excluded from the build.
+// and answers from the test's own function, the answers a node gives most,
+// and a client over a scripted node. Test-only; excluded from the build.
+import { QueryClient } from "../defaults.js";
 
 export interface SeenRequest {
   url: string;
@@ -43,25 +43,55 @@ export function txResponse(overrides: Record<string, unknown> = {}): Record<stri
   return { txhash: "", code: 0, codespace: "", raw_log: "", height: "0", gas_wanted: "0", gas_used: "0", events: [], logs: [], ...overrides };
 }
 
-/** A node's answer to one request, given its call. */
-export type Reply = (call: string) => Response;
+/** A node's answer to one request. */
+export type Reply = (request: SeenRequest) => Response | Promise<Response>;
+
+/** An error as the gateway renders one: the gRPC code and its message, under an HTTP status. */
+export function gatewayError(code: number, message: string, status: number): Response {
+  return json({ code, message, details: [] }, status);
+}
+
+/** NotFound for a transaction the node does not hold: pending, or unknown to it. */
+export const notFound = (): Response => gatewayError(5, "tx not found", 404);
+
+/** The endpoint's own fault: a gateway that cannot reach its node. */
+export const unavailable = (): Response => gatewayError(14, "unavailable", 503);
+
+/** A request that reached no node: the failure a runtime's fetch throws. */
+export const unreachable = (): never => {
+  throw new TypeError("fetch failed");
+};
+
+/** CheckTx's acceptance of a broadcast, from a node that echoes the transaction's hash. */
+export const accepted =
+  (hash: string): Reply =>
+  () =>
+    json({ tx_response: txResponse({ txhash: hash }) });
+
+/** The block's result under the hash the lookup asked for, in uppercase as a node reports one. */
+export const included: Reply = ({ call }) =>
+  json({ tx_response: txResponse({ txhash: call.split("/").pop()?.toUpperCase(), height: "7", gas_wanted: "250000", gas_used: "98227" }) });
 
 /**
  * A client over a scripted node. A request whose call starts with a key of
  * `replies` gets that reply every time; any other takes the next step of
- * `script`, and a request past its end fails.
+ * `script`, and a request past its end fails. A script that is one reply
+ * answers every request with it. `answer` is the node's own answer to a
+ * request, for a test that puts a fetch of its own in front of it.
  */
 export function fakeNode(
-  script: Reply[] = [],
+  script: Reply[] | Reply = [],
   replies: Record<string, Reply> = {},
-): { client: QueryClient; calls: string[]; requests: SeenRequest[]; script: Reply[]; replies: Record<string, Reply> } {
+): { client: QueryClient; calls: string[]; requests: SeenRequest[]; script: Reply[]; replies: Record<string, Reply>; answer: Reply } {
   const calls: string[] = [];
-  const { fetch, seen } = stubFetch(({ call }) => {
-    calls.push(call);
-    const standing = Object.entries(replies).find(([prefix]) => call.startsWith(prefix));
-    const reply = standing ? standing[1] : script.shift();
-    if (!reply) throw new Error(`unexpected request ${call}`);
-    return reply(call);
-  });
-  return { client: new QueryClient("http://node", { fetch }), calls, requests: seen, script, replies };
+  const steps = typeof script === "function" ? [] : script;
+  const answer: Reply = (request) => {
+    calls.push(request.call);
+    const standing = Object.entries(replies).find(([prefix]) => request.call.startsWith(prefix));
+    const reply = standing ? standing[1] : typeof script === "function" ? script : steps.shift();
+    if (!reply) throw new Error(`unexpected request ${request.call}`);
+    return reply(request);
+  };
+  const { fetch, seen } = stubFetch(answer);
+  return { client: new QueryClient("http://node", { fetch }), calls, requests: seen, script: steps, replies, answer };
 }

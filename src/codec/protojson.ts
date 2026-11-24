@@ -22,6 +22,7 @@ import { anyFromUnknownJson, requireRegistry, typeNameOf, typeUrlOf, UnknownType
 import { fromBase64, fromHex, toBase64, toHex, utf8Decode, utf8Encode } from "./bytes.js";
 import { intFromWire } from "./coins.js";
 import { LegacyDec } from "./dec.js";
+import { numericText } from "./fixed.js";
 import { isJsonObject, type JsonObject, type JsonValue } from "./json.js";
 import { fieldOptions } from "./options.js";
 import { durationFromText, durationToProtoJson, GO_ZERO_TIME_SECONDS, timestampFromText, timestampToProtoJson } from "./wkt.js";
@@ -138,7 +139,7 @@ function anyToJson(any: Any, ctx: WriteContext): JsonValue {
 
 /**
  * A message's JSON as an Any carries it: its members beside "@type", or under "value" for a message that renders as
- * a scalar. Shared with the decoder, which already holds the decoded message; not re-exported from the index.
+ * a scalar. Shared with the decoder, which already holds the decoded message; not exported from the core entry.
  */
 export function anyJson(typeUrl: string, value: JsonValue): JsonObject {
   return isJsonObject(value) ? { "@type": typeUrl, ...value } : { "@type": typeUrl, value };
@@ -247,7 +248,6 @@ function scalarFieldToJson(r: ReflectMessage, f: DescField & { fieldKind: "scala
   const o = fieldOptions(f);
   const set = r.isSet(f);
   const v = r.get(f);
-  // A Dec or Int travels as decimal text, in a string field or as the bytes of one.
   if (o.isLegacyDec) {
     // gogo writes a Dec that never reached the wire as "0", not at 18 places.
     if (!set) return o.nullable ? null : "0";
@@ -264,10 +264,6 @@ function scalarFieldToJson(r: ReflectMessage, f: DescField & { fieldKind: "scala
   }
   if (o.isHexBytes && f.scalar === ScalarType.BYTES) return toHex(v as Uint8Array).toUpperCase();
   return scalarToJson(f.scalar, v, f.longAsString);
-}
-
-function numericText(v: unknown): string {
-  return v instanceof Uint8Array ? utf8Decode(v) : (v as string);
 }
 
 function scalarToJson(type: ScalarType, v: unknown, longAsString: boolean): JsonValue {

@@ -14,7 +14,7 @@ import { QueryError } from "../query/gateway.js";
 import { packMessages, type TxBodyInput } from "./body.js";
 import { BroadcastRefused, type BroadcastResult, broadcastSync, type Confirmed, type InclusionOptions, waitForAccepted } from "./broadcast.js";
 import { feeFromQuote, type SignedTx, type SigningMode, signTx, simulationTxBytes } from "./builder.js";
-import { adjustGas, FeeError, type FeeQuote, type Headroom, quoteFee } from "./fee.js";
+import { adjustGas, type FeeQuote, gasPriceFor, type Headroom, quoteFee, requireFeeDenom } from "./fee.js";
 
 export class PrepareError extends ArkSdkError {
   override readonly name: string = "PrepareError";
@@ -27,7 +27,8 @@ export interface AccountState {
 
 /** The body's members, and what the flow needs to price and sign it. An unordered body needs its timeout timestamp. */
 export interface PrepareInput extends TxBodyInput {
-  client: QueryClient;
+  /** The services the flow reads, a QueryClient or those of its members over one gateway; sendTx reads `node` beside them. */
+  client: Pick<QueryClient, "gateway" | "auth" | "tx" | "treasury">;
   signer: Signer;
   address: string;
   chainId: string;
@@ -70,19 +71,15 @@ export interface Prepared {
  */
 export async function prepareAndSign(input: PrepareInput): Promise<Prepared> {
   const { client } = input;
-  if (!input.feeDenom) throw new FeeError("no fee denomination: feeDenom names the one that pays the base fee, and none is chosen for you");
+  const feeDenom = requireFeeDenom(input.feeDenom);
   const messages = packMessages(input.messages);
   if (input.unordered && !input.timeoutTimestamp) {
     throw new PrepareError("an unordered transaction needs a timeout timestamp: it is what the chain orders and expires it by");
   }
-  // The body every step is built over, its messages packed once so the simulation, the tax, and the signature see the same bytes.
-  const body: TxBodyInput = {
-    messages,
-    memo: input.memo,
-    timeoutHeight: input.timeoutHeight,
-    timeoutTimestamp: input.timeoutTimestamp,
-    unordered: input.unordered,
-  };
+  // The body every step is built over, its messages packed once so the simulation, the tax, and the signature see
+  // the same bytes. The input is the body's members and more, and is handed on whole, as signTx hands on its own:
+  // a member the body gains is then carried here with no line to add, and each step reads only the ones it names.
+  const body: TxBodyInput = { ...input, messages };
   // The chain's account and the signer's are independent, so they are asked for together. The signer is asked
   // inside a promise: one that throws where it should reject would otherwise leave the account request, already
   // sent, with nothing awaiting it.
@@ -96,7 +93,8 @@ export async function prepareAndSign(input: PrepareInput): Promise<Prepared> {
   let simulatedGas: bigint | undefined;
   let gasLimit = input.gasLimit;
   if (gasLimit === undefined) {
-    const simulation = await client.tx.simulate(simulationTxBytes({ ...body, publicKey: signerAccount.publicKey, sequence }));
+    // Simulated with no fee, whatever the input carried beside the members this flow names: the fee is priced below.
+    const simulation = await client.tx.simulate(simulationTxBytes({ ...body, publicKey: signerAccount.publicKey, sequence, fee: undefined }));
     if (!simulation.gasInfo) throw new PrepareError("simulation returned no gas info");
     simulatedGas = simulation.gasInfo.gasUsed;
     gasLimit = adjustGas(simulatedGas, input.gasAdjustment);
@@ -104,12 +102,9 @@ export async function prepareAndSign(input: PrepareInput): Promise<Prepared> {
 
   // Neither answer depends on the other, so the tax and the sheet are asked for together, the tax first.
   const [tax, sheet] = await Promise.all([client.treasury.computeTax(messages), client.treasury.gasPrices()]);
-  const gasPrice =
-    sheet.gasPrices.find((p) => p.denom === input.feeDenom) ?? (sheet.referenceGasPrice?.denom === input.feeDenom ? sheet.referenceGasPrice : undefined);
-  if (!gasPrice) throw new FeeError(`${input.feeDenom} is not on the gas price sheet; the chain does not accept it for the base fee`);
   const quote = quoteFee({
     tax: tax.tax,
-    gasPrice,
+    gasPrice: gasPriceFor(sheet, feeDenom),
     gasLimit,
     headroom: input.headroom,
     tip: input.tip,
@@ -133,7 +128,7 @@ export async function prepareAndSign(input: PrepareInput): Promise<Prepared> {
   return { signed, quote, tax: tax.tax, taxBase: tax.taxBase, simulatedGas, gasLimit, accountNumber: account.accountNumber, sequence };
 }
 
-async function fetchAccount(client: QueryClient, address: string): Promise<AccountState> {
+async function fetchAccount(client: Pick<QueryClient, "auth">, address: string): Promise<AccountState> {
   const { info } = await client.auth.accountInfo(address);
   if (!info) throw new PrepareError(`no account at ${address}; it has never held coins`);
   return { accountNumber: info.accountNumber, sequence: info.sequence };
@@ -175,7 +170,7 @@ export function expectedSequence(err: unknown): bigint | undefined {
  * answers, since a second transaction would pay twice. Every failure from the
  * broadcast on carries the transaction's hash.
  */
-export async function sendTx(input: PrepareInput, options: SendOptions = {}): Promise<Sent> {
+export async function sendTx(input: PrepareInput & { client: Pick<QueryClient, "node"> }, options: SendOptions = {}): Promise<Sent> {
   let attempt = input;
   let signAgain = (options.retryOnSequenceMismatch ?? true) && !input.account;
   for (;;) {

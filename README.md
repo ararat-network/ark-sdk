@@ -164,19 +164,43 @@ transaction, alone or inside a message built around it.
 The main entry resolves every `Any` against a registry of all the generated types, which is why any message decodes
 and why importing a decoder or a client bundles every generated file. `@ararat-network/sdk/core` exports the same
 names without that registry: whatever reads an `Any` takes the registry as an argument, so an app that names the
-types it uses bundles only those.
+types it uses does not bundle the rest.
 
 ```ts
 import { createRegistry } from "@bufbuild/protobuf";
 import { decodeTx, QueryClient } from "@ararat-network/sdk/core";
 import { file_cosmos_bank_v1beta1_tx } from "@ararat-network/sdk/gen/cosmos/bank/v1beta1/tx_pb.js";
+import { file_cosmos_crypto_secp256k1_keys } from "@ararat-network/sdk/gen/cosmos/crypto/secp256k1/keys_pb.js";
 
-const registry = createRegistry(file_cosmos_bank_v1beta1_tx);
+const registry = createRegistry(file_cosmos_bank_v1beta1_tx, file_cosmos_crypto_secp256k1_keys);
 const client = new QueryClient(network.endpoints.rest.map((e) => e.address), { registry });
 const { messages } = decodeTx(txBytes, { registry });
 ```
 
-A client's search and account helpers decode with the client's registry, and `prepareAndSign` and `sendTx` encode an
+The registry names every type an `Any` may hold, not the messages alone: a signer's public key is one, and without
+its type the JSON view shows the key as the bytes of an unknown message.
+
+The registry bounds what is decoded. What a client can call is bundled apart from it: `QueryClient` holds a client
+for every service the app reads, and bundles them all, 47 generated files, whatever registry it is given. Each of
+those is exported on its own, over a gateway: `authClient`, `bankClient`, `disbursementClient`, `distributionClient`,
+`govClient`, `marketClient`, `nodeClient`, `oracleClient`, `stakingClient`, `treasuryClient`, and `txClient`. An app
+that builds the ones it calls bundles those services alone, and every flow takes them in place of the whole client,
+each typed by the services it reads: `searchTxs` and `fetchTx` the gateway and `tx`; `maxSendable` the `treasury`;
+`prepareAndSign` the gateway, `auth`, `tx`, and `treasury`; `sendTx`, `waitForInclusion`, and `broadcastAndConfirm`
+the `node` as well, for a timeout height.
+
+```ts
+import { arkdPolicy, authClient, GatewayClient, nodeClient, sendTx, treasuryClient, txClient } from "@ararat-network/sdk/core";
+
+const gateway = new GatewayClient(network.endpoints.rest.map((e) => e.address), { registry });
+const client = { gateway, tx: txClient(gateway), auth: authClient(gateway), treasury: treasuryClient(gateway), node: nodeClient(gateway) };
+const sent = await sendTx({ client, signer, address: fromAddress, chainId: network.chainId, messages: [send], feeDenom: "ausd", headroom: arkdPolicy.headroom, gasAdjustment: arkdPolicy.gasAdjustment });
+```
+
+That send is 207 kB minified where the same through the core's `QueryClient` is 276 and through the main entry's 487,
+and a search through `txClient` alone is 155 where through `QueryClient` it is 254.
+
+A client's search and account helpers decode with the gateway's registry, and `prepareAndSign` and `sendTx` encode an
 amino document through it. A message of a type the registry lacks decodes as unknown, as it does everywhere. The main
 entry's `QueryClient` and `GatewayClient` extend the core's, so anything that takes a core client takes either.
 Passing a registry to the main entry changes what is decoded, a newer release's types or fewer, but not the bundle:

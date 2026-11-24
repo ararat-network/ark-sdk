@@ -249,6 +249,22 @@ export function registrySource(ref = DEFAULT_REGISTRY_REF): string {
   return `https://raw.githubusercontent.com/${REGISTRY_REPOSITORY}/${ref}`;
 }
 
+/**
+ * A registry file or the genesis it names, fetched: a request that fails or is answered with an error status is a
+ * RegistryError, the failure kept as its cause. Called unbound: a browser's fetch refuses any receiver but its
+ * window. Internal: not exported from the core entry.
+ */
+export async function fetchOk(fetchFn: typeof fetch, url: string): Promise<Response> {
+  let response: Response;
+  try {
+    response = await fetchFn(url);
+  } catch (err) {
+    throw new RegistryError(`${url}: ${errorMessage(err)}`, { cause: err });
+  }
+  if (!response.ok) throw new RegistryError(`${url}: ${response.status} ${response.statusText}`);
+  return response;
+}
+
 export interface LoadOptions {
   /** Base URL holding `<name>/chain.json` and the two other files; the published registry at `ref` by default. */
   source?: string;
@@ -273,13 +289,7 @@ export async function loadNetwork(name: string, options: LoadOptions = {}): Prom
   const fetchFn = options.fetch ?? globalThis.fetch;
   const read = async (file: string): Promise<unknown> => {
     const url = `${source}/${name}/${file}`;
-    let response: Response;
-    try {
-      response = await fetchFn(url);
-    } catch (err) {
-      throw new RegistryError(`${url}: ${errorMessage(err)}`, { cause: err });
-    }
-    if (!response.ok) throw new RegistryError(`${url}: ${response.status} ${response.statusText}`);
+    const response = await fetchOk(fetchFn, url);
     try {
       return await response.json();
     } catch (err) {

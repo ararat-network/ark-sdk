@@ -10,7 +10,7 @@ import { MemorySigner } from "../keys/memory_signer.js";
 import { type Signer, SignerError } from "../keys/signer.js";
 import { QueryError } from "../query/gateway.js";
 import { amounts, fixture, fixtureKey } from "../testing/fixtures.js";
-import { fakeNode, json, stubFetch, txResponse } from "../testing/node.js";
+import { accepted, fakeNode, gatewayError, included, json, notFound, stubFetch, txResponse, unavailable } from "../testing/node.js";
 import { BroadcastRefused, BroadcastUnknown, InclusionUnknown } from "./broadcast.js";
 import { FeeError } from "./fee.js";
 import { PrepareError, prepareAndSign, sendTx } from "./prepare.js";
@@ -84,17 +84,15 @@ test("prepareAndSign asks the signer for its accounts once, and signTx uses the 
 });
 
 test("an endpoint that goes bad after the simulation does not strand the tax or the price sheet", async () => {
-  const { replies } = node();
+  const n = node();
   // Two endpoints. a answers the account and the simulation, then 503s the treasury's routes, the sheet's later
   // than the tax's: the two are asked together, and each must go on to b.
-  const { fetch, seen } = stubFetch(async ({ url, call }) => {
-    if (url.startsWith("http://a/") && call.includes("/ark/treasury/")) {
-      if (call.includes("gas_prices")) await new Promise((resolve) => setTimeout(resolve, 20));
-      return json({ code: 14, message: "unavailable", details: [] }, 503);
+  const { fetch, seen } = stubFetch(async (request) => {
+    if (request.url.startsWith("http://a/") && request.call.includes("/ark/treasury/")) {
+      if (request.call.includes("gas_prices")) await new Promise((resolve) => setTimeout(resolve, 20));
+      return unavailable();
     }
-    const reply = Object.entries(replies).find(([prefix]) => call.startsWith(prefix));
-    if (!reply) throw new Error(`unexpected request ${call}`);
-    return reply[1](call);
+    return n.answer(request);
   });
   const prepared = await prepareAndSign(base(new QueryClient(["http://a", "http://b"], { fetch })));
   assert.equal(toBase64(prepared.signed.txBytes), f.tx_bytes);
@@ -171,7 +169,7 @@ test("an unordered transaction is signed at sequence zero and needs its timeout 
   assert.equal(n.calls.filter((c) => c.includes("account_info")).length, 2, "the refusal comes before any request");
 });
 
-const broadcastOk = () => json({ tx_response: txResponse({ txhash: HASH }) });
+const broadcastOk = accepted(HASH);
 const mismatch = () =>
   json({
     tx_response: txResponse({
@@ -181,8 +179,6 @@ const mismatch = () =>
       raw_log: "account sequence mismatch, expected 3, got 2: incorrect account sequence",
     }),
   });
-/** The block's result under the hash the lookup asked for, as an honest node answers. */
-const included = (call: string) => json({ tx_response: txResponse({ txhash: call.split("/").pop(), height: "7", gas_wanted: "250000", gas_used: "98227" }) });
 
 test("sendTx broadcasts and confirms, and signs again at the sequence the chain names after a mismatch", async () => {
   const n = node();
@@ -194,7 +190,7 @@ test("sendTx broadcasts and confirms, and signs again at the sequence the chain 
   // A timeout height of zero is the body's no timeout: the wait polls on
   // instead of reading the chain as past it.
   const untimed = node();
-  untimed.script.push(broadcastOk, () => json({ code: 5, message: "tx not found", details: [] }, 404), included);
+  untimed.script.push(broadcastOk, notFound, included);
   const landed = await sendTx({ ...base(untimed.client), timeoutHeight: 0n }, { sleep: async () => {} });
   assert.equal(landed.response.height, 7n);
   assert.ok(!untimed.calls.some((c) => c.includes("blocks/latest")));
@@ -212,10 +208,7 @@ test("sendTx broadcasts and confirms, and signs again at the sequence the chain 
   let simulations = 0;
   s.replies["POST /cosmos/tx/v1beta1/simulate"] = () =>
     simulations++ === 0
-      ? json(
-          { code: 2, message: "rpc error: code = Unknown desc = account sequence mismatch, expected 3, got 2: incorrect account sequence", details: [] },
-          500,
-        )
+      ? gatewayError(2, "rpc error: code = Unknown desc = account sequence mismatch, expected 3, got 2: incorrect account sequence", 500)
       : json({ gas_info: { gas_wanted: "0", gas_used: "217391" }, result: null });
   s.script.push(broadcastOk, included);
   const resimulated = await sendTx(base(s.client), { sleep: async () => {} });
@@ -236,7 +229,7 @@ test("sendTx broadcasts and confirms, and signs again at the sequence the chain 
 
 test("once a broadcast is accepted, or may have been, sendTx signs nothing again whatever the node then answers", async () => {
   // The text the ante gives for a sequence another transaction took, in an error where the chain never puts it.
-  const sequenceText = () => json({ code: 2, message: "account sequence mismatch, expected 3, got 2: incorrect account sequence", details: [] }, 500);
+  const sequenceText = () => gatewayError(2, "account sequence mismatch, expected 3, got 2: incorrect account sequence", 500);
   const broadcasts = (calls: string[]) => calls.filter((c) => c === "POST /cosmos/tx/v1beta1/txs").length;
   const simulations = (calls: string[]) => calls.filter((c) => c.includes("simulate")).length;
 
@@ -319,6 +312,19 @@ test("the fee the flow signs has the fee denomination's leg first, before a tax 
 
   // The caller's order is signed as given: an empty one is denomination order, as arkd encodes the same fee.
   assert.deepEqual(signedLegs(await prepareAndSign({ ...input(taxedInEur()), legOrder: [] })), ["5500000000000000000aeur", "30140000000000000ausd"]);
+});
+
+test("the reference row prices its denomination when the sheet lists a row under the same name", async () => {
+  // The chain lists the reference apart from the sheet. Given both, the reference row is the one arkd prices by.
+  const n = node();
+  n.replies["POST /ark/treasury/v1/compute_tax"] = () => json({ tax: [], tax_base: [] });
+  n.replies["GET /ark/treasury/v1/gas_prices"] = () =>
+    json({
+      gas_prices: [{ denom: "ausd", gas_price: "137000000000.000000000000000000", derived_height: "5" }],
+      reference_gas_price: { denom: "ausd", gas_price: "100000000000.000000000000000000", derived_height: "0" },
+    });
+  const prepared = await prepareAndSign({ ...base(n.client), gasLimit: 200000n });
+  assert.deepEqual(amounts([prepared.quote.required]), ["20000000000000000ausd"]);
 });
 
 test("a fee denomination left out is said to be missing, before any request", async () => {

@@ -10,10 +10,10 @@
 import { type DescField, type DescMessage, type MessageShape, ScalarType } from "@bufbuild/protobuf";
 import { type ReflectMessage, reflect } from "@bufbuild/protobuf/reflect";
 
-import { utf8Decode, utf8Encode } from "./bytes.js";
+import { utf8Encode } from "./bytes.js";
 import { CoinError } from "./coins.js";
 import { DecError } from "./dec.js";
-import { CANONICAL_INTEGER_TEXT } from "./fixed.js";
+import { CANONICAL_INTEGER_TEXT, numericText } from "./fixed.js";
 import { fieldOptions, MATH_INT } from "./options.js";
 import { GO_ZERO_TIME_SECONDS } from "./wkt.js";
 
@@ -29,7 +29,7 @@ export function materialise<Desc extends DescMessage>(schema: Desc, message: Mes
  * taken from it, so "0100" would be signed here as one hundred and executed there as sixty-four.
  */
 function refuseUnwrittenText(f: DescField, value: unknown, dec: boolean): void {
-  const text = value instanceof Uint8Array ? utf8Decode(value) : String(value);
+  const text = numericText(value);
   if (CANONICAL_INTEGER_TEXT.test(text)) return;
   const what = `${f.parent.typeName}.${f.name}: ${JSON.stringify(text)} is not an integer in decimal digits with no leading zero`;
   throw dec ? new DecError(`${what}; a Dec field holds its scaled integer, as LegacyDec.toWire gives it`) : new CoinError(what);

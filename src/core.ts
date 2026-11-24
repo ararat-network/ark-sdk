@@ -96,6 +96,8 @@ export {
   parseDecCoin,
   toDisplayUnits,
 } from "./format/amount.js";
+export { SignMode } from "./gen/cosmos/tx/signing/v1beta1/signing_pb.js";
+export { BroadcastMode, OrderBy } from "./gen/cosmos/tx/v1beta1/service_pb.js";
 export {
   ADDRESS_LENGTH,
   type AddressDecodeOptions,
@@ -138,7 +140,24 @@ export {
   SignerError,
   secp256k1PublicKey,
 } from "./keys/signer.js";
-export { BroadcastMode, NetworkMismatch, type NetworkVerification, NodeVersionUnlisted, OrderBy, QueryClient, type VerifyOptions } from "./query/client.js";
+export {
+  authClient,
+  bankClient,
+  disbursementClient,
+  distributionClient,
+  govClient,
+  marketClient,
+  NetworkMismatch,
+  type NetworkVerification,
+  NodeVersionUnlisted,
+  nodeClient,
+  oracleClient,
+  QueryClient,
+  stakingClient,
+  treasuryClient,
+  txClient,
+  type VerifyOptions,
+} from "./query/client.js";
 export {
   type CallOptions,
   DEFAULT_TIMEOUT_MS,
@@ -174,7 +193,6 @@ export {
   makeSignerInfo,
   makeTxBody,
   packMessages,
-  SignMode,
   type TxBodyInput,
   type TxMessage,
   type Typed,

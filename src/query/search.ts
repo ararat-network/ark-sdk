@@ -70,7 +70,7 @@ export function foundTx(response: TxResponse, tx: Tx | undefined, registry: Regi
 }
 
 /** Committed transactions matching a query, newest first by default, decoded with the client's registry unless another is given. */
-export async function searchTxs(client: QueryClient, query: string, options: SearchOptions = {}): Promise<SearchResult> {
+export async function searchTxs(client: Pick<QueryClient, "gateway" | "tx">, query: string, options: SearchOptions = {}): Promise<SearchResult> {
   const { registry = client.gateway.registry, ...paging } = options;
   const result = await client.tx.search(query, paging);
   return {
@@ -96,7 +96,7 @@ export class WrongTransaction extends ArkSdkError {
  * unknown, not a failure. An answer for another hash, or for none, is refused,
  * so a faulty endpoint cannot pass one transaction's result off as another's.
  */
-export async function lookUpTx(client: QueryClient, hash: string): Promise<{ response: TxResponse; tx: Tx | undefined } | undefined> {
+export async function lookUpTx(client: Pick<QueryClient, "tx">, hash: string): Promise<{ response: TxResponse; tx: Tx | undefined } | undefined> {
   try {
     const found = await client.tx.getTx(hash);
     const response = found.txResponse;
@@ -112,7 +112,11 @@ export async function lookUpTx(client: QueryClient, hash: string): Promise<{ res
 }
 
 /** One committed transaction by hash, decoded with the client's registry unless another is given, or undefined while it is pending or unknown. */
-export async function fetchTx(client: QueryClient, hash: string, registry: Registry = client.gateway.registry): Promise<FoundTx | undefined> {
+export async function fetchTx(
+  client: Pick<QueryClient, "gateway" | "tx">,
+  hash: string,
+  registry: Registry = client.gateway.registry,
+): Promise<FoundTx | undefined> {
   const found = await lookUpTx(client, hash);
   return found && foundTx(found.response, found.tx, registry);
 }

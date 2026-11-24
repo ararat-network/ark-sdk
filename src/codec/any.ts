@@ -28,7 +28,7 @@ export class UnknownTypeError extends ArkSdkError {
 
 /**
  * The registry a reader was given. The types require one; a caller they do not reach, plain JavaScript on the core
- * entry, is told so by name here, not by the runtime's error at the first use. Internal: not re-exported.
+ * entry, is told so by name here, not by the runtime's error at the first use. Internal: not exported from the core entry.
  */
 export function requireRegistry(registry: Registry | undefined, reader: string): Registry {
   if (!registry) throw new ArkSdkError(`${reader} needs a registry, the types an Any resolves against; the main entry defaults it`);

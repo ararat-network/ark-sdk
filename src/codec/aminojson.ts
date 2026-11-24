@@ -14,6 +14,7 @@ import { requireRegistry, typeNameOf, typeUrlOf, UnknownTypeError, unknownAnyJso
 import { toBase64, utf8Decode, utf8Encode } from "./bytes.js";
 import { intFromWire } from "./coins.js";
 import { LegacyDec } from "./dec.js";
+import { numericText } from "./fixed.js";
 import { compareUtf8, type JsonObject, type JsonValue, marshalGoJsonBytes, sortKeys } from "./json.js";
 import {
   ENCODING_INLINE_JSON,
@@ -292,22 +293,19 @@ const inlineJson: FieldEncoder = (r, f) => {
   return sortKeys(parsed);
 };
 
-// Decs and Ints travel as decimal text, in a string field or as the bytes of one.
-function numericText(r: ReflectMessage, f: DescField): string {
-  if (f.fieldKind !== "scalar") throw new AminoError(`unsupported type for ${f.name}`);
-  const v = r.get(f);
-  if (f.scalar === ScalarType.STRING) return v as string;
-  if (f.scalar === ScalarType.BYTES) return utf8Decode(v as Uint8Array);
-  throw new AminoError(`unsupported type for ${f.name}`);
+/** The text of a Dec or an Int field, which is a string field or a bytes one and no other. */
+function numericField(r: ReflectMessage, f: DescField): string {
+  if (f.fieldKind !== "scalar" || (f.scalar !== ScalarType.STRING && f.scalar !== ScalarType.BYTES)) throw new AminoError(`unsupported type for ${f.name}`);
+  return numericText(r.get(f));
 }
 
 const cosmosDec: FieldEncoder = (r, f) => {
-  const v = numericText(r, f);
+  const v = numericField(r, f);
   return v === "" ? "0" : LegacyDec.fromWire(v).toString();
 };
 
 const cosmosInt: FieldEncoder = (r, f) => {
-  const v = numericText(r, f);
+  const v = numericField(r, f);
   if (v === "") return "0";
   // The chain's encoder writes a string field's text as it is, and reads the bytes of one as an Int before writing it.
   return f.fieldKind === "scalar" && f.scalar === ScalarType.BYTES ? intFromWire(v).toString() : v;

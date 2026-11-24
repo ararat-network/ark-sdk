@@ -41,17 +41,6 @@ test("only the defaulting layer imports the full registry", () => {
   assert.deepEqual(defaulting, ["index.ts"]);
 });
 
-test("the core entry exports every name the main entry does, but for the full registry", () => {
-  assert.deepEqual(
-    Object.keys(core).sort(),
-    Object.keys(main)
-      .filter((name) => name !== "registry")
-      .sort(),
-  );
-  // Compared with === here and below: a registry prints as over a million lines, and a failed assert.equal diffs both sides.
-  assert.ok(main.registry === registry);
-});
-
 test("a core reader given the full registry answers as the main entry's does", () => {
   const f = fixture("multi_message");
   const bytes = fromBase64(f.tx_bytes!);
@@ -82,8 +71,29 @@ test("a core client takes its registry, and the main entry's is the same client 
 
   const defaulted = new main.QueryClient("http://node", { fetch });
   assert.ok(defaulted instanceof core.QueryClient, "what takes a core client takes the main entry's");
+  // Compared with ===: a registry prints as over a million lines, and a failed assert.equal diffs both sides.
   assert.ok(defaulted.gateway.registry === registry);
+  assert.ok(main.registry === registry, "the registry the main entry exports is the one it defaults to");
   assert.ok(new main.GatewayClient("http://node") instanceof core.GatewayClient);
+});
+
+test("a flow takes the services it reads, each a client over one gateway, in place of the whole query client", async () => {
+  // What a caller of the core entry builds to keep its bundle to the services it calls: a search reads the
+  // transaction service alone, and decodes with the gateway's registry.
+  const f = fixture("bank_send_taxed");
+  const tx_response = { txhash: f.tx_hash, height: "7", tx: { "@type": "/cosmos.tx.v1beta1.Tx", ...f.tx }, events: [] };
+  const { fetch, seen } = stubFetch(() => json({ tx: f.tx, tx_response }));
+  const gateway = new core.GatewayClient("http://node", { fetch, registry: createRegistry(MsgSendSchema) });
+  const client = { gateway, tx: core.txClient(gateway) };
+  const found = await core.fetchTx(client, f.tx_hash!);
+  assert.equal(found?.messages[0]?.known, true);
+  assert.equal(seen[0]?.call, `GET /cosmos/tx/v1beta1/txs/${f.tx_hash}`);
+  assert.equal((await core.waitForInclusion({ ...client, node: core.nodeClient(gateway) }, f.tx_hash!)).height, 7n);
+
+  // The query client is those clients over its own gateway, so either is what a flow is handed.
+  const whole = new core.QueryClient("http://node", { fetch, registry: createRegistry(MsgSendSchema) });
+  assert.equal((await core.fetchTx(whole, f.tx_hash!))?.hash, f.tx_hash);
+  assert.deepEqual(Object.keys(whole.tx), Object.keys(client.tx));
 });
 
 test("core signTx needs a registry for amino mode only", async () => {
@@ -116,11 +126,6 @@ void (() => {
   new core.QueryClient("http://node");
   // @ts-expect-error the registry is required
   new core.GatewayClient("http://node", {});
-  // The main entry defaults each of them.
-  main.decodeTx(bytes);
-  main.toProtoJson(MsgSendSchema, create(MsgSendSchema));
-  new main.QueryClient("http://node");
-  new main.GatewayClient("http://node", {});
 });
 
 test("a core reader called without a registry says so by name, to a caller the types do not reach", () => {

@@ -20,15 +20,12 @@ import { Query as GovQuery } from "../gen/cosmos/gov/v1/query_pb.js";
 import { Service as TxService } from "../gen/cosmos/tx/v1beta1/service_pb.js";
 import { Query as WasmQuery } from "../gen/cosmwasm/wasm/v1/query_pb.js";
 import { amounts, fixtureKey } from "../testing/fixtures.js";
-import { json, stubFetch } from "../testing/node.js";
+import { gatewayError, json, stubFetch, unavailable, unreachable } from "../testing/node.js";
 import { QueryClient as CoreQueryClient } from "./client.js";
 import { GatewayClient as CoreGatewayClient, EndpointsExhausted, GrpcCode, QueryError, routeFor, TransportError } from "./gateway.js";
 import { collectAll } from "./pagination.js";
 
 const nodeInfo = () => json({ default_node_info: { network: "localark" }, application_version: null });
-const unreachable = () => {
-  throw new TypeError("fetch failed");
-};
 
 test("routes come from the http option: path parameters, query parameters, and bodies", () => {
   const member = routeFor(DisbursementQuery.method.member, { address: "ark1abc" });
@@ -109,7 +106,7 @@ test("computeTax posts the packed messages as proto JSON", async () => {
 });
 
 test("gateway errors carry the gRPC code and NotFound is recognisable", async () => {
-  const { fetch } = stubFetch(() => json({ code: 5, message: "rpc error: code = NotFound desc = tx not found", details: [] }, 404));
+  const { fetch } = stubFetch(() => gatewayError(5, "rpc error: code = NotFound desc = tx not found", 404));
   const client = new QueryClient("http://node", { fetch });
   await assert.rejects(client.tx.getTx("ABCD"), (err: unknown) => {
     assert.ok(err instanceof QueryError);
@@ -156,7 +153,7 @@ test("facades send enum and bigint request fields as the gateway expects", async
 test("several endpoints: a call moves past one that cannot answer and stays on the one that did", async () => {
   const { fetch, seen } = stubFetch(({ url }) => {
     if (url.startsWith("http://a/")) return unreachable();
-    if (url.startsWith("http://b/")) return json({ code: 13, message: "overloaded", details: [] }, 503);
+    if (url.startsWith("http://b/")) return gatewayError(13, "overloaded", 503);
     return nodeInfo();
   });
   const client = new QueryClient(["http://a", "http://b", "http://c"], { fetch });
@@ -175,8 +172,6 @@ test("several endpoints: a call moves past one that cannot answer and stays on t
 test("calls in flight together each walk the endpoints once: one's move does not shift another's", async () => {
   const later = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   const sheet = () => json({ gas_prices: [], reference_gas_price: null });
-  const unavailable = () => json({ code: 14, message: "unavailable", details: [] }, 503);
-
   // a is at fault. Its answer to the price sheet arrives after the other call has left it and been answered by b.
   const faulty = stubFetch(async ({ url }) => {
     if (!url.startsWith("http://a/")) return url.includes("gas_prices") ? sheet() : nodeInfo();
@@ -207,7 +202,7 @@ test("calls in flight together each walk the endpoints once: one's move does not
 });
 
 test("a 500 blames the request and stays put; a rate limit or a gateway fault moves on", async () => {
-  const failed = stubFetch(() => json({ code: 2, message: "rpc error: code = Unknown desc = account sequence mismatch, expected 3, got 2", details: [] }, 500));
+  const failed = stubFetch(() => gatewayError(2, "rpc error: code = Unknown desc = account sequence mismatch, expected 3, got 2", 500));
   await assert.rejects(
     new QueryClient(["http://a", "http://b"], { fetch: failed.fetch }).tx.simulate(new Uint8Array([1])),
     (err: unknown) => err instanceof QueryError && err.httpStatus === 500,
@@ -215,7 +210,7 @@ test("a 500 blames the request and stays put; a rate limit or a gateway fault mo
   assert.equal(failed.seen.length, 1, "a deterministic failure is not replayed on the next endpoint");
 
   for (const status of [429, 502, 504]) {
-    const faulty = stubFetch(({ url }) => (url.startsWith("http://a/") ? json({ code: 14, message: "unavailable", details: [] }, status) : nodeInfo()));
+    const faulty = stubFetch(({ url }) => (url.startsWith("http://a/") ? gatewayError(14, "unavailable", status) : nodeInfo()));
     const info = await new QueryClient(["http://a", "http://b"], { fetch: faulty.fetch }).node.info();
     assert.equal(info.defaultNodeInfo?.network, "localark", `${status} moves on`);
     assert.equal(faulty.seen.length, 2, `${status} moves on`);
@@ -227,16 +222,16 @@ test("a broadcast is sent once, to one endpoint, whatever happens", async () => 
   await assert.rejects(new QueryClient(["http://a", "http://b"], { fetch: down.fetch }).tx.broadcast(new Uint8Array([1])), TransportError);
   assert.equal(down.seen.length, 1, "the second endpoint never sees the transaction");
 
-  const unavailable = stubFetch(() => json({ code: 14, message: "unavailable", details: [] }, 503));
+  const refusing = stubFetch(unavailable);
   await assert.rejects(
-    new QueryClient(["http://a", "http://b"], { fetch: unavailable.fetch }).tx.broadcast(new Uint8Array([1])),
+    new QueryClient(["http://a", "http://b"], { fetch: refusing.fetch }).tx.broadcast(new Uint8Array([1])),
     (err: unknown) => err instanceof QueryError && err.httpStatus === 503,
   );
-  assert.equal(unavailable.seen.length, 1);
+  assert.equal(refusing.seen.length, 1);
 });
 
 test("a request error does not fail over, and every endpoint at fault names each attempt", async () => {
-  const notFound = stubFetch(() => json({ code: 5, message: "no such grant", details: [] }, 404));
+  const notFound = stubFetch(() => gatewayError(5, "no such grant", 404));
   const client = new QueryClient(["http://a", "http://b"], { fetch: notFound.fetch });
   await assert.rejects(client.disbursement.grant(1n), (err: unknown) => err instanceof QueryError && err.isNotFound);
   assert.equal(notFound.seen.length, 1);

@@ -9,10 +9,11 @@
 import { intFromWire } from "../codec/coins.js";
 import type { QueryClient } from "../query/client.js";
 import { packMessages, type TxMessage } from "./body.js";
-import { FeeError, type Headroom, liftLeg, NOAH_DENOM, requiredGasFee } from "./fee.js";
+import { checkedTip, FeeError, gasPriceFor, type Headroom, liftLeg, NOAH_DENOM, requiredGasFee, requireFeeDenom } from "./fee.js";
 
 export interface MaxSendableInput {
-  client: QueryClient;
+  /** The treasury's client: a QueryClient, or treasuryClient over a gateway. */
+  client: Pick<QueryClient, "treasury">;
   /** The denomination being sent. */
   denom: string;
   /** The payer's spendable balance of it, in base units. */
@@ -58,18 +59,14 @@ export interface MaxSendable {
  */
 export async function maxSendable(input: MaxSendableInput): Promise<MaxSendable> {
   const native = input.nativeDenom ?? NOAH_DENOM;
-  const tip = input.tip ?? 0n;
-  if (tip < 0n) throw new FeeError(`tip ${tip} is negative`);
+  const tip = checkedTip(input.tip);
   if (input.spendable < 0n) throw new FeeError(`spendable balance ${input.spendable} is negative`);
-  if (!input.feeDenom) throw new FeeError("no fee denomination: feeDenom names the one that pays the base fee, and none is chosen for you");
+  const feeDenom = requireFeeDenom(input.feeDenom);
 
   // A NOAH leg is drawn whole, so a tip leaves a NOAH balance in full.
   let reserved = input.denom === native ? tip : 0n;
-  if (input.feeDenom === input.denom) {
-    const sheet = await input.client.treasury.gasPrices();
-    const price =
-      sheet.gasPrices.find((p) => p.denom === input.feeDenom) ?? (sheet.referenceGasPrice?.denom === input.feeDenom ? sheet.referenceGasPrice : undefined);
-    if (!price) throw new FeeError(`${input.feeDenom} is not on the gas price sheet; the chain does not accept it for the base fee`);
+  if (feeDenom === input.denom) {
+    const price = gasPriceFor(await input.client.treasury.gasPrices(), feeDenom);
     const lift = input.denom === native ? input.headroom.noah : input.headroom.stable;
     reserved += intFromWire(liftLeg(requiredGasFee(price, input.gasLimit), lift).amount);
   }

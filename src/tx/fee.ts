@@ -36,6 +36,35 @@ export class FeeError extends ArkSdkError {
   override readonly name: string = "FeeError";
 }
 
+/** The fee denomination a flow was given, refused when empty: none is chosen for the caller. Internal: not exported from the core entry. */
+export function requireFeeDenom(feeDenom: string): string {
+  if (!feeDenom) throw new FeeError("no fee denomination: feeDenom names the one that pays the base fee, and none is chosen for you");
+  return feeDenom;
+}
+
+/** A tip in NOAH base units, zero when none is given; a negative one is refused. Internal: not exported from the core entry. */
+export function checkedTip(tip: bigint | undefined): bigint {
+  const amount = tip ?? 0n;
+  if (amount < 0n) throw new FeeError(`tip ${amount} is negative`);
+  return amount;
+}
+
+/**
+ * The rows that price gas, one to a denomination: the sheet's, and the reference row standing for its own. The chain
+ * lists the reference apart from the sheet; given both under one name, the reference row is the one that prices, as
+ * arkd has it.
+ */
+function priceRows(sheet: readonly GasPrice[], reference: GasPrice | undefined): GasPrice[] {
+  return reference ? [...sheet.filter((row) => row.denom !== reference.denom), reference] : [...sheet];
+}
+
+/** The row of the gas price sheet that prices a fee denomination; one the chain does not accept is refused. Internal: not exported from the core entry. */
+export function gasPriceFor(sheet: { gasPrices: readonly GasPrice[]; referenceGasPrice?: GasPrice | undefined }, feeDenom: string): GasPrice {
+  const price = priceRows(sheet.gasPrices, sheet.referenceGasPrice).find((row) => row.denom === feeDenom);
+  if (!price) throw new FeeError(`${feeDenom} is not on the gas price sheet; the chain does not accept it for the base fee`);
+  return price;
+}
+
 /** The gas leg one denomination requires: ceil(gas_price × gas_limit), in base units. */
 export function requiredGasFee(gasPrice: GasPrice, gasLimit: bigint): Coin {
   if (gasLimit <= 0n) throw new FeeError("gas limit must be positive");
@@ -106,8 +135,7 @@ export function quoteFee(input: FeeQuoteInput): FeeQuote {
   const native = input.nativeDenom ?? NOAH_DENOM;
   multiplier(input.headroom.stable);
   multiplier(input.headroom.noah);
-  const tipAmount = input.tip ?? 0n;
-  if (tipAmount < 0n) throw new FeeError(`tip ${tipAmount} is negative`);
+  const tipAmount = checkedTip(input.tip);
   const required = requiredGasFee(input.gasPrice, input.gasLimit);
   const noahPays = required.denom === native;
   const legs = sumCoins(input.tax, [required]);
@@ -182,8 +210,7 @@ export interface FeeDenomChoiceInput {
 export function affordableFeeDenoms(input: FeeDenomChoiceInput): string[] {
   const native = input.nativeDenom ?? NOAH_DENOM;
   const reference = input.reference;
-  // The reference row stands for its denomination, as arkd lets it replace a sheet row of the same name.
-  const rows = reference ? [...input.sheet.filter((row) => row.denom !== reference.denom), reference] : [...input.sheet];
+  const rows = priceRows(input.sheet, reference);
   const preferred = [...new Set([...input.taxBase.map((c) => c.denom), native, ...(reference ? [reference.denom] : [])])];
   const ordered = rows.sort((a, b) => rank(preferred, a.denom) - rank(preferred, b.denom));
   const taxed = sumCoins(input.tax);

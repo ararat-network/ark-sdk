@@ -59,7 +59,11 @@ test("an unordered transaction and its timeout timestamp reach the body, the sim
 test("a message read from a node without its type cannot be put in a transaction", () => {
   // It holds no bytes: packed as it is, the signature would cover an empty message under that type.
   const held = fromProtoJson(AnySchema, { "@type": "/ark.future.v1.MsgNew", amount: "5" }, { unknownAny: "keep" });
-  assert.throws(() => packMessages([held]), /read without its type and holds no bytes/);
+  assert.throws(
+    () => packMessages([held]),
+    (err: unknown) =>
+      err instanceof UnknownTypeError && err.typeUrl === "/ark.future.v1.MsgNew" && /read without its type and holds no bytes/.test(err.message),
+  );
   const read = fromProtoJson(AnySchema, { "@type": "/cosmos.bank.v1beta1.MsgSend", from_address: "ark1a", to_address: "ark1b", amount: [] });
   assert.deepEqual(packMessages([read]), [read], "one read with its type passes through");
 });

@@ -119,7 +119,7 @@ export class InclusionTimeout extends ArkSdkError {
  * the request is the request's error. A node that already holds the
  * transaction reports a cache hit, which is an acceptance.
  */
-export async function broadcastSync(client: QueryClient, txBytes: Uint8Array): Promise<BroadcastResult> {
+export async function broadcastSync(client: Pick<QueryClient, "tx">, txBytes: Uint8Array): Promise<BroadcastResult> {
   const hash = txHash(txBytes);
   let r: TxResponse | undefined;
   try {
@@ -194,7 +194,7 @@ function transient(err: unknown): boolean {
   return err instanceof EndpointsExhausted || isEndpointFault(err);
 }
 
-async function latestHeight(client: QueryClient): Promise<bigint> {
+async function latestHeight(client: Pick<QueryClient, "node">): Promise<bigint> {
   const latest = await client.node.latestBlock();
   const height = latest.sdkBlock?.header?.height ?? latest.block?.header?.height;
   if (height === undefined) throw new ArkSdkError("the node reported no latest block");
@@ -202,7 +202,7 @@ async function latestHeight(client: QueryClient): Promise<bigint> {
 }
 
 /** Whether the node says it is still catching up with the chain: its newest blocks are then ahead of its transaction index. */
-async function catchingUp(client: QueryClient): Promise<boolean> {
+async function catchingUp(client: Pick<QueryClient, "node">): Promise<boolean> {
   return (await client.node.syncing()).syncing;
 }
 
@@ -217,7 +217,7 @@ async function catchingUp(client: QueryClient): Promise<boolean> {
  * reports the block, so the first look past the height can miss one the
  * block carried.
  */
-export async function waitForInclusion(client: QueryClient, hash: string, options: InclusionOptions = {}): Promise<TxResponse> {
+export async function waitForInclusion(client: Pick<QueryClient, "tx" | "node">, hash: string, options: InclusionOptions = {}): Promise<TxResponse> {
   const timeoutMs = options.timeoutMs ?? 60_000;
   const pollMs = options.pollMs ?? 1_000;
   const sleep = options.sleep ?? defaultSleep;
@@ -267,9 +267,13 @@ export interface Confirmed {
  * Waits for the block of a transaction the mempool accepted. Every failure
  * from here carries the hash: the wait's verdicts on the transaction as they
  * are, and anything else as InclusionUnknown. Shared with sendTx; not
- * re-exported from the index.
+ * exported from the core entry.
  */
-export async function waitForAccepted(client: QueryClient, broadcast: BroadcastResult, options: InclusionOptions = {}): Promise<TxResponse> {
+export async function waitForAccepted(
+  client: Pick<QueryClient, "tx" | "node">,
+  broadcast: BroadcastResult,
+  options: InclusionOptions = {},
+): Promise<TxResponse> {
   try {
     return await waitForInclusion(client, broadcast.hash, options);
   } catch (err) {
@@ -279,7 +283,7 @@ export async function waitForAccepted(client: QueryClient, broadcast: BroadcastR
 }
 
 /** Broadcasts, fails on a CheckTx refusal, and waits for the block; a failure after the acceptance carries the hash. */
-export async function broadcastAndConfirm(client: QueryClient, txBytes: Uint8Array, options: InclusionOptions = {}): Promise<Confirmed> {
+export async function broadcastAndConfirm(client: Pick<QueryClient, "tx" | "node">, txBytes: Uint8Array, options: InclusionOptions = {}): Promise<Confirmed> {
   const broadcast = await broadcastSync(client, txBytes);
   if (!broadcast.accepted) throw new BroadcastRefused(broadcast);
   const response = await waitForAccepted(client, broadcast, options);

@@ -9,7 +9,7 @@ import { create } from "@bufbuild/protobuf";
 import { LegacyDec } from "../codec/dec.js";
 import { QueryClient } from "../defaults.js";
 import { MsgSendSchema } from "../gen/cosmos/bank/v1beta1/tx_pb.js";
-import { json, stubFetch } from "../testing/node.js";
+import { fakeNode, json, stubFetch } from "../testing/node.js";
 import { typed } from "./body.js";
 import { arkdPolicy, FeeError } from "./fee.js";
 import { maxSendable } from "./max.js";
@@ -34,8 +34,8 @@ function chainTax(chain: Chain, denom: string, amount: bigint): bigint {
 }
 
 function node(chain: Chain) {
-  const { fetch, seen } = stubFetch(({ call, body }) => {
-    if (call.startsWith("POST /ark/treasury/v1/compute_tax")) {
+  return fakeNode([], {
+    "POST /ark/treasury/v1/compute_tax": ({ body }) => {
       // Each message's coins are taxed on their own, and the tax summed per denomination, as taxOn does.
       const { messages } = JSON.parse(body!) as { messages: { amount: { denom: string; amount: string }[] }[] };
       const sent = messages.flatMap((m) => m.amount);
@@ -43,8 +43,8 @@ function node(chain: Chain) {
       for (const c of sent) tax.set(c.denom, (tax.get(c.denom) ?? 0n) + chainTax(chain, c.denom, BigInt(c.amount)));
       const owed = [...tax].filter(([, amount]) => amount > 0n).sort(([a], [b]) => (a < b ? -1 : 1));
       return json({ tax: owed.map(([denom, amount]) => ({ denom, amount: amount.toString() })), tax_base: sent });
-    }
-    if (call.startsWith("GET /ark/treasury/v1/gas_prices")) {
+    },
+    "GET /ark/treasury/v1/gas_prices": () => {
       const row = (denom: string) => ({ denom, gas_price: LegacyDec.fromString(chain.prices[denom]!).toString(), derived_height: "5" });
       return json({
         gas_prices: Object.keys(chain.prices)
@@ -52,10 +52,8 @@ function node(chain: Chain) {
           .map(row),
         reference_gas_price: chain.reference ? row(chain.reference) : null,
       });
-    }
-    throw new Error(`unexpected request ${call}`);
+    },
   });
-  return { client: new QueryClient("http://node", { fetch }), seen };
 }
 
 const send = (denom: string) => (amount: bigint) => [
@@ -136,10 +134,10 @@ test("only the tax in the denomination sent comes out of its balance", async () 
 });
 
 test("nothing to send: a balance no larger than what is kept back, and one the tax consumes", async () => {
-  const { client, seen } = node(ARK);
+  const { client, calls } = node(ARK);
   const short = await maxSendable({ ...base(ARK, "aeur", 25_740_000_000_000_000n, "aeur"), client });
   assert.deepEqual(short, { amount: 0n, tax: 0n, reserved: 25_740_000_000_000_000n, taxQueries: 0 });
-  assert.ok(!seen.some((s) => s.call.includes("compute_tax")), "no tax is asked for an amount of nothing");
+  assert.ok(!calls.some((c) => c.includes("compute_tax")), "no tax is asked for an amount of nothing");
   assert.equal((await maxSendable(base(ARK, "aeur", 0n, "ausd"))).amount, 0n);
   // A rate of the whole amount leaves nothing to send.
   assert.equal((await maxSendable(base({ ...ARK, rate: "1" }, "aeur", 1005n * EUR, "ausd"))).amount, 0n);
