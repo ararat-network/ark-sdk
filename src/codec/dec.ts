@@ -16,12 +16,6 @@ export class DecError extends ArkSdkError {
   override readonly name: string = "DecError";
 }
 
-/** An integer operand as a bigint; a number that is not one is the decimal's error, not BigInt's RangeError. */
-function whole(n: bigint | number): bigint {
-  if (typeof n === "number" && !Number.isInteger(n)) throw new DecError(`not an integer: ${n}`);
-  return BigInt(n);
-}
-
 export class LegacyDec {
   /** The value times 10^18. */
   readonly scaled: bigint;
@@ -141,6 +135,12 @@ export class LegacyDec {
     const rem = this.scaled % UNIT;
     return rem < 0n ? quo - 1n : quo;
   }
+}
+
+/** An integer operand as a bigint; a number that is not one is the decimal's error, not BigInt's RangeError. */
+function whole(n: bigint | number): bigint {
+  if (typeof n === "number" && !Number.isInteger(n)) throw new DecError(`not an integer: ${n}`);
+  return BigInt(n);
 }
 
 function chopPrecisionAndRound(d: bigint): bigint {

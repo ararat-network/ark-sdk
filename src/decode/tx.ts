@@ -24,29 +24,6 @@ export interface DecodedMessage {
   json: JsonValue;
 }
 
-export interface DecodedSigner {
-  publicKey: Any | undefined;
-  sequence: bigint;
-  /** The sign mode of a single signer; undefined for a multisig's bit array. */
-  mode: SignMode | undefined;
-}
-
-export interface DecodedTx {
-  bytes: Uint8Array;
-  /** SHA-256 of the bytes, uppercase hex. */
-  hash: string;
-  tx: Tx;
-  body: TxBody;
-  authInfo: AuthInfo;
-  messages: DecodedMessage[];
-  memo: string;
-  fee: Fee | undefined;
-  signers: DecodedSigner[];
-  signatures: Uint8Array[];
-  /** The whole transaction in the chain's JSON dialect, as the gateway and the fixtures render it. */
-  json: JsonValue;
-}
-
 export function decodeMessage(any: Any, options: TxDecodeOptions): DecodedMessage {
   return decodePacked(any, requireRegistry(options?.registry, "decodeMessage"), undefined);
 }
@@ -70,17 +47,33 @@ function decodePacked(any: Any, registry: Registry, rendered: JsonValue | undefi
   return { typeUrl: any.typeUrl, schema, message, known: true, json };
 }
 
-/** The messages' JSON out of a rendered transaction, in order. */
-function renderedMessages(txJson: JsonValue): JsonValue[] {
-  const body = isJsonObject(txJson) ? txJson.body : undefined;
-  const messages = isJsonObject(body) ? body.messages : undefined;
-  return Array.isArray(messages) ? messages : [];
-}
-
 /** The decoded messages of a transaction a query returned already parsed. */
 export function decodeTxMessages(tx: Tx, options: TxDecodeOptions): DecodedMessage[] {
   const registry = requireRegistry(options?.registry, "decodeTxMessages");
   return (tx.body?.messages ?? []).map((m) => decodeMessage(m, { registry }));
+}
+
+export interface DecodedSigner {
+  publicKey: Any | undefined;
+  sequence: bigint;
+  /** The sign mode of a single signer; undefined for a multisig's bit array. */
+  mode: SignMode | undefined;
+}
+
+export interface DecodedTx {
+  bytes: Uint8Array;
+  /** SHA-256 of the bytes, uppercase hex. */
+  hash: string;
+  tx: Tx;
+  body: TxBody;
+  authInfo: AuthInfo;
+  messages: DecodedMessage[];
+  memo: string;
+  fee: Fee | undefined;
+  signers: DecodedSigner[];
+  signatures: Uint8Array[];
+  /** The whole transaction in the chain's JSON dialect, as the gateway and the fixtures render it. */
+  json: JsonValue;
 }
 
 /** Decodes raw transaction bytes as a node returns them. */
@@ -110,4 +103,11 @@ export function decodeTx(bytes: Uint8Array, options: TxDecodeOptions): DecodedTx
     signatures: raw.signatures,
     json,
   };
+}
+
+/** The messages' JSON out of a rendered transaction, in order. */
+function renderedMessages(txJson: JsonValue): JsonValue[] {
+  const body = isJsonObject(txJson) ? txJson.body : undefined;
+  const messages = isJsonObject(body) ? body.messages : undefined;
+  return Array.isArray(messages) ? messages : [];
 }

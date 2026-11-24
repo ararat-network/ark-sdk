@@ -17,6 +17,22 @@ import { isJsonObject, type JsonObject, type JsonValue } from "./json.js";
 import { fieldOptions } from "./options.js";
 import { durationFromText, durationToProtoJson, GO_ZERO_TIME_SECONDS, timestampFromText, timestampToProtoJson } from "./wkt.js";
 
+const WKT_TIMESTAMP = "google.protobuf.Timestamp";
+const WKT_DURATION = "google.protobuf.Duration";
+const WKT_ANY = "google.protobuf.Any";
+
+// The enum names a message was read with that its schema lacks, by field name: the JSON each such field arrived as.
+// Held beside the message, by identity, as the JSON of an unknown Any is.
+const heldEnumNames = new WeakMap<object, Record<string, JsonValue>>();
+
+/**
+ * Enums whose Go type renders custom names through jsonpb rather than the
+ * proto value names. wasmd's AccessType is the one the chain carries.
+ */
+const CUSTOM_ENUM_NAMES: Record<string, Record<number, string>> = {
+  "cosmwasm.wasm.v1.AccessType": { 0: "Unspecified", 1: "Nobody", 2: "Unspecified", 3: "Everybody", 4: "AnyOfAddresses" },
+};
+
 export class ProtoJsonError extends ArkSdkError {
   override readonly name: string = "ProtoJsonError";
 }
@@ -24,6 +40,17 @@ export class ProtoJsonError extends ArkSdkError {
 export interface ToProtoJsonOptions extends WithRegistry {
   /** What to do with an Any whose type the registry lacks: fail, or emit {"@type", "value": base64}. */
   unknownAny?: "throw" | "raw";
+}
+
+interface WriteContext {
+  registry: Registry;
+  unknownAny: "throw" | "raw";
+}
+
+/** Renders a message in the chain's JSON dialect. */
+export function toProtoJson<Desc extends DescMessage>(schema: Desc, message: MessageShape<Desc>, options: ToProtoJsonOptions): JsonValue {
+  const ctx: WriteContext = { registry: requireRegistry(options?.registry, "toProtoJson"), unknownAny: options.unknownAny ?? "throw" };
+  return messageToJson(reflect(schema, message), ctx);
 }
 
 export interface FromProtoJsonOptions extends WithRegistry {
@@ -45,24 +72,6 @@ export interface FromProtoJsonOptions extends WithRegistry {
   unknownEnum?: "throw" | "keep";
 }
 
-// The enum names a message was read with that its schema lacks, by field name: the JSON each such field arrived as.
-// Held beside the message, by identity, as the JSON of an unknown Any is.
-const heldEnumNames = new WeakMap<object, Record<string, JsonValue>>();
-
-/**
- * The enum names a message read from a node carried that the schema does not know, by the field's proto name: for
- * each, the JSON the field arrived as. The fields themselves hold the zero value. Undefined for a message that
- * carried none.
- */
-export function unknownEnumNames(message: object): Readonly<Record<string, JsonValue>> | undefined {
-  return heldEnumNames.get(message);
-}
-
-interface WriteContext {
-  registry: Registry;
-  unknownAny: "throw" | "raw";
-}
-
 interface ReadContext {
   registry: Registry;
   ignoreUnknownFields: boolean;
@@ -75,16 +84,6 @@ interface ReadContext {
   kept: number;
 }
 
-const WKT_TIMESTAMP = "google.protobuf.Timestamp";
-const WKT_DURATION = "google.protobuf.Duration";
-const WKT_ANY = "google.protobuf.Any";
-
-/** Renders a message in the chain's JSON dialect. */
-export function toProtoJson<Desc extends DescMessage>(schema: Desc, message: MessageShape<Desc>, options: ToProtoJsonOptions): JsonValue {
-  const ctx: WriteContext = { registry: requireRegistry(options?.registry, "toProtoJson"), unknownAny: options.unknownAny ?? "throw" };
-  return messageToJson(reflect(schema, message), ctx);
-}
-
 /** Reads a message from the chain's JSON dialect. */
 export function fromProtoJson<Desc extends DescMessage>(schema: Desc, json: JsonValue, options: FromProtoJsonOptions): MessageShape<Desc> {
   const ctx: ReadContext = {
@@ -95,6 +94,15 @@ export function fromProtoJson<Desc extends DescMessage>(schema: Desc, json: Json
     kept: 0,
   };
   return messageFromJson(schema, json, ctx).message as MessageShape<Desc>;
+}
+
+/**
+ * The enum names a message read from a node carried that the schema does not know, by the field's proto name: for
+ * each, the JSON the field arrived as. The fields themselves hold the zero value. Undefined for a message that
+ * carried none.
+ */
+export function unknownEnumNames(message: object): Readonly<Record<string, JsonValue>> | undefined {
+  return heldEnumNames.get(message);
 }
 
 function messageToJson(r: ReflectMessage, ctx: WriteContext): JsonValue {
@@ -121,14 +129,6 @@ function anyToJson(any: Any, ctx: WriteContext): JsonValue {
     throw new UnknownTypeError(any.typeUrl);
   }
   return anyJson(any.typeUrl, messageToJson(reflect(unpacked.schema, unpacked.message), ctx));
-}
-
-/**
- * A message's JSON as an Any carries it: its members beside "@type", or under "value" for a message that renders as
- * a scalar. Shared with the decoder, which already holds the decoded message; not exported from the core entry.
- */
-export function anyJson(typeUrl: string, value: JsonValue): JsonObject {
-  return isJsonObject(value) ? { "@type": typeUrl, ...value } : { "@type": typeUrl, value };
 }
 
 function fieldToJson(r: ReflectMessage, f: DescField, ctx: WriteContext): JsonValue {
@@ -188,19 +188,20 @@ function mapToJson(map: ReflectMap, f: DescField & { fieldKind: "map" }, ctx: Wr
   return out;
 }
 
-/**
- * Enums whose Go type renders custom names through jsonpb rather than the
- * proto value names. wasmd's AccessType is the one the chain carries.
- */
-const CUSTOM_ENUM_NAMES: Record<string, Record<number, string>> = {
-  "cosmwasm.wasm.v1.AccessType": { 0: "Unspecified", 1: "Nobody", 2: "Unspecified", 3: "Everybody", 4: "AnyOfAddresses" },
-};
-
 function enumToJson(e: DescEnum, n: number): JsonValue {
   const custom = CUSTOM_ENUM_NAMES[e.typeName];
   // An enum with names of its own names every value: wasmd's String() answers "Unspecified" for one it does not list.
   if (custom !== undefined) return custom[n] ?? (custom[0] as string);
   return e.values.find((v) => v.number === n)?.name ?? n;
+}
+
+/** The JSON a RawContractMessage's bytes hold, which the chain's JSON carries as it is. */
+function inlineJsonOf(bytes: Uint8Array, f: DescField): JsonValue {
+  try {
+    return parseExact(utf8Decode(bytes));
+  } catch (err) {
+    throw new ProtoJsonError(`${f.parent.typeName}.${f.name}: its bytes are not JSON: ${errorMessage(err)}`, { cause: err });
+  }
 }
 
 /** JSON.rawJSON, where the runtime has it: a value that is written back as the text it was made from. */
@@ -219,15 +220,6 @@ function parseExact(text: string): JsonValue {
     if (typeof value === "number" && source !== undefined && INTEGER_TEXT.test(source) && !Number.isSafeInteger(value)) return rawJson(source);
     return value;
   } as (key: string, value: unknown) => unknown) as JsonValue;
-}
-
-/** The JSON a RawContractMessage's bytes hold, which the chain's JSON carries as it is. */
-function inlineJsonOf(bytes: Uint8Array, f: DescField): JsonValue {
-  try {
-    return parseExact(utf8Decode(bytes));
-  } catch (err) {
-    throw new ProtoJsonError(`${f.parent.typeName}.${f.name}: its bytes are not JSON: ${errorMessage(err)}`, { cause: err });
-  }
 }
 
 function scalarFieldToJson(r: ReflectMessage, f: DescField & { fieldKind: "scalar" }): JsonValue {
@@ -279,21 +271,6 @@ function scalarToJson(type: ScalarType, v: unknown, longAsString: boolean): Json
   }
 }
 
-const fieldIndex = new WeakMap<DescMessage, Map<string, DescField>>();
-
-function fieldByJsonKey(desc: DescMessage, key: string): DescField | undefined {
-  let index = fieldIndex.get(desc);
-  if (!index) {
-    index = new Map();
-    for (const f of desc.fields) {
-      index.set(f.name, f);
-      index.set(f.jsonName, f);
-    }
-    fieldIndex.set(desc, index);
-  }
-  return index.get(key);
-}
-
 function messageFromJson(desc: DescMessage, json: JsonValue, ctx: ReadContext): ReflectMessage {
   switch (desc.typeName) {
     case WKT_TIMESTAMP:
@@ -317,6 +294,21 @@ function messageFromJson(desc: DescMessage, json: JsonValue, ctx: ReadContext): 
     setFieldFromJson(r, f, value, ctx);
   }
   return r;
+}
+
+const fieldIndex = new WeakMap<DescMessage, Map<string, DescField>>();
+
+function fieldByJsonKey(desc: DescMessage, key: string): DescField | undefined {
+  let index = fieldIndex.get(desc);
+  if (!index) {
+    index = new Map();
+    for (const f of desc.fields) {
+      index.set(f.name, f);
+      index.set(f.jsonName, f);
+    }
+    fieldIndex.set(desc, index);
+  }
+  return index.get(key);
 }
 
 function anyFromJson(json: JsonValue, ctx: ReadContext): Any {
@@ -413,34 +405,6 @@ function enumFromJson(r: ReflectMessage, f: DescField, e: DescEnum, json: JsonVa
   throw new ProtoJsonError(`${e.typeName}: unknown value ${JSON.stringify(json)}`);
 }
 
-/** An integer from JSON: a number that is one, or its decimal digits as text. Anything else is refused by name, never passed to BigInt to throw the runtime's error. */
-function integerFromJson(json: JsonValue, where: string, min: bigint, max: bigint): bigint {
-  let value: bigint | undefined;
-  if (typeof json === "number" && Number.isInteger(json)) value = BigInt(json);
-  else if (typeof json === "string" && INTEGER_TEXT.test(json)) value = BigInt(json);
-  if (value === undefined) throw new ProtoJsonError(`${where}: expected an integer, got ${JSON.stringify(json)}`);
-  if (value < min || value > max) throw new ProtoJsonError(`${where}: ${value} is out of range`);
-  return value;
-}
-
-/** The range of an integer scalar type. */
-function integerRange(type: ScalarType): [bigint, bigint] {
-  switch (type) {
-    case ScalarType.UINT64:
-    case ScalarType.FIXED64:
-      return [0n, 2n ** 64n - 1n];
-    case ScalarType.INT64:
-    case ScalarType.SINT64:
-    case ScalarType.SFIXED64:
-      return [-(2n ** 63n), 2n ** 63n - 1n];
-    case ScalarType.UINT32:
-    case ScalarType.FIXED32:
-      return [0n, 2n ** 32n - 1n];
-    default:
-      return [-(2n ** 31n), 2n ** 31n - 1n];
-  }
-}
-
 function mapKeyFromJson(type: ScalarType, key: string): unknown {
   switch (type) {
     case ScalarType.STRING:
@@ -516,4 +480,40 @@ function scalarFromJson(type: ScalarType, json: JsonValue, longAsString: boolean
     default:
       return Number(integerFromJson(json, where, ...integerRange(type)));
   }
+}
+
+/** An integer from JSON: a number that is one, or its decimal digits as text. Anything else is refused by name, never passed to BigInt to throw the runtime's error. */
+function integerFromJson(json: JsonValue, where: string, min: bigint, max: bigint): bigint {
+  let value: bigint | undefined;
+  if (typeof json === "number" && Number.isInteger(json)) value = BigInt(json);
+  else if (typeof json === "string" && INTEGER_TEXT.test(json)) value = BigInt(json);
+  if (value === undefined) throw new ProtoJsonError(`${where}: expected an integer, got ${JSON.stringify(json)}`);
+  if (value < min || value > max) throw new ProtoJsonError(`${where}: ${value} is out of range`);
+  return value;
+}
+
+/** The range of an integer scalar type. */
+function integerRange(type: ScalarType): [bigint, bigint] {
+  switch (type) {
+    case ScalarType.UINT64:
+    case ScalarType.FIXED64:
+      return [0n, 2n ** 64n - 1n];
+    case ScalarType.INT64:
+    case ScalarType.SINT64:
+    case ScalarType.SFIXED64:
+      return [-(2n ** 63n), 2n ** 63n - 1n];
+    case ScalarType.UINT32:
+    case ScalarType.FIXED32:
+      return [0n, 2n ** 32n - 1n];
+    default:
+      return [-(2n ** 31n), 2n ** 31n - 1n];
+  }
+}
+
+/**
+ * A message's JSON as an Any carries it: its members beside "@type", or under "value" for a message that renders as
+ * a scalar. Shared with the decoder, which already holds the decoded message; not exported from the core entry.
+ */
+export function anyJson(typeUrl: string, value: JsonValue): JsonObject {
+  return isJsonObject(value) ? { "@type": typeUrl, ...value } : { "@type": typeUrl, value };
 }

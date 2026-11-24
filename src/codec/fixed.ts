@@ -5,23 +5,15 @@
 
 import { utf8Decode } from "./bytes.js";
 
-/** The text of an Int or a Dec field: they travel as decimal text, in a string field or as the bytes of one. */
-export function numericText(value: unknown): string {
-  return value instanceof Uint8Array ? utf8Decode(value) : String(value);
-}
-
 /** An integer in decimal text, with an optional sign. */
 export const INTEGER_TEXT = /^-?\d+$/;
 
 /** An integer as the chain writes one: decimal digits with no leading zero, a minus sign before a negative one, zero unsigned. */
 export const CANONICAL_INTEGER_TEXT = /^(?:0|-?[1-9]\d*)$/;
 
-/** A digit's value as Go's math/big scans one, letters in either case counting from ten; 63, past every base, for anything else. */
-function goDigit(ch: string): number {
-  if (ch >= "0" && ch <= "9") return ch.charCodeAt(0) - 48;
-  if (ch >= "a" && ch <= "z") return ch.charCodeAt(0) - 87;
-  if (ch >= "A" && ch <= "Z") return ch.charCodeAt(0) - 55;
-  return 63;
+/** The text of an Int or a Dec field: they travel as decimal text, in a string field or as the bytes of one. */
+export function numericText(value: unknown): string {
+  return value instanceof Uint8Array ? utf8Decode(value) : String(value);
 }
 
 /**
@@ -87,6 +79,14 @@ export function goIntegerText(text: string): bigint | undefined {
   if (digits === 0 && !octalPrefix) return undefined;
   if (ch !== undefined) return undefined;
   return negative ? -value : value;
+}
+
+/** A digit's value as Go's math/big scans one, letters in either case counting from ten; 63, past every base, for anything else. */
+function goDigit(ch: string): number {
+  if (ch >= "0" && ch <= "9") return ch.charCodeAt(0) - 48;
+  if (ch >= "a" && ch <= "z") return ch.charCodeAt(0) - 87;
+  if (ch >= "A" && ch <= "Z") return ch.charCodeAt(0) - 55;
+  return 63;
 }
 
 const DECIMAL_TEXT = /^(-?)(\d+)(?:\.(\d+))?$/;

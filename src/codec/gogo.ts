@@ -24,17 +24,6 @@ export function materialise<Desc extends DescMessage>(schema: Desc, message: Mes
   return r.message as MessageShape<Desc>;
 }
 
-/**
- * Refuses an Int's or a Dec's text that the chain would not have written. The chain reads such text with the base
- * taken from it, so "0100" would be signed here as one hundred and executed there as sixty-four.
- */
-function refuseUnwrittenText(f: DescField, value: unknown, dec: boolean): void {
-  const text = numericText(value);
-  if (CANONICAL_INTEGER_TEXT.test(text)) return;
-  const what = `${f.parent.typeName}.${f.name}: ${JSON.stringify(text)} is not an integer in decimal digits with no leading zero`;
-  throw dec ? new DecError(`${what}; a Dec field holds its scaled integer, as LegacyDec.toWire gives it`) : new CoinError(what);
-}
-
 function materialiseReflect(r: ReflectMessage): void {
   if (r.desc.typeName === "google.protobuf.Any") return;
   for (const f of r.fields) {
@@ -66,4 +55,15 @@ function materialiseReflect(r: ReflectMessage): void {
         break;
     }
   }
+}
+
+/**
+ * Refuses an Int's or a Dec's text that the chain would not have written. The chain reads such text with the base
+ * taken from it, so "0100" would be signed here as one hundred and executed there as sixty-four.
+ */
+function refuseUnwrittenText(f: DescField, value: unknown, dec: boolean): void {
+  const text = numericText(value);
+  if (CANONICAL_INTEGER_TEXT.test(text)) return;
+  const what = `${f.parent.typeName}.${f.name}: ${JSON.stringify(text)} is not an integer in decimal digits with no leading zero`;
+  throw dec ? new DecError(`${what}; a Dec field holds its scaled integer, as LegacyDec.toWire gives it`) : new CoinError(what);
 }

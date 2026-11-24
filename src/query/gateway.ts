@@ -126,12 +126,6 @@ export const DEFAULT_TIMEOUT_MS = 15_000;
 /** The longest a timer runs; setTimeout fires at once for more. */
 const MAX_TIMER_MS = 2 ** 31 - 1;
 
-/** A request timeout: a positive number of milliseconds. Infinity is accepted, and waits as long as a timer can. */
-function checkTimeout(ms: number): number {
-  if (!(ms > 0)) throw new ArkSdkError(`a request timeout is a positive number of milliseconds: ${ms}`);
-  return ms;
-}
-
 export interface GatewayResult<T> {
   value: T;
   /** The block height the node answered at, from its response header; undefined when it sent none. */
@@ -277,6 +271,12 @@ export class GatewayClient {
   }
 }
 
+/** A request timeout: a positive number of milliseconds. Infinity is accepted, and waits as long as a timer can. */
+function checkTimeout(ms: number): number {
+  if (!(ms > 0)) throw new ArkSdkError(`a request timeout is a positive number of milliseconds: ${ms}`);
+  return ms;
+}
+
 function gatewayError(json: JsonValue, status: number, url: string): QueryError {
   if (isJsonObject(json)) {
     const code = typeof json.code === "number" ? json.code : GrpcCode.Unknown;
@@ -285,15 +285,6 @@ function gatewayError(json: JsonValue, status: number, url: string): QueryError 
     return new QueryError(code, message, status, url, details);
   }
   return new QueryError(GrpcCode.Unknown, JSON.stringify(json), status, url);
-}
-
-/**
- * Bytes as a path parameter. The gateway reads one as base64, in the standard alphabet or the URL's, and takes a "/"
- * in the path for a separator: the standard alphabet's would cut the value short or name another route. The URL
- * alphabet with its padding is the form it reads whatever the bytes.
- */
-function bytesPathSegment(bytes: Uint8Array): string {
-  return toBase64(bytes).replaceAll("+", "-").replaceAll("/", "_");
 }
 
 /**
@@ -328,6 +319,15 @@ function routeFor(method: DescMethod, request: JsonObject, message: Message): Ro
     return { verb, path: path + query, body: body ?? {} };
   }
   return { verb, path: path + queryString(remaining), body: undefined };
+}
+
+/**
+ * Bytes as a path parameter. The gateway reads one as base64, in the standard alphabet or the URL's, and takes a "/"
+ * in the path for a separator: the standard alphabet's would cut the value short or name another route. The URL
+ * alphabet with its padding is the form it reads whatever the bytes.
+ */
+function bytesPathSegment(bytes: Uint8Array): string {
+  return toBase64(bytes).replaceAll("+", "-").replaceAll("/", "_");
 }
 
 /** Flattens the request's remaining fields into gateway query parameters, dotted for nested messages, defaults left out. */

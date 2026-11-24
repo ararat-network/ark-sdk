@@ -6,6 +6,15 @@ import { type Any, AnySchema } from "@bufbuild/protobuf/wkt";
 import { ArkSdkError } from "../errors.js";
 import type { JsonObject } from "./json.js";
 
+// An Any read from JSON whose type the reader's registry lacks has no bytes:
+// JSON cannot be turned into a message without its schema. Such an Any keeps
+// its type URL and an empty value, and the JSON it arrived as is held beside
+// it here, by identity, so a copy made with create or clone carries only the
+// type URL. Its empty value must never be decoded as if it were the message.
+// A known Any that held one is read the same way, whole, so no bytes the
+// reader writes ever stand around one.
+const heldJson = new WeakMap<Any, JsonObject>();
+
 /** What every reader of packed messages needs: the types an Any resolves against. */
 export interface WithRegistry {
   registry: Registry;
@@ -16,25 +25,6 @@ export interface RegistryOption {
   registry?: Registry;
 }
 
-export class UnknownTypeError extends ArkSdkError {
-  override readonly name: string = "UnknownTypeError";
-  constructor(
-    readonly typeUrl: string,
-    message = `unknown type ${typeUrl}`,
-  ) {
-    super(message);
-  }
-}
-
-/**
- * The registry a reader was given. The types require one; a caller they do not reach, plain JavaScript on the core
- * entry, is told so by name here, not by the runtime's error at the first use. Internal: not exported from the core entry.
- */
-export function requireRegistry(registry: Registry | undefined, reader: string): Registry {
-  if (!registry) throw new ArkSdkError(`${reader} needs a registry, the types an Any resolves against; the main entry defaults it`);
-  return registry;
-}
-
 /** The type URL of a message schema: "/" and the full name. */
 export function typeUrlOf(schema: DescMessage): string {
   return `/${schema.typeName}`;
@@ -43,6 +33,16 @@ export function typeUrlOf(schema: DescMessage): string {
 /** The full type name a type URL carries, whatever its prefix. */
 export function typeNameOf(typeUrl: string): string {
   return typeUrl.slice(typeUrl.lastIndexOf("/") + 1);
+}
+
+export class UnknownTypeError extends ArkSdkError {
+  override readonly name: string = "UnknownTypeError";
+  constructor(
+    readonly typeUrl: string,
+    message = `unknown type ${typeUrl}`,
+  ) {
+    super(message);
+  }
 }
 
 /**
@@ -59,20 +59,6 @@ export function packAny<Desc extends DescMessage>(schema: Desc, message: Message
   }
   return create(AnySchema, { typeUrl: typeUrlOf(schema), value: toBinary(schema, message) });
 }
-
-export interface Unpacked {
-  schema: DescMessage;
-  message: Message;
-}
-
-// An Any read from JSON whose type the reader's registry lacks has no bytes:
-// JSON cannot be turned into a message without its schema. Such an Any keeps
-// its type URL and an empty value, and the JSON it arrived as is held beside
-// it here, by identity, so a copy made with create or clone carries only the
-// type URL. Its empty value must never be decoded as if it were the message.
-// A known Any that held one is read the same way, whole, so no bytes the
-// reader writes ever stand around one.
-const heldJson = new WeakMap<Any, JsonObject>();
 
 /** The first Any within a message, the message itself included, that is held as JSON and has no bytes. One that carries bytes is not looked into. */
 function heldAnyWithin(r: ReflectMessage): Any | undefined {
@@ -108,6 +94,11 @@ export function unknownAnyJson(any: Any): JsonObject | undefined {
   return heldJson.get(any);
 }
 
+export interface Unpacked {
+  schema: DescMessage;
+  message: Message;
+}
+
 /** Unpacks an Any through the registry; undefined when the type is unknown, or was when the Any was read and only its JSON is held. */
 export function unpackAny(any: Any, registry: Registry): Unpacked | undefined {
   requireRegistry(registry, "unpackAny");
@@ -121,4 +112,13 @@ export function unpackAny(any: Any, registry: Registry): Unpacked | undefined {
 export function unpackAnyAs<Desc extends DescMessage>(any: Any, schema: Desc): MessageShape<Desc> {
   if (heldJson.has(any) || typeNameOf(any.typeUrl) !== schema.typeName) throw new UnknownTypeError(any.typeUrl);
   return fromBinary(schema, any.value);
+}
+
+/**
+ * The registry a reader was given. The types require one; a caller they do not reach, plain JavaScript on the core
+ * entry, is told so by name here, not by the runtime's error at the first use. Internal: not exported from the core entry.
+ */
+export function requireRegistry(registry: Registry | undefined, reader: string): Registry {
+  if (!registry) throw new ArkSdkError(`${reader} needs a registry, the types an Any resolves against; the main entry defaults it`);
+  return registry;
 }

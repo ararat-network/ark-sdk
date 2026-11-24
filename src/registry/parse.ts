@@ -14,73 +14,6 @@ export class RegistryError extends ArkSdkError {
   override readonly name: string = "RegistryError";
 }
 
-/** A JSON object before its members are checked. */
-type Unchecked = Record<string, unknown>;
-
-function object(value: unknown, where: string): Unchecked {
-  if (!isJsonObject(value)) throw new RegistryError(`${where} is not an object`);
-  return value;
-}
-
-function member(o: Unchecked, key: string, where: string): unknown {
-  if (!(key in o)) throw new RegistryError(`${where}: ${key} is missing`);
-  return o[key];
-}
-
-function text(o: Unchecked, key: string, where: string): string {
-  const v = member(o, key, where);
-  if (typeof v !== "string" || v === "") throw new RegistryError(`${where}: ${key} must be a non-empty string`);
-  return v;
-}
-
-function optionalText(o: Unchecked, key: string, where: string): string | undefined {
-  return o[key] === undefined ? undefined : text(o, key, where);
-}
-
-function wholeNumber(o: Unchecked, key: string, where: string): number {
-  const v = member(o, key, where);
-  if (typeof v !== "number" || !Number.isInteger(v) || v < 0) throw new RegistryError(`${where}: ${key} must be a whole number`);
-  return v;
-}
-
-function flag(o: Unchecked, key: string, where: string): boolean {
-  const v = member(o, key, where);
-  if (typeof v !== "boolean") throw new RegistryError(`${where}: ${key} must be true or false`);
-  return v;
-}
-
-function list(o: Unchecked, key: string, where: string): unknown[] {
-  const v = member(o, key, where);
-  if (!Array.isArray(v)) throw new RegistryError(`${where}: ${key} must be a list`);
-  return v;
-}
-
-function optionalList(o: Unchecked, key: string, where: string): unknown[] | undefined {
-  return o[key] === undefined ? undefined : list(o, key, where);
-}
-
-const isText = (x: unknown): x is string => typeof x === "string" && x !== "";
-
-function texts(o: Unchecked, key: string, where: string): string[] {
-  const v = list(o, key, where);
-  if (!v.every(isText)) throw new RegistryError(`${where}: ${key} must be a list of non-empty strings`);
-  return v;
-}
-
-function optionalTexts(o: Unchecked, key: string, where: string): string[] | undefined {
-  return o[key] === undefined ? undefined : texts(o, key, where);
-}
-
-function endpoints(o: Unchecked, key: string, where: string): Endpoint[] | undefined {
-  return optionalList(o, key, where)?.map((e, i) => {
-    const at = `${where}: ${key}[${i}]`;
-    const entry = object(e, at);
-    const address = text(entry, "address", at);
-    optionalText(entry, "provider", at);
-    return { ...entry, address };
-  });
-}
-
 export function parseChain(value: unknown): ChainJson {
   const where = "chain.json";
   const chain = object(value, where);
@@ -160,18 +93,6 @@ export function parseAssets(value: unknown): AssetListJson {
   };
 }
 
-function parseFeatures(value: unknown, where: string): ArkFeatures {
-  const features = object(value, where);
-  // A flag the SDK does not name yet is kept when it is a flag, so a newer registry's reaches an app that knows it.
-  const flags = Object.fromEntries(Object.entries(features).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"));
-  return {
-    ...flags,
-    cosmwasm: flag(features, "cosmwasm", where),
-    vote_extensions: flag(features, "vote_extensions", where),
-    conversion_open: flag(features, "conversion_open", where),
-  };
-}
-
 export function parseArk(value: unknown): ArkJson {
   const where = "ark.json";
   const ark = object(value, where);
@@ -188,4 +109,83 @@ export function parseArk(value: unknown): ArkJson {
     fee_contract: text(ark, "fee_contract", where),
     indexer: endpoints(ark, "indexer", where),
   };
+}
+
+function parseFeatures(value: unknown, where: string): ArkFeatures {
+  const features = object(value, where);
+  // A flag the SDK does not name yet is kept when it is a flag, so a newer registry's reaches an app that knows it.
+  const flags = Object.fromEntries(Object.entries(features).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"));
+  return {
+    ...flags,
+    cosmwasm: flag(features, "cosmwasm", where),
+    vote_extensions: flag(features, "vote_extensions", where),
+    conversion_open: flag(features, "conversion_open", where),
+  };
+}
+
+/** A JSON object before its members are checked. */
+type Unchecked = Record<string, unknown>;
+
+function object(value: unknown, where: string): Unchecked {
+  if (!isJsonObject(value)) throw new RegistryError(`${where} is not an object`);
+  return value;
+}
+
+function member(o: Unchecked, key: string, where: string): unknown {
+  if (!(key in o)) throw new RegistryError(`${where}: ${key} is missing`);
+  return o[key];
+}
+
+function text(o: Unchecked, key: string, where: string): string {
+  const v = member(o, key, where);
+  if (typeof v !== "string" || v === "") throw new RegistryError(`${where}: ${key} must be a non-empty string`);
+  return v;
+}
+
+function optionalText(o: Unchecked, key: string, where: string): string | undefined {
+  return o[key] === undefined ? undefined : text(o, key, where);
+}
+
+function wholeNumber(o: Unchecked, key: string, where: string): number {
+  const v = member(o, key, where);
+  if (typeof v !== "number" || !Number.isInteger(v) || v < 0) throw new RegistryError(`${where}: ${key} must be a whole number`);
+  return v;
+}
+
+function flag(o: Unchecked, key: string, where: string): boolean {
+  const v = member(o, key, where);
+  if (typeof v !== "boolean") throw new RegistryError(`${where}: ${key} must be true or false`);
+  return v;
+}
+
+function list(o: Unchecked, key: string, where: string): unknown[] {
+  const v = member(o, key, where);
+  if (!Array.isArray(v)) throw new RegistryError(`${where}: ${key} must be a list`);
+  return v;
+}
+
+function optionalList(o: Unchecked, key: string, where: string): unknown[] | undefined {
+  return o[key] === undefined ? undefined : list(o, key, where);
+}
+
+function texts(o: Unchecked, key: string, where: string): string[] {
+  const v = list(o, key, where);
+  if (!v.every(isText)) throw new RegistryError(`${where}: ${key} must be a list of non-empty strings`);
+  return v;
+}
+
+const isText = (x: unknown): x is string => typeof x === "string" && x !== "";
+
+function optionalTexts(o: Unchecked, key: string, where: string): string[] | undefined {
+  return o[key] === undefined ? undefined : texts(o, key, where);
+}
+
+function endpoints(o: Unchecked, key: string, where: string): Endpoint[] | undefined {
+  return optionalList(o, key, where)?.map((e, i) => {
+    const at = `${where}: ${key}[${i}]`;
+    const entry = object(e, at);
+    const address = text(entry, "address", at);
+    optionalText(entry, "provider", at);
+    return { ...entry, address };
+  });
 }

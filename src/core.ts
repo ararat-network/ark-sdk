@@ -173,17 +173,8 @@ export {
 } from "./query/gateway.js";
 export { collectAll, type PageRequestInit, type PaginateOptions, PaginationError, paginate } from "./query/pagination.js";
 export { type FoundTx, fetchTx, foundTx, lookUpTx, type SearchOptions, type SearchResult, searchTxs, txQuery, WrongTransaction } from "./query/search.js";
-export {
-  Asset,
-  DEFAULT_REGISTRY_REF,
-  type Endpoints,
-  GenesisMismatch,
-  type LoadOptions,
-  loadNetwork,
-  Network,
-  REGISTRY_REPOSITORY,
-  registrySource,
-} from "./registry/network.js";
+export { DEFAULT_REGISTRY_REF, type LoadOptions, loadNetwork, REGISTRY_REPOSITORY, registrySource } from "./registry/load.js";
+export { Asset, type Endpoints, GenesisMismatch, Network } from "./registry/network.js";
 export { RegistryError } from "./registry/parse.js";
 export type { ArkFeatures, ArkJson, AssetJson, AssetListJson, ChainJson, DenomUnit, Endpoint, Explorer, RegistryFiles } from "./registry/types.js";
 export {

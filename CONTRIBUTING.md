@@ -44,4 +44,10 @@ SDK and weekly.
   unpacked `Any`, a decoded message, response, or event. Compare with `assert.ok(a === b)`, or compare the type name.
 - **Style.** British spelling in identifiers (`materialise`, `serialise`); comments say what a reader cannot see in the
   code and no more; tests are table-driven and name the case they check.
+- **Order within a file.** The header comment, the imports, then the constants; a constant only one declaration reads
+  may sit directly above it instead. Public declarations follow in the order a caller meets them, each directly below
+  the types and errors that are its own; one that several share sits above the first to use it. A private helper sits
+  below its first caller, never above it. An export the core entry does not list comes after the public declarations.
+  Types stay beside the code they describe: a file of types alone is for shapes several modules share, as
+  `registry/types.ts` is.
 - **Commits** have a subject and a body saying what changed and why, one logical area each.

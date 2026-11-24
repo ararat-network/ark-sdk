@@ -19,68 +19,11 @@ import type { QueryProposalsRequestSchema } from "../gen/cosmos/gov/v1/query_pb.
 import { Query as GovQuery } from "../gen/cosmos/gov/v1/query_pb.js";
 import { Query as StakingQuery } from "../gen/cosmos/staking/v1beta1/query_pb.js";
 import { BroadcastMode, OrderBy, Service as TxService } from "../gen/cosmos/tx/v1beta1/service_pb.js";
-import { fetchOk, type Network } from "../registry/network.js";
+import { fetchOk } from "../registry/load.js";
+import type { Network } from "../registry/network.js";
 import { RegistryError } from "../registry/parse.js";
 import { type CallOptions, GatewayClient, type GatewayOptions } from "./gateway.js";
 import type { PageRequestInit } from "./pagination.js";
-
-export class NetworkMismatch extends ArkSdkError {
-  override readonly name: string = "NetworkMismatch";
-  constructor(
-    readonly expected: string,
-    readonly actual: string,
-  ) {
-    super(`node is on chain ${actual}, expected ${expected}`);
-  }
-}
-
-/** The node runs a binary version the registry does not list as compatible, and the caller asked for one it does. */
-export class NodeVersionUnlisted extends ArkSdkError {
-  override readonly name: string = "NodeVersionUnlisted";
-  constructor(
-    readonly version: string,
-    readonly listed: readonly string[],
-  ) {
-    super(`node runs ${version === "" ? "an unnamed version" : version}; the registry lists ${listed.join(", ")}`);
-  }
-}
-
-export interface VerifyOptions {
-  /** Refuse a node whose binary version the registry does not list; off by default, since a development build reports none of them. */
-  requireListedVersion?: boolean;
-  /** Fetch the genesis file the registry names and hash it against the registry's hash. */
-  genesis?: boolean;
-}
-
-export interface NetworkVerification {
-  /** The chain the node reports, equal to the network's. */
-  chainId: string;
-  /** The binary the node reports: its application name and version. */
-  appName: string;
-  version: string;
-  /** Whether the registry lists the node's version as compatible; undefined when it lists none. */
-  versionListed: boolean | undefined;
-  /** The genesis file against the registry's hash: skipped unless asked for, unverifiable without a hash or a URL. */
-  genesis: "verified" | "unverifiable" | "skipped";
-}
-
-/** The network's REST endpoints, in the registry's order; a network that lists none is refused. */
-export function restEndpoints(network: Network): string[] {
-  const urls = network.endpoints.rest.map((e) => e.address);
-  if (urls.length === 0) throw new RegistryError(`network ${network.chainId} lists no REST endpoint`);
-  return urls;
-}
-
-/** Calls one method through the gateway and returns the response message, without the height it was answered at. */
-async function value<S extends Parameters<GatewayClient["call"]>[0], M extends keyof S["method"] & string>(
-  gateway: GatewayClient,
-  service: S,
-  method: M,
-  request: MessageInitShape<S["method"][M]["input"]>,
-  options?: CallOptions,
-) {
-  return (await gateway.call(service, method, request, options)).value;
-}
 
 // One client to a service, each over a gateway: `bankClient(gateway).balance(address, denom)`. QueryClient holds them
 // all, and so bundles every service it has a facade for. A caller of the core entry who needs a small bundle builds
@@ -211,6 +154,46 @@ export const nodeClient = (gateway: GatewayClient) => ({
   latestBlock: () => value(gateway, NodeService, "getLatestBlock", {}),
 });
 
+export class NetworkMismatch extends ArkSdkError {
+  override readonly name: string = "NetworkMismatch";
+  constructor(
+    readonly expected: string,
+    readonly actual: string,
+  ) {
+    super(`node is on chain ${actual}, expected ${expected}`);
+  }
+}
+
+/** The node runs a binary version the registry does not list as compatible, and the caller asked for one it does. */
+export class NodeVersionUnlisted extends ArkSdkError {
+  override readonly name: string = "NodeVersionUnlisted";
+  constructor(
+    readonly version: string,
+    readonly listed: readonly string[],
+  ) {
+    super(`node runs ${version === "" ? "an unnamed version" : version}; the registry lists ${listed.join(", ")}`);
+  }
+}
+
+export interface VerifyOptions {
+  /** Refuse a node whose binary version the registry does not list; off by default, since a development build reports none of them. */
+  requireListedVersion?: boolean;
+  /** Fetch the genesis file the registry names and hash it against the registry's hash. */
+  genesis?: boolean;
+}
+
+export interface NetworkVerification {
+  /** The chain the node reports, equal to the network's. */
+  chainId: string;
+  /** The binary the node reports: its application name and version. */
+  appName: string;
+  version: string;
+  /** Whether the registry lists the node's version as compatible; undefined when it lists none. */
+  versionListed: boolean | undefined;
+  /** The genesis file against the registry's hash: skipped unless asked for, unverifiable without a hash or a URL. */
+  genesis: "verified" | "unverifiable" | "skipped";
+}
+
 /** Every service the app reads, over one gateway: each member is that service's client. */
 export class QueryClient {
   readonly gateway: GatewayClient;
@@ -279,4 +262,22 @@ export class QueryClient {
     }
     return network.verifyGenesis(genesis);
   }
+}
+
+/** Calls one method through the gateway and returns the response message, without the height it was answered at. */
+async function value<S extends Parameters<GatewayClient["call"]>[0], M extends keyof S["method"] & string>(
+  gateway: GatewayClient,
+  service: S,
+  method: M,
+  request: MessageInitShape<S["method"][M]["input"]>,
+  options?: CallOptions,
+) {
+  return (await gateway.call(service, method, request, options)).value;
+}
+
+/** The network's REST endpoints, in the registry's order; a network that lists none is refused. */
+export function restEndpoints(network: Network): string[] {
+  const urls = network.endpoints.rest.map((e) => e.address);
+  if (urls.length === 0) throw new RegistryError(`network ${network.chainId} lists no REST endpoint`);
+  return urls;
 }

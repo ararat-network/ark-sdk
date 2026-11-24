@@ -20,14 +20,21 @@ export interface FixtureKeys {
   accounts: FixtureKey[];
 }
 
+export function fixtureKeys(): FixtureKeys {
+  return readJson<FixtureKeys>("decoding/keys.json");
+}
+
+export function fixtureKey(name: string): FixtureKey {
+  const key = fixtureKeys().accounts.find((a) => a.name === name);
+  if (!key) throw new Error(`no fixture key ${name}`);
+  return key;
+}
+
 export interface FixtureEvent {
   type: string;
   attributes: { key: string; value: string; index: boolean }[];
   typed?: unknown;
 }
-
-/** A transaction as the chain's JSON renders it. */
-export type FixtureTx = { body: JsonObject & { messages: JsonObject[]; memo: string }; auth_info: JsonObject; signatures: string[] };
 
 /** What every fixture carries: the block it was recorded at, and the events of that block or of its transaction. */
 export interface Fixture {
@@ -40,6 +47,18 @@ export interface Fixture {
   events?: FixtureEvent[];
   block_events?: FixtureEvent[];
 }
+
+/** Every decoding fixture, in file order. */
+export function fixtures(): Fixture[] {
+  const dir = new URL("decoding/", root);
+  return readdirSync(dir)
+    .filter((f) => f.endsWith(".json") && f !== "keys.json")
+    .sort()
+    .map((f) => readJson<Fixture>(`decoding/${f}`));
+}
+
+/** A transaction as the chain's JSON renders it. */
+export type FixtureTx = { body: JsonObject & { messages: JsonObject[]; memo: string }; auth_info: JsonObject; signatures: string[] };
 
 /** A transaction's fixture, which is every one but a block's: its signer, fee, sign documents, bytes, and result. */
 export interface TxFixture extends Fixture {
@@ -63,35 +82,12 @@ export interface TxFixture extends Fixture {
   result: { code: number; codespace: string; log: string; gas_wanted: string; gas_used: string };
 }
 
-function readJson<T>(path: string): T {
-  return JSON.parse(readFileSync(new URL(path, root), "utf8")) as T;
-}
-
-export function fixtureKeys(): FixtureKeys {
-  return readJson<FixtureKeys>("decoding/keys.json");
-}
-
-export function fixtureKey(name: string): FixtureKey {
-  const key = fixtureKeys().accounts.find((a) => a.name === name);
-  if (!key) throw new Error(`no fixture key ${name}`);
-  return key;
-}
-
-/** Every decoding fixture, in file order. */
-export function fixtures(): Fixture[] {
-  const dir = new URL("decoding/", root);
-  return readdirSync(dir)
-    .filter((f) => f.endsWith(".json") && f !== "keys.json")
-    .sort()
-    .map((f) => readJson<Fixture>(`decoding/${f}`));
-}
-
-const holdsTx = (f: Fixture): f is TxFixture => "tx_bytes" in f;
-
 /** Every fixture of a transaction, in file order. */
 export function txFixtures(): TxFixture[] {
   return fixtures().filter(holdsTx);
 }
+
+const holdsTx = (f: Fixture): f is TxFixture => "tx_bytes" in f;
 
 /** One transaction's fixture, by name. */
 export function fixture(name: string): TxFixture {
@@ -112,4 +108,8 @@ export function registryFiles(name: string): RegistryFiles {
 /** Coins as the chain's coin text, in the order given, so two lists compare in one assertion. */
 export function amounts(coins: readonly { denom: string; amount: string }[]): string[] {
   return coins.map((c) => c.amount + c.denom);
+}
+
+function readJson<T>(path: string): T {
+  return JSON.parse(readFileSync(new URL(path, root), "utf8")) as T;
 }

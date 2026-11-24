@@ -15,6 +15,14 @@ import type { Tx } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import type { QueryClient } from "./client.js";
 import { QueryError } from "./gateway.js";
 
+/** Event queries the app asks most; CometBFT's syntax joins conditions with AND only. */
+export const txQuery = {
+  bySender: (address: string): string => `message.sender='${address}'`,
+  byRecipient: (address: string): string => `transfer.recipient='${address}'`,
+  byHeight: (height: bigint): string => `tx.height=${height}`,
+  and: (...conditions: string[]): string => conditions.join(" AND "),
+};
+
 export interface FoundTx {
   hash: string;
   height: bigint;
@@ -30,26 +38,6 @@ export interface FoundTx {
   gasWanted: bigint;
   gasUsed: bigint;
 }
-
-/** `registry` is the client's own by default: the types its answers were read with. */
-export interface SearchOptions extends RegistryOption {
-  page?: bigint;
-  limit?: bigint;
-  orderBy?: OrderBy;
-}
-
-export interface SearchResult {
-  total: bigint;
-  items: FoundTx[];
-}
-
-/** Event queries the app asks most; CometBFT's syntax joins conditions with AND only. */
-export const txQuery = {
-  bySender: (address: string): string => `message.sender='${address}'`,
-  byRecipient: (address: string): string => `transfer.recipient='${address}'`,
-  byHeight: (height: bigint): string => `tx.height=${height}`,
-  and: (...conditions: string[]): string => conditions.join(" AND "),
-};
 
 /** Builds the decoded view of one committed transaction. */
 export function foundTx(response: TxResponse, tx: Tx | undefined, registry: Registry): FoundTx {
@@ -67,6 +55,18 @@ export function foundTx(response: TxResponse, tx: Tx | undefined, registry: Regi
     gasWanted: response.gasWanted,
     gasUsed: response.gasUsed,
   };
+}
+
+/** `registry` is the client's own by default: the types its answers were read with. */
+export interface SearchOptions extends RegistryOption {
+  page?: bigint;
+  limit?: bigint;
+  orderBy?: OrderBy;
+}
+
+export interface SearchResult {
+  total: bigint;
+  items: FoundTx[];
 }
 
 /** Committed transactions matching a query, newest first by default, decoded with the client's registry unless another is given. */
