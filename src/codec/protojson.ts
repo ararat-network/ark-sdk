@@ -40,8 +40,8 @@ export interface FromProtoJsonOptions extends WithRegistry {
   /**
    * What to do with an Any whose type the registry lacks. `throw`, the default, fails: JSON has no bytes for it, and a
    * message built from JSON must not carry a hollow one. `keep` is for reading what a node returned: the Any keeps its
-   * type URL, an empty value, and the JSON it arrived as, which `unknownAnyJson` returns. One nested inside a known
-   * Any keeps its type URL alone, since the outer message is held as bytes.
+   * type URL, an empty value, and the JSON it arrived as, which `unknownAnyJson` returns. A known Any that holds one,
+   * at any depth, is kept the same way, whole: its bytes would carry the inner message's type with none of its content.
    */
   unknownAny?: "throw" | "keep";
 }
@@ -55,6 +55,8 @@ interface ReadContext {
   registry: Registry;
   ignoreUnknownFields: boolean;
   unknownAny: "throw" | "keep";
+  /** How many Anys this read has kept as JSON so far: what tells an Any being read that one inside it was. */
+  kept: number;
 }
 
 const WKT_TIMESTAMP = "google.protobuf.Timestamp";
@@ -73,6 +75,7 @@ export function fromProtoJson<Desc extends DescMessage>(schema: Desc, json: Json
     registry: options.registry,
     ignoreUnknownFields: options.ignoreUnknownFields ?? true,
     unknownAny: options.unknownAny ?? "throw",
+    kept: 0,
   };
   return messageFromJson(schema, json, ctx).message as MessageShape<Desc>;
 }
@@ -286,11 +289,17 @@ function anyFromJson(json: JsonValue, ctx: ReadContext): Any {
   }
   const schema = ctx.registry.getMessage(typeNameOf(typeUrl));
   if (!schema) {
-    if (ctx.unknownAny === "keep") return anyFromUnknownJson(typeUrl, json);
-    throw new UnknownTypeError(typeUrl);
+    if (ctx.unknownAny !== "keep") throw new UnknownTypeError(typeUrl);
+    ctx.kept++;
+    return anyFromUnknownJson(typeUrl, json);
   }
   const wkt = schema.typeName === WKT_TIMESTAMP || schema.typeName === WKT_DURATION || schema.typeName === WKT_ANY;
+  const keptBefore = ctx.kept;
   const inner = messageFromJson(schema, wkt ? (rest.value as JsonValue) : rest, ctx);
+  // A message that holds a kept Any cannot be turned into bytes either: the inner one has none, and bytes written
+  // around it would name its type with no content. It is kept the same way, whole, and the count already tells the
+  // Any around this one.
+  if (ctx.kept > keptBefore) return anyFromUnknownJson(typeUrl, json);
   return create(AnySchema, { typeUrl: typeUrlOf(schema), value: toBinary(schema, inner.message) });
 }
 

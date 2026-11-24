@@ -162,6 +162,40 @@ test("several endpoints: a call moves past one that cannot answer and stays on t
   assert.ok(seen[3]!.url.startsWith("http://c/"));
 });
 
+test("calls in flight together each walk the endpoints once: one's move does not shift another's", async () => {
+  const later = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const sheet = () => json({ gas_prices: [], reference_gas_price: null });
+  const unavailable = () => json({ code: 14, message: "unavailable", details: [] }, 503);
+
+  // a is at fault. Its answer to the price sheet arrives after the other call has left it and been answered by b.
+  const faulty = stubFetch(async ({ url }) => {
+    if (!url.startsWith("http://a/")) return url.includes("gas_prices") ? sheet() : nodeInfo();
+    if (url.includes("gas_prices")) await later(20);
+    return unavailable();
+  });
+  const client = new QueryClient(["http://a", "http://b"], { fetch: faulty.fetch });
+  const [info, prices] = await Promise.all([client.node.info(), client.treasury.gasPrices()]);
+  assert.equal(info.defaultNodeInfo?.network, "localark");
+  assert.deepEqual(prices.gasPrices, []);
+  assert.deepEqual(
+    faulty.seen.map((s) => `${s.url.slice(7, 8)} ${s.url.split("/").pop()}`),
+    ["a node_info", "a gas_prices", "b node_info", "b gas_prices"],
+    "the second call goes on to b, not back to a",
+  );
+  assert.equal(client.gateway.baseUrl, "http://b");
+
+  // a answers one call late, after another has left it for b: the late answer does not move the client back.
+  const slow = stubFetch(async ({ url }) => {
+    if (!url.startsWith("http://a/")) return nodeInfo();
+    if (!url.includes("gas_prices")) return unreachable();
+    await later(20);
+    return sheet();
+  });
+  const second = new QueryClient(["http://a", "http://b"], { fetch: slow.fetch });
+  await Promise.all([second.node.info(), second.treasury.gasPrices()]);
+  assert.equal(second.gateway.baseUrl, "http://b", "an answer from where a call began says nothing new");
+});
+
 test("a 500 blames the request and stays put; a rate limit or a gateway fault moves on", async () => {
   const failed = stubFetch(() => json({ code: 2, message: "rpc error: code = Unknown desc = account sequence mismatch, expected 3, got 2", details: [] }, 500));
   await assert.rejects(

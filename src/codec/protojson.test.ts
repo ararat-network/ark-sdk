@@ -6,7 +6,7 @@ import { test } from "node:test";
 
 import { create, createRegistry } from "@bufbuild/protobuf";
 import { AnySchema } from "@bufbuild/protobuf/wkt";
-import { aminoEncodeAny, fromProtoJson, toProtoJson, unpackAny } from "../defaults.js";
+import { aminoEncodeAny, decodeMessage, fromProtoJson, toProtoJson, unpackAny } from "../defaults.js";
 import { PricesResponseSchema } from "../gen/ark/pricefeed/v1/pricefeed_pb.js";
 import { MsgSendSchema } from "../gen/cosmos/bank/v1beta1/tx_pb.js";
 import { CommissionRatesSchema } from "../gen/cosmos/staking/v1beta1/staking_pb.js";
@@ -65,17 +65,33 @@ test("an unknown Any read with keep holds its type URL, no bytes, and the JSON i
   assert.equal(unknownAnyJson(copy), undefined);
   assert.deepEqual(toProtoJson(AnySchema, copy, { unknownAny: "raw" }), { "@type": "/ark.future.v1.MsgNew", value: "" });
 
-  // Nested inside a known Any, the outer message is held as bytes, so the inner keeps its type URL alone.
-  const exec = { "@type": "/cosmos.authz.v1beta1.MsgExec", grantee: "ark1g", msgs: [future] };
-  const outer = fromProtoJson(AnySchema, exec, { unknownAny: "keep" });
-  assert.equal(unknownAnyJson(outer), undefined);
-  assert.deepEqual(toProtoJson(AnySchema, outer, { unknownAny: "raw" }), {
-    "@type": "/cosmos.authz.v1beta1.MsgExec",
-    grantee: "ark1g",
-    msgs: [{ "@type": "/ark.future.v1.MsgNew", value: "" }],
-  });
-
   assert.throws(() => fromProtoJson(TxBodySchema, { messages: [future] }), UnknownTypeError, "reading strictly is still the default");
+});
+
+test("a known Any that holds an unknown one is kept whole, at any depth, never as bytes around a hollow message", () => {
+  const future = { "@type": "/ark.future.v1.MsgNew", sender: "ark1x", amount: "5" };
+  const send = { "@type": "/cosmos.bank.v1beta1.MsgSend", from_address: "ark1a", to_address: "ark1b", amount: [{ denom: "ausd", amount: "1" }] };
+  const exec = { "@type": "/cosmos.authz.v1beta1.MsgExec", grantee: "ark1g", msgs: [send, future] };
+  const outer = fromProtoJson(AnySchema, exec, { unknownAny: "keep" });
+  assert.equal(outer.typeUrl, "/cosmos.authz.v1beta1.MsgExec");
+  assert.equal(outer.value.length, 0, "bytes here would name the inner type and carry none of its content");
+  assert.deepEqual(unknownAnyJson(outer), exec);
+  assert.deepEqual(toProtoJson(AnySchema, outer), exec, "the node's JSON, the inner message's members included");
+  assert.equal(unpackAny(outer), undefined);
+  const decoded = decodeMessage(outer);
+  assert.equal(decoded.known, false);
+  assert.deepEqual(decoded.json, exec);
+
+  // Two levels down: a proposal whose message is an exec around the unknown one.
+  const proposal = { "@type": "/cosmos.gov.v1.MsgSubmitProposal", messages: [exec], proposer: "ark1p" };
+  assert.deepEqual(unknownAnyJson(fromProtoJson(AnySchema, proposal, { unknownAny: "keep" })), proposal);
+
+  // An exec around known messages only still carries its bytes, and so does a sibling of a kept one.
+  const whole = { "@type": "/cosmos.authz.v1beta1.MsgExec", grantee: "ark1g", msgs: [send] };
+  const body = fromProtoJson(TxBodySchema, { messages: [whole, exec] }, { unknownAny: "keep" });
+  assert.equal(unknownAnyJson(body.messages[0]!), undefined);
+  assert.ok(body.messages[0]!.value.length > 0);
+  assert.deepEqual(unknownAnyJson(body.messages[1]!), exec);
 });
 
 test("an Any held as JSON is never decoded from its empty bytes, even by a registry that knows the type", () => {
@@ -87,6 +103,10 @@ test("an Any held as JSON is never decoded from its empty bytes, even by a regis
   assert.throws(() => unpackAnyAs(held, MsgSendSchema), UnknownTypeError);
   assert.throws(() => aminoEncodeAny(held), UnknownTypeError);
   assert.deepEqual(toProtoJson(AnySchema, held), send, "the JSON it arrived as, not an empty message's");
+  const decoded = decodeMessage(held);
+  assert.equal(decoded.known, false, "the decoder names it unknown though its registry knows the type");
+  assert.equal(decoded.message, undefined);
+  assert.deepEqual(decoded.json, send);
 });
 
 test('a non-nullable Dec that never reached the wire renders as gogo\'s "0", a set one at 18 places', () => {

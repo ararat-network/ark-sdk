@@ -148,7 +148,7 @@ export class GatewayClient {
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 
-  /** The endpoint the last successful call used. */
+  /** The endpoint a call tries first: the one that answered the last call that had to move on, or the first. */
   get baseUrl(): string {
     return this.baseUrls[this.#current] as string;
   }
@@ -170,12 +170,18 @@ export class GatewayClient {
     const route = routeFor(desc, toProtoJson(input, message, { registry: this.registry }) as JsonObject);
     const attempts: EndpointAttempt[] = [];
     const tries = options.idempotent === false ? 1 : this.baseUrls.length;
+    // The walk is fixed when the call begins. Calls overlap, and one that moves the client on while this one is
+    // waiting must not shift where this one goes next: read live, the walk could try one endpoint twice and skip
+    // a healthy one.
+    const start = this.#current;
     for (let attempt = 0; attempt < tries; attempt++) {
-      const index = (this.#current + attempt) % this.baseUrls.length;
+      const index = (start + attempt) % this.baseUrls.length;
       const baseUrl = this.baseUrls[index] as string;
       try {
         const result = await this.#request<MessageShape<OutputOf<S, M>>>(baseUrl, route, desc, options);
-        this.#current = index;
+        // Only a call that moved on moves the client. One answered where it began says nothing new, and it may
+        // have begun before another call left that endpoint.
+        if (attempt > 0) this.#current = index;
         return result;
       } catch (err) {
         if (options.signal?.aborted || !isEndpointFault(err)) throw err;

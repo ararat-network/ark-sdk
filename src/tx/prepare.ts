@@ -81,8 +81,10 @@ export async function prepareAndSign(input: PrepareInput): Promise<Prepared> {
     timeoutTimestamp: input.timeoutTimestamp,
     unordered: input.unordered,
   };
-  // The chain's account and the signer's are independent, so they are asked for together.
-  const [account, signerAccounts] = await Promise.all([input.account ?? fetchAccount(client, input.address), input.signer.accounts()]);
+  // The chain's account and the signer's are independent, so they are asked for together. The signer is asked
+  // inside a promise: one that throws where it should reject would otherwise leave the account request, already
+  // sent, with nothing awaiting it.
+  const [account, signerAccounts] = await Promise.all([input.account ?? fetchAccount(client, input.address), (async () => input.signer.accounts())()]);
   // The ante refuses an unordered transaction that carries a sequence: its
   // timeout timestamp stands in for one, so it is simulated and signed at zero.
   const sequence = input.unordered ? 0n : account.sequence;

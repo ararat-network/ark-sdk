@@ -3,13 +3,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { createRegistry } from "@bufbuild/protobuf";
+
+import { unknownAnyJson } from "../codec/any.js";
+import { toBase64 } from "../codec/bytes.js";
 import { vestedCoins } from "../decode/account.js";
 import { QueryClient } from "../defaults.js";
+import { file_cosmos_auth_v1beta1_auth } from "../gen/cosmos/auth/v1beta1/auth_pb.js";
 import { GenesisMismatch, Network } from "../registry/network.js";
 import { amounts, registryFiles } from "../testing/fixtures.js";
 import { json, stubFetch } from "../testing/node.js";
 import { FUTURE_ACCOUNT_URL, registryWithFutureTypes } from "../testing/registry.js";
-import { NetworkMismatch, NodeVersionUnlisted } from "./client.js";
+import { QueryClient as CoreQueryClient, NetworkMismatch, NodeVersionUnlisted } from "./client.js";
 
 test("verifyNetwork checks the chain id, reports the binary against the registry, and can hash the genesis", async () => {
   const network = Network.fromRegistry(registryFiles("arklocal"));
@@ -103,6 +108,24 @@ test("decodedAccount names an account of a type the registry lacks as unknown, w
   assert.equal(decoded.kind, "unknown");
   assert.equal(decoded.typeUrl, "/ark.future.v1.SeatAccount");
   assert.equal(decoded.message, undefined);
+});
+
+test("an account whose key type the client's registry lacks is unknown, not an account with an empty key", async () => {
+  const account = {
+    "@type": "/cosmos.auth.v1beta1.BaseAccount",
+    address: "ark1x",
+    pub_key: { "@type": "/cosmos.crypto.secp256k1.PubKey", key: toBase64(new Uint8Array(33).fill(2)) },
+    account_number: "3",
+    sequence: "2",
+  };
+  const { fetch } = stubFetch(() => json({ account }));
+  // A core client that names the account types and not the key's: the account cannot be turned into bytes whole.
+  const client = new CoreQueryClient("http://node", { fetch, registry: createRegistry(file_cosmos_auth_v1beta1_auth) });
+  const decoded = await client.auth.decodedAccount("ark1x");
+  assert.equal(decoded.kind, "unknown");
+  assert.equal(decoded.typeUrl, "/cosmos.auth.v1beta1.BaseAccount");
+  assert.equal(decoded.message, undefined);
+  assert.deepEqual(unknownAnyJson((await client.auth.account("ark1x")).account!), account, "the node's JSON is kept, the key in it");
 });
 
 test("decodedAccount decodes with the client's registry, so a type only it knows is decoded", async () => {

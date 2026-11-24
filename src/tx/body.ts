@@ -36,7 +36,8 @@ export function typed<Desc extends DescMessage>(schema: Desc, message: MessageSh
 /**
  * Packs each message under its type URL; an Any passes through. One that was
  * read from a node without its type is refused: it holds no bytes, and
- * signing it would sign an empty message under that type.
+ * signing it would sign an empty message under that type. So is a message
+ * that holds one, which packAny refuses.
  */
 export function packMessages(messages: readonly TxMessage[]): Any[] {
   return messages.map((m) => {

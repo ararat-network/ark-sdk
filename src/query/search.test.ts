@@ -107,6 +107,35 @@ test("searchTxs and fetchTx decode with the client's registry unless another is 
   assert.equal((await fetchTx(client, f.tx_hash!, registry))?.messages[2]?.known, false);
 });
 
+test("a known message around one the registry lacks is unknown with the node's JSON, whatever registry decodes it", async () => {
+  const future = { "@type": FUTURE_MSG_URL, sender: "ark1x", amount: "5" };
+  const exec = { "@type": "/cosmos.authz.v1beta1.MsgExec", grantee: "ark1g", msgs: [future] };
+  const tx = structuredClone(f.tx!);
+  (tx.body.messages as JsonValue[]).push(exec);
+  const response = { ...found.tx_responses[0], tx: { "@type": "/cosmos.tx.v1beta1.Tx", ...tx } };
+  const { fetch } = stubFetch(({ url }) =>
+    url.includes("/txs/") ? json({ tx, tx_response: response }) : json({ ...found, txs: [tx], tx_responses: [response] }),
+  );
+  // The client's registry knows the exec and lacks what it carries. Decoding with a registry that knows both must
+  // not show the inner message under its type with empty members: the answer was read without it.
+  const client = new QueryClient("http://node", { fetch });
+  const wider = registryWithFutureTypes();
+  const items = [
+    (await searchTxs(client, "message.sender='ark1x'")).items[0],
+    (await searchTxs(client, "message.sender='ark1x'", { registry: wider })).items[0],
+    await fetchTx(client, f.tx_hash!),
+    await fetchTx(client, f.tx_hash!, wider),
+  ];
+  for (const item of items) {
+    const message = item?.messages[2];
+    assert.equal(message?.typeUrl, "/cosmos.authz.v1beta1.MsgExec");
+    assert.equal(message?.known, false);
+    assert.equal(message?.message, undefined);
+    assert.deepEqual(message?.json, exec, "the inner message keeps the sender and amount the node sent");
+    assert.equal(item?.messages[0]?.known, true, "the messages beside it decode as before");
+  }
+});
+
 test("fetchTx returns undefined for a pending hash and the decoded transaction otherwise", async () => {
   const notFound = stub(() => json({ code: 5, message: "tx not found", details: [] }, 404));
   assert.equal(await fetchTx(notFound.client, f.tx_hash!), undefined);

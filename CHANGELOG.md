@@ -29,8 +29,16 @@ Fixed:
 - A gateway answer carrying an `Any` of a type the registry lacks no longer fails the whole call with
   `UnknownTypeError`. `searchTxs`, `fetchTx`, `tx.byBlock`, `gov.proposals`, `auth.account`, and `waitForInclusion`
   keep it as unknown: the `Any` has its type URL, an empty value, and the node's JSON, which the new `unknownAnyJson`
-  returns and `decodeMessage` shows as the message's `json` with `known: false`. Nested inside a known `Any` it keeps
-  its type URL alone. `unpackAny`, the amino encoder, and `packMessages` never treat its empty value as the message.
+  returns and `decodeMessage` shows as the message's `json` with `known: false`. A known `Any` that holds one, at any
+  depth, is kept the same way, whole: a `MsgExec` around a message the registry lacks, or an account whose key type
+  it lacks, is unknown with the node's JSON, never bytes that name the inner type with none of its content.
+  `unpackAny`, the amino encoder, and `packMessages` never treat an empty value as the message, and `packAny` refuses
+  a message built around one, so `packMessages` and `signTx` do too.
+- With several endpoints, calls in flight together each walk the endpoints once. A call read the client's current
+  endpoint again at every attempt, so one that failed over while another was still waiting sent that other back to
+  the endpoint it had just left: it could fail with `EndpointsExhausted` naming one endpoint twice while a healthy
+  one was never tried, and a late answer from the first endpoint moved the client back to it. A call's walk is now
+  fixed when it begins, and only a call that moved on moves the client.
 
 Added:
 

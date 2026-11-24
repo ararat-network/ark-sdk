@@ -3,12 +3,12 @@ import { test } from "node:test";
 import { create, fromBinary } from "@bufbuild/protobuf";
 import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 import { fromHex, toBase64 } from "../codec/bytes.js";
-import { fromProtoJson, type QueryClient } from "../defaults.js";
+import { fromProtoJson, QueryClient } from "../defaults.js";
 import { AuthInfoSchema, TxBodySchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { MemorySigner } from "../keys/memory_signer.js";
 import { type Signer, SignerError } from "../keys/signer.js";
 import { amounts, fixture, fixtureKey } from "../testing/fixtures.js";
-import { fakeNode, json, txResponse } from "../testing/node.js";
+import { fakeNode, json, stubFetch, txResponse } from "../testing/node.js";
 import { BroadcastRefused } from "./broadcast.js";
 import { FeeError } from "./fee.js";
 import { PrepareError, prepareAndSign, sendTx } from "./prepare.js";
@@ -79,6 +79,50 @@ test("prepareAndSign asks the signer for its accounts once, and signTx uses the 
   const prepared = await prepareAndSign({ ...base(node().client), signer: counting });
   assert.equal(toBase64(prepared.signed.txBytes), f.tx_bytes);
   assert.equal(asked, 1, "a wallet or a device is asked once per transaction");
+});
+
+test("an endpoint that goes bad after the simulation does not strand the tax or the price sheet", async () => {
+  const { replies } = node();
+  // Two endpoints. a answers the account and the simulation, then 503s the treasury's routes, the sheet's later
+  // than the tax's: the two are asked together, and each must go on to b.
+  const { fetch, seen } = stubFetch(async ({ url, call }) => {
+    if (url.startsWith("http://a/") && call.includes("/ark/treasury/")) {
+      if (call.includes("gas_prices")) await new Promise((resolve) => setTimeout(resolve, 20));
+      return json({ code: 14, message: "unavailable", details: [] }, 503);
+    }
+    const reply = Object.entries(replies).find(([prefix]) => call.startsWith(prefix));
+    if (!reply) throw new Error(`unexpected request ${call}`);
+    return reply[1](call);
+  });
+  const prepared = await prepareAndSign(base(new QueryClient(["http://a", "http://b"], { fetch })));
+  assert.equal(toBase64(prepared.signed.txBytes), f.tx_bytes);
+  assert.deepEqual(
+    seen.filter((s) => s.call.includes("/ark/treasury/")).map((s) => `${s.url.slice(7, 8)} ${s.call.split("/").pop()}`),
+    ["a compute_tax", "a gas_prices", "b compute_tax", "b gas_prices"],
+  );
+});
+
+test("a signer that throws where it should reject fails the flow once, with no request left unawaited", async () => {
+  const locked: Signer = {
+    accounts: () => {
+      throw new SignerError("wallet is locked");
+    },
+    signDirect: (address, doc) => signer.signDirect(address, doc),
+    signAmino: (address, doc) => signer.signAmino(address, doc),
+  };
+  // The account request is sent before the signer is asked, and fails too: its rejection must be handled with the signer's.
+  const missing = node();
+  missing.replies["GET /cosmos/auth/v1beta1/account_info/"] = () => json({ info: null });
+  const unhandled: unknown[] = [];
+  const record = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", record);
+  try {
+    await assert.rejects(prepareAndSign({ ...base(missing.client), signer: locked }), /wallet is locked/);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.deepEqual(unhandled, []);
+  } finally {
+    process.off("unhandledRejection", record);
+  }
 });
 
 test("an address the signer holds no account for is the signer's refusal, as it is in signTx", async () => {
