@@ -21,6 +21,7 @@ const TX_IN_MEMPOOL_CACHE = 19;
 const ANSWER_LOST_STATUSES: ReadonlySet<number> = new Set([502, 503, 504]);
 
 export interface BroadcastResult {
+  /** SHA-256 of the bytes that were sent, computed here. */
   hash: string;
   /** CheckTx's code: zero means the mempool accepted the transaction, nothing more. */
   code: number;
@@ -97,8 +98,10 @@ export async function broadcastSync(client: QueryClient, txBytes: Uint8Array): P
   }
   if (!r) throw new BroadcastUnknown(hash, new Error("the node answered without a verdict"));
   const alreadyInMempool = r.code === TX_IN_MEMPOOL_CACHE && r.codespace === "sdk";
+  // The hash is the bytes' own, never the one the node echoes: it is what is
+  // polled next, and an answer for another transaction must not redirect that.
   return {
-    hash: r.txhash !== "" ? r.txhash : hash,
+    hash,
     code: r.code,
     codespace: r.codespace,
     rawLog: r.rawLog,
@@ -146,10 +149,23 @@ function transient(err: unknown): boolean {
   return err instanceof EndpointsExhausted || isEndpointFault(err);
 }
 
-/** The committed transaction, or undefined while the node has none under the hash. */
+/** The node answered a lookup with a different transaction than the one asked for. */
+export class WrongTransaction extends Error {
+  override readonly name: string = "WrongTransaction";
+  constructor(
+    readonly hash: string,
+    readonly answered: string,
+  ) {
+    super(`the node answered for transaction ${answered}, not ${hash}`);
+  }
+}
+
+/** The committed transaction, or undefined while the node has none under the hash; an answer for another hash is refused. */
 async function lookUp(client: QueryClient, hash: string): Promise<TxResponse | undefined> {
   try {
-    return (await client.tx.getTx(hash)).txResponse;
+    const found = (await client.tx.getTx(hash)).txResponse;
+    if (found && found.txhash !== "" && found.txhash.toUpperCase() !== hash.toUpperCase()) throw new WrongTransaction(hash, found.txhash);
+    return found;
   } catch (err) {
     if (err instanceof QueryError && err.isNotFound) return undefined;
     throw err;

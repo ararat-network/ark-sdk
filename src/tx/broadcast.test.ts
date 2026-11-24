@@ -3,9 +3,19 @@ import { test } from "node:test";
 import { txHash } from "../codec/hash.js";
 import { QueryClient } from "../query/client.js";
 import { QueryError } from "../query/gateway.js";
-import { BroadcastRefused, BroadcastUnknown, broadcastAndConfirm, broadcastSync, InclusionTimeout, TransactionExpired, waitForInclusion } from "./broadcast.js";
+import {
+  BroadcastRefused,
+  BroadcastUnknown,
+  broadcastAndConfirm,
+  broadcastSync,
+  InclusionTimeout,
+  TransactionExpired,
+  WrongTransaction,
+  waitForInclusion,
+} from "./broadcast.js";
 
-const HASH = "861F5D4824CECE1A5A1F9FCB43280CD6AB38491D10AFF22939B94FEDE66802B0";
+/** The hash of the one-byte transaction the tests broadcast, which an honest node echoes. */
+const HASH = txHash(new Uint8Array([1]));
 
 function node(script: ((url: string, body: string | undefined) => Response)[]): { client: QueryClient; calls: string[] } {
   const calls: string[] = [];
@@ -31,6 +41,26 @@ test("broadcastSync returns CheckTx's verdict with the hash", async () => {
   const result = await broadcastSync(client, new Uint8Array([1]));
   assert.deepEqual(result, { hash: HASH, code: 0, codespace: "", rawLog: "", accepted: true, alreadyInMempool: false });
   assert.deepEqual(calls, ["POST /cosmos/tx/v1beta1/txs"]);
+});
+
+test("the hash is the bytes' own, and an answer for another transaction is refused", async () => {
+  const OTHER = "AA".repeat(32);
+  const other = (height: string) => () =>
+    json({ tx_response: { txhash: OTHER, code: 0, codespace: "", raw_log: "", height, gas_wanted: "0", gas_used: "0", events: [], logs: [] } });
+  const echoed = node([other("0")]);
+  assert.equal((await broadcastSync(echoed.client, new Uint8Array([1]))).hash, HASH, "the node's echo does not replace the hash");
+
+  const redirected = node([other("0"), other("9")]);
+  await assert.rejects(broadcastAndConfirm(redirected.client, new Uint8Array([1]), { sleep: async () => {} }), (err: unknown) => {
+    assert.ok(err instanceof WrongTransaction);
+    assert.equal(err.hash, HASH);
+    assert.equal(err.answered, OTHER);
+    return true;
+  });
+  assert.equal(redirected.calls[1], `GET /cosmos/tx/v1beta1/txs/${HASH}`, "the transaction's own hash is what is polled");
+
+  const lower = node([included]);
+  assert.equal((await waitForInclusion(lower.client, HASH.toLowerCase(), { sleep: async () => {} })).height, 7n, "case is not a difference");
 });
 
 test("a node that already holds the transaction reports an acceptance", async () => {

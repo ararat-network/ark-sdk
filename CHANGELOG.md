@@ -17,6 +17,9 @@ Fixed:
   the flow failed for any account that had transacted before. `Prepared.sequence` is the sequence signed at.
 - The registry's endpoint rule accepts http for an address in 127.0.0.0/8, not for any host whose name starts with
   `127.`: `http://127.attacker.example` passed as the loopback.
+- `broadcastSync` always reports the hash it computed from the bytes, and `waitForInclusion` throws the new
+  `WrongTransaction` when a lookup is answered with another hash. The node's echoed `txhash` used to replace the
+  computed one and was then polled, so a faulty endpoint could have another transaction's result returned as this one's.
 
 ## 0.2.0
 

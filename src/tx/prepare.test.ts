@@ -33,14 +33,14 @@ function node(sequence = "2") {
         reference_gas_price: { denom: "axdr", gas_price: "100000000000.000000000000000000", derived_height: "0" },
       }),
   };
-  const extra: (() => Response)[] = [];
+  const extra: ((call: string) => Response)[] = [];
   const fetchStub = (async (input: string | URL | Request, init?: RequestInit) => {
     const call = `${init?.method ?? "GET"} ${String(input).replace("http://node", "")}`;
     calls.push(call);
     for (const [prefix, reply] of Object.entries(replies)) if (call.startsWith(prefix)) return reply();
     const next = extra.shift();
     if (!next) throw new Error(`unexpected request ${call}`);
-    return next();
+    return next(call);
   }) as typeof fetch;
   return { client: new QueryClient("http://node", { fetch: fetchStub }), calls, extra, replies };
 }
@@ -138,8 +138,21 @@ const mismatch = () =>
       logs: [],
     },
   });
-const included = () =>
-  json({ tx_response: { txhash: HASH, code: 0, codespace: "", raw_log: "", height: "7", gas_wanted: "250000", gas_used: "98227", events: [], logs: [] } });
+/** The block's result under the hash the lookup asked for, as an honest node answers. */
+const included = (call: string) =>
+  json({
+    tx_response: {
+      txhash: call.split("/").pop(),
+      code: 0,
+      codespace: "",
+      raw_log: "",
+      height: "7",
+      gas_wanted: "250000",
+      gas_used: "98227",
+      events: [],
+      logs: [],
+    },
+  });
 
 test("sendTx broadcasts and confirms, and signs again at the sequence the chain names after a mismatch", async () => {
   const n = node();
