@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { fromBinary } from "@bufbuild/protobuf";
+import { create, fromBinary } from "@bufbuild/protobuf";
+import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 import { fromHex, toBase64 } from "../codec/bytes.js";
 import { fromProtoJson } from "../codec/protojson.js";
 import { AuthInfoSchema, TxBodySchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
@@ -99,6 +100,26 @@ test("a given gas limit or account skips the query for it, and an unlisted fee d
   const missing = node();
   missing.replies["GET /cosmos/auth/v1beta1/account_info/"] = () => json({ info: null });
   await assert.rejects(prepareAndSign(base(missing.client)), PrepareError);
+});
+
+test("an unordered transaction is signed at sequence zero and needs its timeout timestamp", async () => {
+  // The ante refuses an unordered transaction that carries a sequence, so the account's is not used.
+  const n = node("7");
+  const timeoutTimestamp = create(TimestampSchema, { seconds: 1_900_000_000n });
+  const prepared = await prepareAndSign({ ...base(n.client), unordered: true, timeoutTimestamp });
+  assert.equal(fromBinary(TxBodySchema, prepared.signed.bodyBytes).unordered, true);
+  assert.equal(fromBinary(AuthInfoSchema, prepared.signed.authInfoBytes).signerInfos[0]?.sequence, 0n);
+  assert.equal(prepared.sequence, 0n, "the sequence reported is the one signed at");
+  assert.equal(prepared.accountNumber, 3n, "the account is still read for its number");
+
+  const given = await prepareAndSign({ ...base(n.client), unordered: true, timeoutTimestamp, account: { accountNumber: 3n, sequence: 7n } });
+  assert.equal(fromBinary(AuthInfoSchema, given.signed.authInfoBytes).signerInfos[0]?.sequence, 0n, "a given sequence is not signed either");
+
+  const ordered = await prepareAndSign(base(n.client));
+  assert.equal(fromBinary(AuthInfoSchema, ordered.signed.authInfoBytes).signerInfos[0]?.sequence, 7n);
+
+  await assert.rejects(prepareAndSign({ ...base(n.client), unordered: true }), PrepareError);
+  assert.equal(n.calls.filter((c) => c.includes("account_info")).length, 2, "the refusal comes before any request");
 });
 
 const broadcastOk = () =>

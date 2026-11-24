@@ -12,6 +12,9 @@ Fixed:
   the transaction; they surfaced as a plain `QueryError` with no hash. A 429 is still a `QueryError`.
 - `QueryClient` and `GatewayClient` work in a browser without a `fetch` option. They called the stored `fetch` as a
   method of the client, which a browser refuses with "Illegal invocation", so every call failed as a `TransportError`.
+- `prepareAndSign` and `sendTx` simulate and sign an unordered transaction at sequence zero, and refuse one without
+  a timeout timestamp. They used the account's sequence, which the chain refuses for an unordered transaction, so
+  the flow failed for any account that had transacted before. `Prepared.sequence` is the sequence signed at.
 
 ## 0.2.0
 

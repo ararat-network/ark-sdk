@@ -41,7 +41,7 @@ export interface SignTxInput {
   messages: readonly TxMessage[];
   memo?: string;
   timeoutHeight?: bigint;
-  /** An unordered transaction, valid until its timeout timestamp in place of a sequence. */
+  /** An unordered transaction, valid until its timeout timestamp in place of a sequence: the chain refuses one whose sequence is not zero. */
   unordered?: boolean;
   timeoutTimestamp?: Timestamp;
   /** The declared fee, a ceiling; see fee.ts for how it is priced. */

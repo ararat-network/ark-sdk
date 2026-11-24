@@ -32,6 +32,7 @@ export interface PrepareInput {
   messages: readonly TxMessage[];
   memo?: string;
   timeoutHeight?: bigint;
+  /** An unordered transaction: it needs a timeout timestamp and is signed at sequence zero, as the chain requires. */
   unordered?: boolean;
   timeoutTimestamp?: Timestamp;
   /** The denomination that pays the base fee; must be on the sheet. */
@@ -61,6 +62,7 @@ export interface Prepared {
   simulatedGas: bigint | undefined;
   gasLimit: bigint;
   accountNumber: bigint;
+  /** The sequence signed at: the account's, or zero for an unordered transaction. */
   sequence: bigint;
 }
 
@@ -68,7 +70,13 @@ export interface Prepared {
 export async function prepareAndSign(input: PrepareInput): Promise<Prepared> {
   const { client } = input;
   const messages = packMessages(input.messages);
+  if (input.unordered && !input.timeoutTimestamp) {
+    throw new PrepareError("an unordered transaction needs a timeout timestamp: it is what the chain orders and expires it by");
+  }
   const account = input.account ?? (await fetchAccount(client, input.address));
+  // The ante refuses an unordered transaction that carries a sequence: its
+  // timeout timestamp stands in for one, so it is simulated and signed at zero.
+  const sequence = input.unordered ? 0n : account.sequence;
   const signerAccount = (await input.signer.accounts()).find((a) => a.address === input.address);
   if (!signerAccount) throw new PrepareError(`signer holds no account ${input.address}`);
 
@@ -83,7 +91,7 @@ export async function prepareAndSign(input: PrepareInput): Promise<Prepared> {
         unordered: input.unordered,
         timeoutTimestamp: input.timeoutTimestamp,
         publicKey: signerAccount.publicKey,
-        sequence: account.sequence,
+        sequence,
       }),
     );
     if (!simulation.gasInfo) throw new PrepareError("simulation returned no gas info");
@@ -111,7 +119,7 @@ export async function prepareAndSign(input: PrepareInput): Promise<Prepared> {
     address: input.address,
     chainId: input.chainId,
     accountNumber: account.accountNumber,
-    sequence: account.sequence,
+    sequence,
     messages,
     memo: input.memo,
     timeoutHeight: input.timeoutHeight,
@@ -120,7 +128,7 @@ export async function prepareAndSign(input: PrepareInput): Promise<Prepared> {
     fee: feeFromQuote(quote, { payer: input.payer, granter: input.granter }),
     mode: input.mode,
   });
-  return { signed, quote, tax: tax.tax, taxBase: tax.taxBase, simulatedGas, gasLimit, accountNumber: account.accountNumber, sequence: account.sequence };
+  return { signed, quote, tax: tax.tax, taxBase: tax.taxBase, simulatedGas, gasLimit, accountNumber: account.accountNumber, sequence };
 }
 
 async function fetchAccount(client: QueryClient, address: string): Promise<AccountState> {
