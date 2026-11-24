@@ -219,6 +219,7 @@ export {
   quoteFee,
   requiredGasFee,
 } from "./tx/fee.js";
+export { type MaxSendable, type MaxSendableInput, maxSendable } from "./tx/max.js";
 export {
   type AccountState,
   expectedSequence,

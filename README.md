@@ -97,6 +97,21 @@ import { arkdPolicy, sendTx } from "@ararat-network/sdk";
 const sent = await sendTx({ client, signer, address: fromAddress, chainId: network.chainId, messages: [send], feeDenom: "ausd", headroom: arkdPolicy.headroom, gasAdjustment: arkdPolicy.gasAdjustment });
 ```
 
+`maxSendable` answers how much of a balance can be sent: the largest amount such that it, the tax the chain computes
+for it, and whatever else comes out of that balance all fit. The tax is asked of the chain for the messages you will
+sign, so a cap or an exemption counts as it will, and it is counted exact: it is a share of the amount. The gas leg
+is kept back, at its ceiling, only when `feeDenom` is the denomination being sent; paid in another, the whole balance
+is the amount and its tax. Nothing is signed or sent, and an amount of zero means nothing fits:
+
+```ts
+import { maxSendable } from "@ararat-network/sdk";
+
+const { amount, tax } = await maxSendable({
+  client, denom: "aeur", spendable: balance, feeDenom: "ausd", gasLimit, headroom: arkdPolicy.headroom,
+  messages: (amount) => [typed(MsgSendSchema, create(MsgSendSchema, { fromAddress, toAddress, amount: [coin("aeur", amount)] }))],
+});
+```
+
 `quote` says what is declared and why: the tax legs, the gas leg at the sheet's price and the height that priced it,
 each leg's lift, and the tip, exact, when NOAH carries the gas. The fee denomination is yours, and a stable one's leg
 is encoded first: the ante charges the first stable leg, in encoded order, whose slack covers the base fee, and in

@@ -74,6 +74,11 @@ Fixed:
 
 Added:
 
+- `maxSendable`, the largest amount of one denomination a payer can send: the amount, the tax the chain computes for
+  it, and what else is drawn from that balance, a gas leg at its ceiling when `feeDenom` is the denomination sent
+  and a tip when it is NOAH, fit in the spendable balance. The tax is read from the chain for the caller's own
+  messages, never recomputed, and the answer is one the chain's tax was read for, with one base unit more read not
+  to fit. A rate and a cap settle in about five tax queries.
 - `FeeDenomChoiceInput.reference`, the sheet's reference row: given it, `affordableFeeDenoms` offers the reference
   denomination where arkd ranks it, after NOAH and before the rest of the sheet. Its comment claimed arkd's order
   while the reference, arkd's first choice for a send of it, was never offered.
