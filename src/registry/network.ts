@@ -374,9 +374,16 @@ function checkFiles(files: RegistryFiles): void {
   checkArk(files.ark);
 }
 
-/** Whether a host is the machine itself, where http is as private as https. */
+/** An IPv4 address in 127.0.0.0/8. URL writes every IPv4 host as four decimal octets, so nothing else is one. */
+const LOOPBACK_IPV4 = /^127(?:\.\d{1,3}){3}$/;
+
+/**
+ * Whether a host is the machine itself, where http is as private as https.
+ * The 127 block is matched as an address, never as a prefix: a name such as
+ * 127.example.org is someone else's host.
+ */
 function isLoopback(hostname: string): boolean {
-  return hostname === "localhost" || hostname.endsWith(".localhost") || hostname.startsWith("127.") || hostname === "[::1]";
+  return hostname === "localhost" || hostname.endsWith(".localhost") || LOOPBACK_IPV4.test(hostname) || hostname === "[::1]";
 }
 
 /** An endpoint the SDK will send requests to: https, or http on the loopback. */

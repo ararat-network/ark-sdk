@@ -15,6 +15,8 @@ Fixed:
 - `prepareAndSign` and `sendTx` simulate and sign an unordered transaction at sequence zero, and refuse one without
   a timeout timestamp. They used the account's sequence, which the chain refuses for an unordered transaction, so
   the flow failed for any account that had transacted before. `Prepared.sequence` is the sequence signed at.
+- The registry's endpoint rule accepts http for an address in 127.0.0.0/8, not for any host whose name starts with
+  `127.`: `http://127.attacker.example` passed as the loopback.
 
 ## 0.2.0
 

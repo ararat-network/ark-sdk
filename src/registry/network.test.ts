@@ -127,6 +127,8 @@ test("the prefix and coin type must be the SDK's own, and an endpoint https unle
   for (const [name, address] of [
     ["plain http", "http://node.example.org:1317"],
     ["a private address over http", "http://192.168.1.10:1317"],
+    ["a name that starts like the loopback block", "http://127.attacker.example:1317"],
+    ["a loopback address as a name's labels", "http://127.0.0.1.attacker.example:1317"],
     ["not a URL", "node.example.org:1317"],
     ["another scheme", "ftp://node.example.org"],
   ]) {
@@ -142,6 +144,11 @@ test("the prefix and coin type must be the SDK's own, and an endpoint https unle
   secure.chain.apis!.rpc = [{ address: "http://127.0.0.1:26657" }];
   secure.chain.apis!.grpc = [{ address: "node.example.org:9090" }];
   assert.equal(Network.fromRegistry(secure).restUrl, "https://node.example.org");
+  for (const address of ["http://127.0.0.1:1317", "http://127.8.9.10:1317", "http://127.1:1317", "http://[::1]:1317", "http://node.localhost:1317"]) {
+    const f = files("arklocal");
+    f.chain.apis!.rest = [{ address }];
+    assert.equal(Network.fromRegistry(f).restUrl, address, `${address} is the loopback`);
+  }
   const versions = Network.fromRegistry(files("ark"));
   assert.deepEqual(versions.compatibleVersions, ["v0.1.0-alpha.1"]);
   assert.equal(versions.recommendedVersion, "v0.1.0-alpha.1");
