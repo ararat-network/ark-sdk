@@ -65,7 +65,9 @@ Fixed:
 - wasmd's access type renders as `Unspecified` for a value it does not name, as wasmd writes it, not as a number.
 - `paginate` and `collectAll` walk a route that pages by offset to its end. They stopped when an answer carried no
   next key, and such a route never carries one: `collectAll` over `tx.byBlock` returned the first 100 transactions
-  of a larger block, with no error. A page with no next key whose total says more exist is followed by offset.
+  of a larger block, with no error. A page with no next key whose total says more exist is followed by offset,
+  a page's worth of positions at a time: a page may hold fewer items than the positions it covers, as a block's
+  does on Ark, whose first position is data the node cannot show as a transaction.
 - A gateway answer carrying an enum value under a name the SDK's types lack no longer fails the whole call: one
   proposal with a status newer than the SDK failed `gov.proposals` for the list. The field holds its zero value,
   the new `unknownEnumNames` returns the name it arrived as, and an `Any` around it is kept as the node's JSON.
