@@ -4,13 +4,13 @@
 // decimal text, Any as {"type", "value"} under its amino name, Timestamps in
 // RFC 3339, Durations as nanoseconds, coins never null, wasm JSON inlined,
 // public keys as their bare key. The bytes are Go's compact sorted JSON.
-import { type DescField, type DescMessage, fromBinary, type MessageShape, type Registry, ScalarType } from "@bufbuild/protobuf";
+import { type DescField, type DescMessage, isMessage, type MessageShape, type Registry, ScalarType } from "@bufbuild/protobuf";
 import { type ReflectList, type ReflectMessage, reflect } from "@bufbuild/protobuf/reflect";
-import type { Any, Duration, Timestamp } from "@bufbuild/protobuf/wkt";
+import { type Any, AnySchema, DurationSchema, TimestampSchema } from "@bufbuild/protobuf/wkt";
 import { ArkSdkError } from "../errors.js";
 import { CoinSchema } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import type { Fee, TxBody } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
-import { requireRegistry, typeNameOf, typeUrlOf, UnknownTypeError, unknownAnyJson, type WithRegistry } from "./any.js";
+import { requireRegistry, typeUrlOf, UnknownTypeError, unpackAny, type WithRegistry } from "./any.js";
 import { toBase64, utf8Decode, utf8Encode } from "./bytes.js";
 import { intFromWire } from "./coins.js";
 import { LegacyDec } from "./dec.js";
@@ -124,12 +124,12 @@ interface Context {
 
 /** A packed message as {"type", "value"}: always wrapped, under its amino name or else its type URL. */
 function marshalAny(any: Any, ctx: Context): AminoMsg {
-  // An Any read without its type has no bytes to encode, whatever this registry knows.
-  if (unknownAnyJson(any)) throw new UnknownTypeError(any.typeUrl);
-  const schema = ctx.registry.getMessage(typeNameOf(any.typeUrl));
-  if (!schema) throw new UnknownTypeError(any.typeUrl);
-  const value = marshalMessage(reflect(schema, fromBinary(schema, any.value)), ctx);
-  return { type: messageOptions(schema).aminoName ?? typeUrlOf(schema), value };
+  // Nothing to encode for a type the registry lacks, nor for an Any read without its type, which has no bytes
+  // whatever this registry knows.
+  const unpacked = unpackAny(any, ctx.registry);
+  if (!unpacked) throw new UnknownTypeError(any.typeUrl);
+  const value = marshalMessage(reflect(unpacked.schema, unpacked.message), ctx);
+  return { type: messageOptions(unpacked.schema).aminoName ?? typeUrlOf(unpacked.schema), value };
 }
 
 interface Entry {
@@ -140,14 +140,10 @@ interface Entry {
 }
 
 function marshalMessage(r: ReflectMessage, ctx: Context): JsonValue {
-  switch (r.desc.typeName) {
-    case "google.protobuf.Timestamp":
-      return timestampToAmino(r.message as Timestamp);
-    case "google.protobuf.Duration":
-      return durationToAmino(r.message as Duration);
-    case "google.protobuf.Any":
-      return marshalAny(r.message as Any, ctx);
-  }
+  const message = r.message;
+  if (isMessage(message, TimestampSchema)) return timestampToAmino(message);
+  if (isMessage(message, DurationSchema)) return durationToAmino(message);
+  if (isMessage(message, AnySchema)) return marshalAny(message, ctx);
   switch (messageOptions(r.desc).messageEncoding) {
     case "key_field":
       return keyFieldEncoder(r);

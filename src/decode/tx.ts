@@ -4,7 +4,7 @@
 // never given a reassuring label.
 import { create, type DescMessage, fromBinary, type Message, type Registry } from "@bufbuild/protobuf";
 import { type Any, AnySchema } from "@bufbuild/protobuf/wkt";
-import { requireRegistry, typeNameOf, unknownAnyJson, type WithRegistry } from "../codec/any.js";
+import { requireRegistry, unknownAnyJson, unpackAny, type WithRegistry } from "../codec/any.js";
 import { txHash } from "../codec/hash.js";
 import { isJsonObject, type JsonValue } from "../codec/json.js";
 import { anyJson, toProtoJson } from "../codec/protojson.js";
@@ -60,12 +60,12 @@ function decodePacked(any: Any, registry: Registry, rendered: JsonValue | undefi
   // Read through the gateway without its type: there are no bytes to decode, only the node's JSON.
   const held = unknownAnyJson(any);
   if (held) return { typeUrl: any.typeUrl, schema: undefined, message: undefined, known: false, json: held };
-  const schema = registry.getMessage(typeNameOf(any.typeUrl));
-  if (!schema) {
+  const unpacked = unpackAny(any, registry);
+  if (!unpacked) {
     const json = rendered ?? toProtoJson(AnySchema, any, { registry, unknownAny: "raw" });
     return { typeUrl: any.typeUrl, schema: undefined, message: undefined, known: false, json };
   }
-  const message = fromBinary(schema, any.value);
+  const { schema, message } = unpacked;
   const json = rendered ?? anyJson(any.typeUrl, toProtoJson(schema, message, { registry, unknownAny: "raw" }));
   return { typeUrl: any.typeUrl, schema, message, known: true, json };
 }

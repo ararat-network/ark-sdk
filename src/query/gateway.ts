@@ -20,7 +20,7 @@ import {
 import type { GenService, GenServiceMethods } from "@bufbuild/protobuf/codegenv2";
 import { reflect } from "@bufbuild/protobuf/reflect";
 import { requireRegistry, type WithRegistry } from "../codec/any.js";
-import { fromBase64, stripTrailing, toBase64 } from "../codec/bytes.js";
+import { stripTrailing, toBase64 } from "../codec/bytes.js";
 import { isJsonObject, type JsonObject, type JsonValue } from "../codec/json.js";
 import { fromProtoJson, ProtoJsonError, toProtoJson } from "../codec/protojson.js";
 import { ArkSdkError, errorMessage } from "../errors.js";
@@ -142,7 +142,7 @@ type MethodNames<S extends GenService<GenServiceMethods>> = keyof S["method"] & 
 type InputOf<S extends GenService<GenServiceMethods>, M extends MethodNames<S>> = S["method"][M]["input"];
 type OutputOf<S extends GenService<GenServiceMethods>, M extends MethodNames<S>> = S["method"][M]["output"];
 
-export interface Route {
+interface Route {
   verb: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
   path: string;
   body: JsonValue | undefined;
@@ -301,7 +301,7 @@ function bytesPathSegment(bytes: Uint8Array): string {
  * was rendered from: a bytes field in the path is taken from it, since its JSON may be the JSON it holds and not
  * its bytes.
  */
-export function routeFor(method: DescMethod, request: JsonObject, message?: Message): Route {
+function routeFor(method: DescMethod, request: JsonObject, message: Message): Route {
   if (!hasOption(method, http)) throw new ArkSdkError(`${method.parent.typeName}.${method.name} has no gateway route`);
   const rule = getOption(method, http);
   const pattern = rule.pattern;
@@ -316,9 +316,7 @@ export function routeFor(method: DescMethod, request: JsonObject, message?: Mess
       throw new ArkSdkError(`${method.parent.typeName}.${method.name}: request lacks ${name} for the route`);
     const field = method.input.fields.find((f) => f.name === name);
     if (field?.fieldKind === "scalar" && field.scalar === ScalarType.BYTES) {
-      const bytes = message ? (reflect(method.input, message).get(field) as Uint8Array) : typeof value === "string" ? fromBase64(value) : undefined;
-      if (!bytes) throw new ArkSdkError(`${method.parent.typeName}.${method.name}: ${name} is bytes, and the route needs the request it was rendered from`);
-      return encodeURIComponent(bytesPathSegment(bytes));
+      return encodeURIComponent(bytesPathSegment(reflect(method.input, message).get(field) as Uint8Array));
     }
     return encodeURIComponent(typeof value === "string" ? value : JSON.stringify(value));
   });

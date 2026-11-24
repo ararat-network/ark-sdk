@@ -2,6 +2,9 @@
 // the registry defaulted to every generated type. This is the one module that
 // imports the full registry; every other takes its registry as an argument,
 // which is what keeps the core entry's bundle to the types its caller names.
+// It exports the core's every name, and a name declared here stands in place
+// of the core's: writing the defaulted form below is what makes it the main
+// entry's.
 import type { DescMessage, MessageShape, Registry } from "@bufbuild/protobuf";
 import type { Any } from "@bufbuild/protobuf/wkt";
 
@@ -38,6 +41,9 @@ import { GatewayClient as CoreGatewayClient, type GatewayOptions as CoreGatewayO
 import { type FoundTx, foundTx as foundTxWith } from "./query/search.js";
 import type { Network } from "./registry/network.js";
 import { type SignedTx, type SignTxInput, signTx as signTxWith } from "./tx/builder.js";
+
+export * from "./core.js";
+export { registry };
 
 /** An options type with its registry optional: left out, it is every generated type. */
 type Defaulted<T> = Omit<T, "registry"> & RegistryOption;

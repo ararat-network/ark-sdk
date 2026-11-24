@@ -16,6 +16,12 @@ export class DecError extends ArkSdkError {
   override readonly name: string = "DecError";
 }
 
+/** An integer operand as a bigint; a number that is not one is the decimal's error, not BigInt's RangeError. */
+function whole(n: bigint | number): bigint {
+  if (typeof n === "number" && !Number.isInteger(n)) throw new DecError(`not an integer: ${n}`);
+  return BigInt(n);
+}
+
 export class LegacyDec {
   /** The value times 10^18. */
   readonly scaled: bigint;
@@ -48,8 +54,7 @@ export class LegacyDec {
   }
 
   static fromInt(n: bigint | number): LegacyDec {
-    if (typeof n === "number" && !Number.isInteger(n)) throw new DecError(`not an integer: ${n}`);
-    return new LegacyDec(BigInt(n) * UNIT);
+    return new LegacyDec(whole(n) * UNIT);
   }
 
   static zero(): LegacyDec {
@@ -92,7 +97,7 @@ export class LegacyDec {
 
   /** Exact: an integer multiplier adds no places. */
   mulInt(n: bigint | number): LegacyDec {
-    return new LegacyDec(this.scaled * BigInt(n));
+    return new LegacyDec(this.scaled * whole(n));
   }
 
   /** Go's Mul: the product rounded half to even at the 18th place. */
@@ -108,7 +113,7 @@ export class LegacyDec {
 
   /** Go's QuoInt: the value divided by an integer, truncated at the 18th place. */
   quoInt(n: bigint | number): LegacyDec {
-    const d = BigInt(n);
+    const d = whole(n);
     if (d === 0n) throw new DecError("division by zero");
     return new LegacyDec(this.scaled / d);
   }

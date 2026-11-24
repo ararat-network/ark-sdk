@@ -19,6 +19,16 @@ import {
 const HASH = txHash(new Uint8Array([1]));
 
 const broadcastOk = accepted(HASH);
+/** A clock the wait's sleeps advance. */
+const clocked = () => {
+  let clock = 0;
+  return {
+    now: () => clock,
+    sleep: async (ms: number) => {
+      clock += ms;
+    },
+  };
+};
 
 test("broadcastSync returns CheckTx's verdict with the hash", async () => {
   const { client, calls, requests } = fakeNode([broadcastOk]);
@@ -133,16 +143,8 @@ test("polling rides out an endpoint fault, names the last one at the deadline, a
   assert.equal(flaky.calls.length, 4);
 
   const down = fakeNode([unavailable, unavailable, unavailable]);
-  let clock = 0;
   await assert.rejects(
-    waitForInclusion(down.client, HASH, {
-      timeoutMs: 1000,
-      pollMs: 500,
-      sleep: async (ms) => {
-        clock += ms;
-      },
-      now: () => clock,
-    }),
+    waitForInclusion(down.client, HASH, { timeoutMs: 1000, pollMs: 500, ...clocked() }),
     (err: unknown) => err instanceof InclusionTimeout && err.cause instanceof QueryError && err.cause.httpStatus === 503,
   );
 
@@ -157,39 +159,42 @@ const LOOKUP = "GET /cosmos/tx/v1beta1/txs/";
 const LATEST = "GET /cosmos/base/tendermint/v1beta1/blocks/latest";
 const SYNCING = "GET /cosmos/base/tendermint/v1beta1/syncing";
 const latest = (height: string) => () => json({ block_id: null, block: null, sdk_block: { header: { height } } });
-const inSync = () => json({ syncing: false });
-/** A clock the wait's sleeps advance. */
-const clocked = () => {
-  let clock = 0;
-  return {
-    now: () => clock,
-    sleep: async (ms: number) => {
-      clock += ms;
-    },
-  };
-};
+/** The node's sync state: its latest height, and whether it is catching up. */
+const tip =
+  (height: string, syncing = false) =>
+  () =>
+    json({ syncing, earliest_block_height: "1", latest_block_height: height });
 const count = (calls: string[], prefix: string) => calls.filter((c) => c.startsWith(prefix)).length;
 
 test("past the timeout height the wait says expired only after the grace period, on a node that is not catching up", async () => {
   // The chain is past the height from the first look. Polls at 0, 1, 2, and 3 seconds: the grace of 3 seconds has
-  // passed at the fourth, the node is asked whether it is catching up, and one last look is taken.
-  const expired = fakeNode([], { [LOOKUP]: notFound, [LATEST]: latest("11"), [SYNCING]: inSync });
+  // passed at the fourth, where the node says it is not catching up, and one last look is taken. The height and
+  // the sync state come in one small answer to a poll, and no block is read for either.
+  const expired = fakeNode([], { [LOOKUP]: notFound, [SYNCING]: tip("11") });
   await assert.rejects(
     waitForInclusion(expired.client, HASH, { timeoutHeight: 10n, pollMs: 1000, expiryGraceMs: 3000, ...clocked() }),
     (err: unknown) => err instanceof TransactionExpired && err.timeoutHeight === 10n && err.height === 11n,
   );
-  assert.deepEqual([count(expired.calls, LOOKUP), count(expired.calls, LATEST), count(expired.calls, SYNCING)], [5, 4, 1]);
+  assert.deepEqual([count(expired.calls, LOOKUP), count(expired.calls, SYNCING), count(expired.calls, LATEST)], [5, 4, 0]);
+
+  // A node whose sync state carries no height, one on an SDK from before it did, has its latest block read for it.
+  const older = fakeNode([], { [LOOKUP]: notFound, [SYNCING]: () => json({ syncing: false }), [LATEST]: latest("11") });
+  await assert.rejects(
+    waitForInclusion(older.client, HASH, { timeoutHeight: 10n, expiryGraceMs: 0, ...clocked() }),
+    (err: unknown) => err instanceof TransactionExpired && err.height === 11n,
+  );
+  assert.deepEqual([count(older.calls, SYNCING), count(older.calls, LATEST)], [1, 1]);
 
   // The node reports a block before it has indexed the block's transactions: the first looks past the height miss
   // one that the block at the height carried. Within the grace period it is found, and that is the answer.
   let looks = 0;
-  const lagging = fakeNode([], { [LOOKUP]: (request) => (looks++ < 3 ? notFound() : included(request)), [LATEST]: latest("11"), [SYNCING]: inSync });
+  const lagging = fakeNode([], { [LOOKUP]: (request) => (looks++ < 3 ? notFound() : included(request)), [SYNCING]: tip("11") });
   const found = await waitForInclusion(lagging.client, HASH, { timeoutHeight: 10n, pollMs: 1000, ...clocked() });
   assert.equal(found.height, 7n, "the index was behind the block");
-  assert.equal(count(lagging.calls, SYNCING), 0, "the default grace period had not passed");
+  assert.equal(count(lagging.calls, LOOKUP), 4, "the default grace period had not passed, so no last look was taken");
 
   // A node that is catching up serves blocks ahead of its index, so its not-found is not an expiry: the wait goes on to its deadline.
-  const behind = fakeNode([], { [LOOKUP]: notFound, [LATEST]: latest("11"), [SYNCING]: () => json({ syncing: true }) });
+  const behind = fakeNode([], { [LOOKUP]: notFound, [SYNCING]: tip("11", true) });
   await assert.rejects(
     waitForInclusion(behind.client, HASH, { timeoutHeight: 10n, pollMs: 1000, expiryGraceMs: 2000, timeoutMs: 6000, ...clocked() }),
     (err: unknown) => err instanceof InclusionTimeout && err.hash === HASH,
@@ -197,22 +202,22 @@ test("past the timeout height the wait says expired only after the grace period,
 
   // With no grace, the one last look still stands between the height's read and the verdict.
   let once = 0;
-  const carried = fakeNode([], { [LOOKUP]: (request) => (once++ < 1 ? notFound() : included(request)), [LATEST]: latest("11"), [SYNCING]: inSync });
+  const carried = fakeNode([], { [LOOKUP]: (request) => (once++ < 1 ? notFound() : included(request)), [SYNCING]: tip("11") });
   const response = await waitForInclusion(carried.client, HASH, { timeoutHeight: 10n, expiryGraceMs: 0, ...clocked() });
   assert.equal(response.height, 7n, "a block at the height carried it between the poll and the read");
 
-  const early = fakeNode([notFound, latest("9"), notFound, latest("10"), included]);
+  const early = fakeNode([notFound, tip("9"), notFound, tip("10"), included]);
   const slept: number[] = [];
   assert.equal((await waitForInclusion(early.client, HASH, { timeoutHeight: 10n, pollMs: 50, sleep: async (ms) => void slept.push(ms) })).height, 7n);
   assert.deepEqual(slept, [50, 50], "at or below the height the wait continues");
 
   const plain = fakeNode([notFound, included]);
   await waitForInclusion(plain.client, HASH, { sleep: async () => {} });
-  assert.ok(!plain.calls.some((c) => c.includes("blocks/latest")), "without a timeout height no block is read");
+  assert.ok(!plain.calls.some((c) => c.includes("/tendermint/")), "without a timeout height the node's height is not read");
 
   const zero = fakeNode([notFound, included]);
   assert.equal((await waitForInclusion(zero.client, HASH, { timeoutHeight: 0n, sleep: async () => {} })).height, 7n);
-  assert.ok(!zero.calls.some((c) => c.includes("blocks/latest")), "height zero is the body's no timeout, not a height the chain is past");
+  assert.ok(!zero.calls.some((c) => c.includes("/tendermint/")), "height zero is the body's no timeout, not a height the chain is past");
 });
 
 test("an aborted signal ends the wait at once", async () => {
@@ -225,6 +230,14 @@ test("an aborted signal ends the wait at once", async () => {
     (err: unknown) => err instanceof Error && err.name === "AbortError",
   );
   assert.ok(Date.now() - started < 1_000, "no poll interval was waited out");
+
+  // The caller's reason is what ends the wait, as it was given: one that is no Error was replaced by a bare Error.
+  const leaving = new AbortController();
+  leaving.abort("the user left");
+  await assert.rejects(
+    waitForInclusion(fakeNode([notFound]).client, HASH, { pollMs: 10_000, signal: leaving.signal }),
+    (err: unknown) => err === "the user left",
+  );
 });
 
 test("waitForInclusion polls through NotFound until the block", async () => {
@@ -240,16 +253,8 @@ test("waitForInclusion polls through NotFound until the block", async () => {
 
 test("waitForInclusion gives up after the timeout and names the hash", async () => {
   const { client } = fakeNode([notFound, notFound, notFound, notFound]);
-  let clock = 0;
   await assert.rejects(
-    waitForInclusion(client, HASH, {
-      timeoutMs: 1000,
-      pollMs: 400,
-      sleep: async (ms) => {
-        clock += ms;
-      },
-      now: () => clock,
-    }),
+    waitForInclusion(client, HASH, { timeoutMs: 1000, pollMs: 400, ...clocked() }),
     (err: unknown) => err instanceof InclusionTimeout && err.hash === HASH,
   );
 });
@@ -299,7 +304,7 @@ test("after an acceptance every failure carries the hash: the wait's verdicts as
     broadcastAndConfirm(never.client, bytes, { timeoutMs: 1000, pollMs: 400, ...clocked() }),
     (err: unknown) => err instanceof InclusionTimeout && err.hash === HASH,
   );
-  const dead = fakeNode([broadcastOk], { [LOOKUP]: notFound, [LATEST]: latest("11"), [SYNCING]: inSync });
+  const dead = fakeNode([broadcastOk], { [LOOKUP]: notFound, [SYNCING]: tip("11") });
   await assert.rejects(broadcastAndConfirm(dead.client, bytes, { timeoutHeight: 10n, expiryGraceMs: 0, ...clocked() }), TransactionExpired);
 
   // Before an acceptance nothing is wrapped: a refusal is the refusal, and waitForInclusion alone throws what it met.

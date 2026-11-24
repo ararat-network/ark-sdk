@@ -55,12 +55,15 @@ export function fromOfflineSigner(offline: OfflineSignerLike): Signer {
       });
       if (signed.accountNumber === null || signed.accountNumber === undefined)
         throw new SignerError("the wallet returned a sign document without an account number");
+      // A wallet hands the number back as a bigint, a Long, or text; text that is no integer is the wallet's fault.
+      const numberText = signed.accountNumber.toString();
+      if (!/^\d+$/.test(numberText)) throw new SignerError(`the wallet returned a sign document whose account number is not an integer: ${numberText}`);
       return {
         signDoc: create(SignDocSchema, {
           bodyBytes: signed.bodyBytes,
           authInfoBytes: signed.authInfoBytes,
           chainId: signed.chainId,
-          accountNumber: BigInt(signed.accountNumber.toString()),
+          accountNumber: BigInt(numberText),
         }),
         signature: fromBase64(signature.signature),
       };

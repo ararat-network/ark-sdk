@@ -1,6 +1,6 @@
 // Any packing the Cosmos way: the type URL is "/" plus the full type name, not
 // protobuf-es's type.googleapis.com form, which the chain would refuse.
-import { create, type DescMessage, fromBinary, type Message, type MessageShape, type Registry, toBinary } from "@bufbuild/protobuf";
+import { create, type DescMessage, fromBinary, isMessage, type Message, type MessageShape, type Registry, toBinary } from "@bufbuild/protobuf";
 import { type ReflectMessage, reflect } from "@bufbuild/protobuf/reflect";
 import { type Any, AnySchema } from "@bufbuild/protobuf/wkt";
 import { ArkSdkError } from "../errors.js";
@@ -76,7 +76,8 @@ const heldJson = new WeakMap<Any, JsonObject>();
 
 /** The first Any within a message, the message itself included, that is held as JSON and has no bytes. One that carries bytes is not looked into. */
 function heldAnyWithin(r: ReflectMessage): Any | undefined {
-  if (r.desc.typeName === AnySchema.typeName) return heldJson.has(r.message as Any) ? (r.message as Any) : undefined;
+  const message = r.message;
+  if (isMessage(message, AnySchema)) return heldJson.has(message) ? message : undefined;
   for (const f of r.fields) {
     let found: Any | undefined;
     switch (f.fieldKind) {

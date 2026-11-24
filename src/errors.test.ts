@@ -9,8 +9,8 @@ import { ArkSdkError, errorMessage } from "./errors.js";
 import { Query as DisbursementQuery } from "./gen/ark/disbursement/v1/query_pb.js";
 import * as sdk from "./index.js";
 import { SignerError } from "./keys/signer.js";
-import { routeFor } from "./query/gateway.js";
-import { Network, RegistryError } from "./registry/network.js";
+import { Network } from "./registry/network.js";
+import { RegistryError } from "./registry/parse.js";
 import { registryFiles } from "./testing/fixtures.js";
 import { json, stubFetch } from "./testing/node.js";
 
@@ -36,7 +36,7 @@ test("an SDK error is still an Error and keeps its own name", () => {
 });
 
 test("a request that cannot be built, a client with no endpoint, and an empty answer are SDK errors", async () => {
-  assert.throws(() => routeFor(DisbursementQuery.method.member, {}), ArkSdkError);
+  await assert.rejects(new GatewayClient("http://node").call(DisbursementQuery, "member", {}), ArkSdkError);
   assert.throws(() => new GatewayClient([]), ArkSdkError);
   // Mainnet's registry entry lists no REST endpoint yet.
   assert.throws(() => QueryClient.forNetwork(Network.fromRegistry(registryFiles("ark"))), RegistryError);

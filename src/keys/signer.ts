@@ -49,3 +49,10 @@ export interface Signer {
 export class SignerError extends ArkSdkError {
   override readonly name: string = "SignerError";
 }
+
+/** The signer's account for an address, among those it reported; none is the signer's refusal. Internal: not exported from the core entry. */
+export function signerAccountFor(accounts: readonly SignerAccount[], address: string): SignerAccount {
+  const account = accounts.find((a) => a.address === address);
+  if (!account) throw new SignerError(`signer holds no account ${address}`);
+  return account;
+}

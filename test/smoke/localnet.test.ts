@@ -12,12 +12,9 @@ import { test } from "node:test";
 import { create } from "@bufbuild/protobuf";
 import { MsgSendSchema } from "../../src/gen/cosmos/bank/v1beta1/tx_pb.js";
 import {
-  type ArkJson,
-  type AssetListJson,
   adjustGas,
   arkdPolicy,
   broadcastAndConfirm,
-  type ChainJson,
   classifyResult,
   coin,
   decodeEvents,
@@ -38,6 +35,7 @@ import {
   typed,
   vestedCoins,
 } from "../../src/index.js";
+import { amounts, registryFiles } from "../../src/testing/fixtures.js";
 
 const rest = process.env.ARK_LOCALNET_REST;
 const data = process.env.ARK_LOCALNET_DATA ?? new URL("../../../ark/.testnets", import.meta.url).pathname;
@@ -49,10 +47,8 @@ function developmentMnemonic(): string {
   return (JSON.parse(readFileSync(`${data}/node0/arkd/key_seed.json`, "utf8")) as { secret: string }).secret;
 }
 
-const read = <T>(file: string): T => JSON.parse(readFileSync(new URL(`../../testdata/registry/arklocal/${file}`, import.meta.url), "utf8")) as T;
-
 test("localnet: tranche, simulate, price, sign, broadcast, confirm, decode", { skip: rest ? false : "ARK_LOCALNET_REST is not set" }, async () => {
-  const network = Network.fromRegistry({ chain: read<ChainJson>("chain.json"), assets: read<AssetListJson>("assetlist.json"), ark: read<ArkJson>("ark.json") });
+  const network = Network.fromRegistry(registryFiles("arklocal"));
   const client = new QueryClient(rest!);
   await client.verifyNetwork(network);
 
@@ -81,7 +77,7 @@ test("localnet: tranche, simulate, price, sign, broadcast, confirm, decode", { s
   const noahPrice = sheet.gasPrices.find((p) => p.denom === "anoah");
   assert.ok(noahPrice, "the sheet prices NOAH");
   const quote = quoteFee({ tax: tax.tax, gasPrice: noahPrice, gasLimit, headroom: arkdPolicy.headroom });
-  console.log(`gas ${gasLimit}, declared ${quote.declared.map((c) => c.amount + c.denom).join(",")}, tip ${quote.tip?.amount ?? "0"}anoah`);
+  console.log(`gas ${gasLimit}, declared ${amounts(quote.declared).join(",")}, tip ${quote.tip?.amount ?? "0"}anoah`);
 
   const signed = await signTx({
     signer,
@@ -150,7 +146,7 @@ test("localnet: tranche, simulate, price, sign, broadcast, confirm, decode", { s
   );
   assert.deepEqual(classifyResult(again.response), { kind: "ok" }, again.response.rawLog);
   assert.equal(again.sequence, decodedAccount.sequence);
-  console.log(`sendTx included at height ${again.response.height}, declared ${again.quote.declared.map((c) => c.amount + c.denom).join(",")}`);
+  console.log(`sendTx included at height ${again.response.height}, declared ${amounts(again.quote.declared).join(",")}`);
   const balanceAfter = await client.bank.balance(recipient, "anoah");
   assert.equal(balanceAfter.balance?.amount, (2n * 10n ** 18n).toString());
 });

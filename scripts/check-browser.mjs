@@ -31,9 +31,10 @@ const narrow = await bundle({
     contents: `
       import { createRegistry } from "@bufbuild/protobuf";
       import { GatewayClient, decodeTx } from "./src/core.ts";
-      import { Query } from "./src/gen/cosmos/bank/v1beta1/query_pb.ts";
-      const registry = createRegistry(Query);
-      console.log(new GatewayClient("https://node.example", { registry }), decodeTx);
+      import { Query, file_cosmos_bank_v1beta1_query } from "./src/gen/cosmos/bank/v1beta1/query_pb.ts";
+      // The file, for its messages: a registry of the service alone would hold no type an Any resolves to.
+      const registry = createRegistry(file_cosmos_bank_v1beta1_query);
+      console.log(new GatewayClient("https://node.example", { registry }), Query, decodeTx);
     `,
   },
 });

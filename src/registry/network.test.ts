@@ -3,7 +3,8 @@ import { test } from "node:test";
 import { formatAssetAmount } from "../format/amount.js";
 import { registryFiles } from "../testing/fixtures.js";
 import { json, stubFetch } from "../testing/node.js";
-import { GenesisMismatch, loadNetwork, Network, RegistryError, registrySource } from "./network.js";
+import { GenesisMismatch, loadNetwork, Network, registrySource } from "./network.js";
+import { RegistryError } from "./parse.js";
 import type { ArkFeatures, ArkJson, AssetJson, Endpoint, Explorer, RegistryFiles } from "./types.js";
 
 test("the localnet entry carries ports, every asset, and no genesis hash", () => {
@@ -64,8 +65,23 @@ test("files that disagree are refused", () => {
   }
 });
 
+type Refusal = [name: string, change: (f: RegistryFiles) => void, message: RegExp];
+
+/** Each case changes the local network's files one way, and the network is refused with a RegistryError that says why. */
+function refused(cases: Refusal[]): void {
+  for (const [name, change, message] of cases) {
+    const f = registryFiles("arklocal");
+    change(f);
+    assert.throws(
+      () => Network.fromRegistry(f),
+      (err: unknown) => err instanceof RegistryError && message.test(err.message),
+      name,
+    );
+  }
+}
+
 test("a file missing or mistyping a member the SDK reads is refused by name", () => {
-  const cases: [string, (f: RegistryFiles) => void, RegExp][] = [
+  const cases: Refusal[] = [
     ["feeds missing", (f) => delete (f.ark as Partial<ArkJson>).feeds, /ark\.json: feeds is missing/],
     ["fee_denoms not a list", (f) => ((f.ark as unknown as Record<string, unknown>).fee_denoms = "anoah"), /ark\.json: fee_denoms must be a list/],
     ["features missing", (f) => delete (f.ark as Partial<ArkJson>).features, /ark\.json: features is missing/],
@@ -90,32 +106,32 @@ test("a file missing or mistyping a member the SDK reads is refused by name", ()
     ],
     ["a file that is a list", (f) => ((f as unknown as Record<string, unknown>).ark = []), /ark\.json is not an object/],
   ];
-  for (const [name, mutate, message] of cases) {
-    const f = registryFiles("arklocal");
-    mutate(f);
-    assert.throws(
-      () => Network.fromRegistry(f),
-      (err: unknown) => err instanceof RegistryError && message.test(err.message),
-      name,
-    );
-  }
+  refused(cases);
 });
 
 test("the prefix and coin type must be the SDK's own, and an endpoint https unless on the loopback", () => {
-  const other = registryFiles("arklocal");
-  other.chain.bech32_prefix = "cosmos";
-  other.ark.bech32_prefix = "cosmos";
-  assert.throws(
-    () => Network.fromRegistry(other),
-    (err: unknown) => err instanceof RegistryError && /prefix cosmos is not ark/.test(err.message),
-  );
-  const coinType = registryFiles("arklocal");
-  coinType.chain.slip44 = 118;
-  coinType.ark.slip44 = 118;
-  assert.throws(
-    () => Network.fromRegistry(coinType),
-    (err: unknown) => err instanceof RegistryError && /slip44 118 is not 330/.test(err.message),
-  );
+  refused([
+    ["another chain's prefix", (f) => (f.chain.bech32_prefix = f.ark.bech32_prefix = "cosmos"), /prefix cosmos is not ark/],
+    ["another chain's coin type", (f) => (f.chain.slip44 = f.ark.slip44 = 118), /slip44 118 is not 330/],
+    // An indexer is held to the endpoint rule, and named for the file it is in.
+    ["an indexer over http", (f) => (f.ark.indexer = [{ address: "http://indexer.example.org" }]), /ark\.json indexer endpoint http:\/\/indexer\.example\.org/],
+    // The rpc endpoints and the genesis file's address are held to the rule too: the SDK sends requests to both.
+    [
+      "an rpc endpoint over http",
+      (f) => (f.chain.apis!.rpc = [{ address: "http://rpc.example.org:26657" }]),
+      /chain\.json rpc endpoint http:\/\/rpc\.example\.org/,
+    ],
+    [
+      "a genesis file over http",
+      (f) => (f.chain.codebase = { ...f.chain.codebase, genesis: { genesis_url: "http://files.example.org/genesis.json" } }),
+      /chain\.json genesis_url/,
+    ],
+    // The genesis hash is compared as lowercase hex, so one written otherwise would never match.
+    ["a genesis hash in uppercase", (f) => (f.ark.genesis_sha256 = "AB".repeat(32)), /genesis_sha256 is not 64 lowercase hex/],
+  ]);
+  const hashed = registryFiles("arktestnet");
+  hashed.ark.genesis_sha256 = "ab".repeat(32);
+  assert.equal(Network.fromRegistry(hashed).genesisSha256, "ab".repeat(32));
 
   const loopback = Network.fromRegistry(registryFiles("arklocal"));
   assert.equal(loopback.restUrl, "http://localhost:1317", "http on the loopback is accepted");
@@ -131,36 +147,6 @@ test("the prefix and coin type must be the SDK's own, and an endpoint https unle
     f.chain.apis!.rest = [{ address: address as string }];
     assert.throws(() => Network.fromRegistry(f), RegistryError, name as string);
   }
-  const indexer = registryFiles("arklocal");
-  indexer.ark.indexer = [{ address: "http://indexer.example.org" }];
-  assert.throws(
-    () => Network.fromRegistry(indexer),
-    (err: unknown) => err instanceof RegistryError && /ark\.json indexer endpoint http:\/\/indexer\.example\.org/.test(err.message),
-    "an indexer is held to the same rule, and named for the file it is in",
-  );
-  // The rpc endpoints and the genesis file's address are held to the rule too: the SDK sends requests to both.
-  const rpc = registryFiles("arklocal");
-  rpc.chain.apis!.rpc = [{ address: "http://rpc.example.org:26657" }];
-  assert.throws(
-    () => Network.fromRegistry(rpc),
-    (err: unknown) => err instanceof RegistryError && /chain\.json rpc endpoint http:\/\/rpc\.example\.org/.test(err.message),
-  );
-  const genesis = registryFiles("arktestnet");
-  genesis.chain.codebase = { ...genesis.chain.codebase, genesis: { genesis_url: "http://files.example.org/genesis.json" } };
-  assert.throws(
-    () => Network.fromRegistry(genesis),
-    (err: unknown) => err instanceof RegistryError && /chain\.json genesis_url/.test(err.message),
-  );
-  // The genesis hash is compared as lowercase hex, so one written otherwise would never match.
-  const hash = registryFiles("arktestnet");
-  hash.ark.genesis_sha256 = "AB".repeat(32);
-  assert.throws(
-    () => Network.fromRegistry(hash),
-    (err: unknown) => err instanceof RegistryError && /genesis_sha256 is not 64 lowercase hex/.test(err.message),
-  );
-  hash.ark.genesis_sha256 = "ab".repeat(32);
-  assert.equal(Network.fromRegistry(hash).genesisSha256, "ab".repeat(32));
-
   const secure = registryFiles("arklocal");
   secure.chain.apis!.rest = [{ address: "https://node.example.org" }];
   secure.chain.apis!.rpc = [{ address: "http://127.0.0.1:26657" }];

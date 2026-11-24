@@ -1,4 +1,4 @@
-// The index names every export, so what the codecs share between themselves
+// The core entry names every export, and the main entry is the core with the registry defaulted, so what the codecs share between themselves
 // stays out of the public surface unless it is listed on purpose: the exact
 // list below is what holds a helper out, and a name in.
 import assert from "node:assert/strict";

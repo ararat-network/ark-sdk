@@ -4,25 +4,15 @@
 // pointer field is null, a non-nullable one is always present, Decs read as
 // decimals, and a wasm message's JSON is inlined. The reverse direction reads
 // the same dialect back into generated messages.
-import {
-  create,
-  type DescEnum,
-  type DescField,
-  type DescMessage,
-  fromBinary,
-  type MessageShape,
-  type Registry,
-  ScalarType,
-  toBinary,
-} from "@bufbuild/protobuf";
+import { create, type DescEnum, type DescField, type DescMessage, isMessage, type MessageShape, type Registry, ScalarType, toBinary } from "@bufbuild/protobuf";
 import { type ReflectList, type ReflectMap, type ReflectMessage, reflect } from "@bufbuild/protobuf/reflect";
-import { type Any, AnySchema, type Duration, DurationSchema, type Timestamp, TimestampSchema } from "@bufbuild/protobuf/wkt";
+import { type Any, AnySchema, DurationSchema, TimestampSchema } from "@bufbuild/protobuf/wkt";
 import { ArkSdkError, errorMessage } from "../errors.js";
-import { anyFromUnknownJson, requireRegistry, typeNameOf, typeUrlOf, UnknownTypeError, unknownAnyJson, type WithRegistry } from "./any.js";
+import { anyFromUnknownJson, requireRegistry, typeNameOf, typeUrlOf, UnknownTypeError, unknownAnyJson, unpackAny, type WithRegistry } from "./any.js";
 import { fromBase64, fromHex, toBase64, toHex, utf8Decode, utf8Encode } from "./bytes.js";
 import { intFromWire } from "./coins.js";
 import { LegacyDec } from "./dec.js";
-import { numericText } from "./fixed.js";
+import { INTEGER_TEXT, numericText } from "./fixed.js";
 import { isJsonObject, type JsonObject, type JsonValue } from "./json.js";
 import { fieldOptions } from "./options.js";
 import { durationFromText, durationToProtoJson, GO_ZERO_TIME_SECONDS, timestampFromText, timestampToProtoJson } from "./wkt.js";
@@ -108,14 +98,10 @@ export function fromProtoJson<Desc extends DescMessage>(schema: Desc, json: Json
 }
 
 function messageToJson(r: ReflectMessage, ctx: WriteContext): JsonValue {
-  switch (r.desc.typeName) {
-    case WKT_TIMESTAMP:
-      return timestampToProtoJson(r.message as Timestamp);
-    case WKT_DURATION:
-      return durationToProtoJson(r.message as Duration);
-    case WKT_ANY:
-      return anyToJson(r.message as Any, ctx);
-  }
+  const message = r.message;
+  if (isMessage(message, TimestampSchema)) return timestampToProtoJson(message);
+  if (isMessage(message, DurationSchema)) return durationToProtoJson(message);
+  if (isMessage(message, AnySchema)) return anyToJson(message, ctx);
   const out: JsonObject = {};
   for (const f of r.fields) {
     if (f.oneof && r.oneofCase(f.oneof) !== f) continue;
@@ -129,12 +115,12 @@ function anyToJson(any: Any, ctx: WriteContext): JsonValue {
   // An Any read without its type has no bytes; the JSON it arrived as is its only rendering.
   const held = unknownAnyJson(any);
   if (held) return held;
-  const schema = ctx.registry.getMessage(typeNameOf(any.typeUrl));
-  if (!schema) {
+  const unpacked = unpackAny(any, ctx.registry);
+  if (!unpacked) {
     if (ctx.unknownAny === "raw") return { "@type": any.typeUrl, value: toBase64(any.value) };
     throw new UnknownTypeError(any.typeUrl);
   }
-  return anyJson(any.typeUrl, messageToJson(reflect(schema, fromBinary(schema, any.value)), ctx));
+  return anyJson(any.typeUrl, messageToJson(reflect(unpacked.schema, unpacked.message), ctx));
 }
 
 /**
@@ -230,7 +216,7 @@ function parseExact(text: string): JsonValue {
   if (!rawJson) return JSON.parse(text) as JsonValue;
   return JSON.parse(text, function (this: unknown, _key: string, value: unknown, context?: { source?: string }) {
     const source = context?.source;
-    if (typeof value === "number" && source !== undefined && /^-?\d+$/.test(source) && !Number.isSafeInteger(value)) return rawJson(source);
+    if (typeof value === "number" && source !== undefined && INTEGER_TEXT.test(source) && !Number.isSafeInteger(value)) return rawJson(source);
     return value;
   } as (key: string, value: unknown) => unknown) as JsonValue;
 }
@@ -431,7 +417,7 @@ function enumFromJson(r: ReflectMessage, f: DescField, e: DescEnum, json: JsonVa
 function integerFromJson(json: JsonValue, where: string, min: bigint, max: bigint): bigint {
   let value: bigint | undefined;
   if (typeof json === "number" && Number.isInteger(json)) value = BigInt(json);
-  else if (typeof json === "string" && /^-?\d+$/.test(json)) value = BigInt(json);
+  else if (typeof json === "string" && INTEGER_TEXT.test(json)) value = BigInt(json);
   if (value === undefined) throw new ProtoJsonError(`${where}: expected an integer, got ${JSON.stringify(json)}`);
   if (value < min || value > max) throw new ProtoJsonError(`${where}: ${value} is out of range`);
   return value;

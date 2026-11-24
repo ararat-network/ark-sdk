@@ -33,7 +33,7 @@ test("only the defaulting layer imports the full registry", () => {
     .map((path) => path.slice(root.length))
     .sort();
   // The registry itself reads the generated file list; nothing else under the core entry may reach either.
-  assert.deepEqual(importing, ["codec/registry.ts", "defaults.ts", "index.ts"]);
+  assert.deepEqual(importing, ["codec/registry.ts", "defaults.ts"]);
   // Nor may it reach them through the defaulting layer, which only the main entry imports.
   const defaulting = walk(root)
     .filter((path) => /from "[^"]*\/defaults\.js"/.test(readFileSync(path, "utf8")))
@@ -43,7 +43,7 @@ test("only the defaulting layer imports the full registry", () => {
 
 test("a core reader given the full registry answers as the main entry's does", () => {
   const f = fixture("multi_message");
-  const bytes = fromBase64(f.tx_bytes!);
+  const bytes = fromBase64(f.tx_bytes);
   assert.deepEqual(core.decodeTx(bytes, { registry }).json, main.decodeTx(bytes).json);
   // Each event's schema is compared by name, for the same reason.
   const named = (events: ReturnType<typeof core.decodeEvents>) => events.map((e) => ({ ...e, schema: e.schema?.typeName }));
@@ -53,7 +53,7 @@ test("a core reader given the full registry answers as the main entry's does", (
 });
 
 test("a core reader resolves an Any against the registry it is given and no other", () => {
-  const bytes = fromBase64(fixture("bank_send_taxed").tx_bytes!);
+  const bytes = fromBase64(fixture("bank_send_taxed").tx_bytes);
   // A registry that knows only MsgSend: the message decodes, and a registry that knows nothing names it unknown.
   const [known] = core.decodeTx(bytes, { registry: createRegistry(MsgSendSchema) }).messages;
   assert.equal(known?.known, true);
@@ -85,14 +85,14 @@ test("a flow takes the services it reads, each a client over one gateway, in pla
   const { fetch, seen } = stubFetch(() => json({ tx: f.tx, tx_response }));
   const gateway = new core.GatewayClient("http://node", { fetch, registry: createRegistry(MsgSendSchema) });
   const client = { gateway, tx: core.txClient(gateway) };
-  const found = await core.fetchTx(client, f.tx_hash!);
+  const found = await core.fetchTx(client, f.tx_hash);
   assert.equal(found?.messages[0]?.known, true);
   assert.equal(seen[0]?.call, `GET /cosmos/tx/v1beta1/txs/${f.tx_hash}`);
-  assert.equal((await core.waitForInclusion({ ...client, node: core.nodeClient(gateway) }, f.tx_hash!)).height, 7n);
+  assert.equal((await core.waitForInclusion({ ...client, node: core.nodeClient(gateway) }, f.tx_hash)).height, 7n);
 
   // The query client is those clients over its own gateway, so either is what a flow is handed.
   const whole = new core.QueryClient("http://node", { fetch, registry: createRegistry(MsgSendSchema) });
-  assert.equal((await core.fetchTx(whole, f.tx_hash!))?.hash, f.tx_hash);
+  assert.equal((await core.fetchTx(whole, f.tx_hash))?.hash, f.tx_hash);
   assert.deepEqual(Object.keys(whole.tx), Object.keys(client.tx));
 });
 
@@ -134,7 +134,7 @@ test("a core reader called without a registry says so by name, to a caller the t
   const untyped = core as unknown as Record<string, (...args: unknown[]) => unknown>;
   const any = create(AnySchema, { typeUrl: "/cosmos.bank.v1beta1.MsgSend" });
   const calls: [string, () => unknown][] = [
-    ["decodeTx", () => untyped.decodeTx!(fromBase64(fixture("bank_send_taxed").tx_bytes!))],
+    ["decodeTx", () => untyped.decodeTx!(fromBase64(fixture("bank_send_taxed").tx_bytes))],
     ["decodeTx", () => untyped.decodeTx!(new Uint8Array(), {})],
     ["decodeMessage", () => untyped.decodeMessage!(any)],
     ["decodeTxMessages", () => untyped.decodeTxMessages!(create(TxSchema))],

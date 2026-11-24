@@ -13,15 +13,16 @@ import { Query as OracleQuery } from "../gen/ark/oracle/v1/query_pb.js";
 import { Query as TreasuryQuery } from "../gen/ark/treasury/v1/query_pb.js";
 import { Query as AuthQuery } from "../gen/cosmos/auth/v1beta1/query_pb.js";
 import { Query as BankQuery } from "../gen/cosmos/bank/v1beta1/query_pb.js";
-import type { PageRequestSchema } from "../gen/cosmos/base/query/v1beta1/pagination_pb.js";
 import { Service as NodeService } from "../gen/cosmos/base/tendermint/v1beta1/query_pb.js";
 import { Query as DistributionQuery } from "../gen/cosmos/distribution/v1beta1/query_pb.js";
 import type { QueryProposalsRequestSchema } from "../gen/cosmos/gov/v1/query_pb.js";
 import { Query as GovQuery } from "../gen/cosmos/gov/v1/query_pb.js";
 import { Query as StakingQuery } from "../gen/cosmos/staking/v1beta1/query_pb.js";
 import { BroadcastMode, OrderBy, Service as TxService } from "../gen/cosmos/tx/v1beta1/service_pb.js";
-import { fetchOk, type Network, RegistryError } from "../registry/network.js";
+import { fetchOk, type Network } from "../registry/network.js";
+import { RegistryError } from "../registry/parse.js";
 import { type CallOptions, GatewayClient, type GatewayOptions } from "./gateway.js";
+import type { PageRequestInit } from "./pagination.js";
 
 export class NetworkMismatch extends ArkSdkError {
   override readonly name: string = "NetworkMismatch";
@@ -63,8 +64,6 @@ export interface NetworkVerification {
   genesis: "verified" | "unverifiable" | "skipped";
 }
 
-type Page = MessageInitShape<typeof PageRequestSchema> | undefined;
-
 /** The network's REST endpoints, in the registry's order; a network that lists none is refused. */
 export function restEndpoints(network: Network): string[] {
   const urls = network.endpoints.rest.map((e) => e.address);
@@ -92,10 +91,10 @@ async function value<S extends Parameters<GatewayClient["call"]>[0], M extends k
 export const disbursementClient = (gateway: GatewayClient) => ({
   params: () => value(gateway, DisbursementQuery, "params", {}),
   member: (address: string) => value(gateway, DisbursementQuery, "member", { address }),
-  members: (pagination?: Page) => value(gateway, DisbursementQuery, "members", { pagination }),
+  members: (pagination?: PageRequestInit) => value(gateway, DisbursementQuery, "members", { pagination }),
   grant: (id: bigint) => value(gateway, DisbursementQuery, "grant", { id }),
   grants: (request: MessageInitShape<typeof QueryGrantsRequestSchema> = {}) => value(gateway, DisbursementQuery, "grants", request),
-  grantJournal: (grantId: bigint, pagination?: Page) => value(gateway, DisbursementQuery, "grantJournal", { grantId, pagination }),
+  grantJournal: (grantId: bigint, pagination?: PageRequestInit) => value(gateway, DisbursementQuery, "grantJournal", { grantId, pagination }),
   /** Custody balances and the member NOAH open to registration. */
   balance: (denom = "") => value(gateway, DisbursementQuery, "balance", { denom }),
   beneficiary: (address: string) => value(gateway, DisbursementQuery, "beneficiary", { address }),
@@ -153,18 +152,19 @@ export const authClient = (gateway: GatewayClient) => ({
 /** Balances and supply. */
 export const bankClient = (gateway: GatewayClient) => ({
   balance: (address: string, denom: string) => value(gateway, BankQuery, "balance", { address, denom }),
-  allBalances: (address: string, pagination?: Page) => value(gateway, BankQuery, "allBalances", { address, pagination }),
-  spendableBalances: (address: string, pagination?: Page) => value(gateway, BankQuery, "spendableBalances", { address, pagination }),
+  allBalances: (address: string, pagination?: PageRequestInit) => value(gateway, BankQuery, "allBalances", { address, pagination }),
+  spendableBalances: (address: string, pagination?: PageRequestInit) => value(gateway, BankQuery, "spendableBalances", { address, pagination }),
   supplyOf: (denom: string) => value(gateway, BankQuery, "supplyOf", { denom }),
 });
 
 /** Validators, delegations, and the staking pool. */
 export const stakingClient = (gateway: GatewayClient) => ({
   params: () => value(gateway, StakingQuery, "params", {}),
-  validators: (status = "", pagination?: Page) => value(gateway, StakingQuery, "validators", { status, pagination }),
+  validators: (status = "", pagination?: PageRequestInit) => value(gateway, StakingQuery, "validators", { status, pagination }),
   validator: (validatorAddr: string) => value(gateway, StakingQuery, "validator", { validatorAddr }),
-  delegatorDelegations: (delegatorAddr: string, pagination?: Page) => value(gateway, StakingQuery, "delegatorDelegations", { delegatorAddr, pagination }),
-  delegatorUnbondingDelegations: (delegatorAddr: string, pagination?: Page) =>
+  delegatorDelegations: (delegatorAddr: string, pagination?: PageRequestInit) =>
+    value(gateway, StakingQuery, "delegatorDelegations", { delegatorAddr, pagination }),
+  delegatorUnbondingDelegations: (delegatorAddr: string, pagination?: PageRequestInit) =>
     value(gateway, StakingQuery, "delegatorUnbondingDelegations", { delegatorAddr, pagination }),
   delegation: (delegatorAddr: string, validatorAddr: string) => value(gateway, StakingQuery, "delegation", { delegatorAddr, validatorAddr }),
   pool: () => value(gateway, StakingQuery, "pool", {}),
@@ -182,7 +182,7 @@ export const govClient = (gateway: GatewayClient) => ({
   proposals: (request: MessageInitShape<typeof QueryProposalsRequestSchema> = {}) => value(gateway, GovQuery, "proposals", request),
   proposal: (proposalId: bigint) => value(gateway, GovQuery, "proposal", { proposalId }),
   vote: (proposalId: bigint, voter: string) => value(gateway, GovQuery, "vote", { proposalId, voter }),
-  votes: (proposalId: bigint, pagination?: Page) => value(gateway, GovQuery, "votes", { proposalId, pagination }),
+  votes: (proposalId: bigint, pagination?: PageRequestInit) => value(gateway, GovQuery, "votes", { proposalId, pagination }),
   tallyResult: (proposalId: bigint) => value(gateway, GovQuery, "tallyResult", { proposalId }),
   /** The route needs a params type, "voting", "tallying", or "deposit"; `params` in the answer holds them all whichever is named. */
   params: (paramsType: "voting" | "tallying" | "deposit") => value(gateway, GovQuery, "params", { paramsType }),
@@ -201,7 +201,7 @@ export const txClient = (gateway: GatewayClient) => ({
   search: (query: string, options: { page?: bigint; limit?: bigint; orderBy?: OrderBy } = {}) =>
     value(gateway, TxService, "getTxsEvent", { query, page: options.page ?? 1n, limit: options.limit ?? 50n, orderBy: options.orderBy ?? OrderBy.DESC }),
   /** The transactions of one block as the node returns them, messages still packed; decodeTx reads each. */
-  byBlock: (height: bigint, pagination?: Page) => value(gateway, TxService, "getBlockWithTxs", { height, pagination }),
+  byBlock: (height: bigint, pagination?: PageRequestInit) => value(gateway, TxService, "getBlockWithTxs", { height, pagination }),
 });
 
 /** The node itself: the chain and binary it reports, whether it is catching up, and its latest block. */

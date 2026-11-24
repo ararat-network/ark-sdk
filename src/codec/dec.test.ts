@@ -98,4 +98,8 @@ test("the range is Go's: up to 2^256 × 10^18 − 1 in scaled units, either sign
 test("fromInt takes an integer and refuses a fraction as a decimal's error", () => {
   assert.equal(LegacyDec.fromInt(3).toWire(), "3000000000000000000");
   assert.throws(() => LegacyDec.fromInt(1.5), DecError);
+  // The integer operands are held to the same: BigInt's RangeError came through for a fraction.
+  assert.throws(() => LegacyDec.one().mulInt(1.5), DecError);
+  assert.throws(() => LegacyDec.one().quoInt(1.5), DecError);
+  assert.equal(LegacyDec.one().mulInt(3).quoInt(2).toString(), "1.500000000000000000");
 });

@@ -9,9 +9,9 @@
 import { intFromWire } from "../codec/coins.js";
 import type { QueryClient } from "../query/client.js";
 import { packMessages, type TxMessage } from "./body.js";
-import { checkedTip, FeeError, gasPriceFor, type Headroom, liftLeg, NOAH_DENOM, requiredGasFee, requireFeeDenom } from "./fee.js";
+import { checkedTip, FeeError, type FeeQuoteInput, gasPriceFor, liftLeg, NOAH_DENOM, requiredGasFee, requireFeeDenom } from "./fee.js";
 
-export interface MaxSendableInput {
+export interface MaxSendableInput extends Pick<FeeQuoteInput, "headroom" | "nativeDenom"> {
   /** The treasury's client: a QueryClient, or treasuryClient over a gateway. */
   client: Pick<QueryClient, "treasury">;
   /** The denomination being sent. */
@@ -27,10 +27,8 @@ export interface MaxSendableInput {
   feeDenom: string;
   /** The gas limit the transaction will declare: simulate with any amount that fits, and adjust. */
   gasLimit: bigint;
-  headroom: Headroom;
   /** A tip in NOAH base units; it comes out of this balance only when NOAH is what is being sent. */
   tip?: bigint;
-  nativeDenom?: string;
 }
 
 export interface MaxSendable {

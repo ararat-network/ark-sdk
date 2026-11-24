@@ -27,16 +27,24 @@ export interface FixtureEvent {
 }
 
 /** A transaction as the chain's JSON renders it. */
-export type FixtureTx = { body: JsonObject; auth_info: JsonObject; signatures: string[] };
+export type FixtureTx = { body: JsonObject & { messages: JsonObject[]; memo: string }; auth_info: JsonObject; signatures: string[] };
 
+/** What every fixture carries: the block it was recorded at, and the events of that block or of its transaction. */
 export interface Fixture {
   name: string;
   description: string;
   chain_id: string;
   height: number;
   block_time: string;
-  signer?: { key: string; address: string; public_key: string; account_number: string; sequence: string };
-  fee?: {
+  /** A transaction's events; absent for a block's fixture, and for a transaction the ante refused. */
+  events?: FixtureEvent[];
+  block_events?: FixtureEvent[];
+}
+
+/** A transaction's fixture, which is every one but a block's: its signer, fee, sign documents, bytes, and result. */
+export interface TxFixture extends Fixture {
+  signer: { key: string; address: string; public_key: string; account_number: string; sequence: string };
+  fee: {
     fee_denom: string;
     gas_limit: string;
     tax: { denom: string; amount: string }[];
@@ -46,15 +54,13 @@ export interface Fixture {
     pad_noah: string;
     declared: { denom: string; amount: string }[];
   };
-  sign_mode_direct?: { sign_doc: string; body_bytes: string; auth_info_bytes: string };
-  sign_mode_amino?: { sign_bytes: string };
-  signature?: string;
-  tx_bytes?: string;
-  tx_hash?: string;
-  tx?: FixtureTx;
-  result?: { code: number; codespace: string; log: string; gas_wanted: string; gas_used: string };
-  events?: FixtureEvent[];
-  block_events?: FixtureEvent[];
+  sign_mode_direct: { sign_doc: string; body_bytes: string; auth_info_bytes: string };
+  sign_mode_amino: { sign_bytes: string };
+  signature: string;
+  tx_bytes: string;
+  tx_hash: string;
+  tx: FixtureTx;
+  result: { code: number; codespace: string; log: string; gas_wanted: string; gas_used: string };
 }
 
 function readJson<T>(path: string): T {
@@ -80,8 +86,18 @@ export function fixtures(): Fixture[] {
     .map((f) => readJson<Fixture>(`decoding/${f}`));
 }
 
-export function fixture(name: string): Fixture {
-  return readJson<Fixture>(`decoding/${name}.json`);
+const holdsTx = (f: Fixture): f is TxFixture => "tx_bytes" in f;
+
+/** Every fixture of a transaction, in file order. */
+export function txFixtures(): TxFixture[] {
+  return fixtures().filter(holdsTx);
+}
+
+/** One transaction's fixture, by name. */
+export function fixture(name: string): TxFixture {
+  const f = readJson<Fixture>(`decoding/${name}.json`);
+  if (!holdsTx(f)) throw new Error(`fixture ${name} holds no transaction`);
+  return f;
 }
 
 /** The three registry files of one network under testdata/registry, parsed. */

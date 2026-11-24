@@ -13,8 +13,8 @@ import { bytesEqual } from "../codec/bytes.js";
 import { txHash } from "../codec/hash.js";
 import { SignMode } from "../gen/cosmos/tx/signing/v1beta1/signing_pb.js";
 import { type Fee, type SignDoc, SignDocSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
-import { MULTISIG_PUBLIC_KEY_URL, type Signer, type SignerAccount, SignerError } from "../keys/signer.js";
-import { makeAuthInfo, makeFee, makeSignerInfo, makeTxBody, type TxBodyInput } from "./body.js";
+import { MULTISIG_PUBLIC_KEY_URL, type Signer, type SignerAccount, SignerError, signerAccountFor } from "../keys/signer.js";
+import { type FeeInput, makeAuthInfo, makeFee, makeSignerInfo, makeTxBody, type TxBodyInput } from "./body.js";
 import type { FeeQuote } from "./fee.js";
 import { directSignBytes, encodeAuthInfo, encodeTxBody, encodeTxRaw, makeSignDoc } from "./signdoc.js";
 
@@ -71,8 +71,7 @@ export interface SignedTx {
 /** Builds and signs a transaction for one signer. */
 export async function signTx(input: SignTxInput): Promise<SignedTx> {
   const mode = input.mode ?? "direct";
-  const account = input.signerAccount ?? (await input.signer.accounts()).find((a) => a.address === input.address);
-  if (!account) throw new SignerError(`signer holds no account ${input.address}`);
+  const account = input.signerAccount ?? signerAccountFor(await input.signer.accounts(), input.address);
   if (account.address !== input.address) throw new SignerError(`the signer account given is ${account.address}, not ${input.address}`);
   checkKeyForMode(account.publicKey, mode);
 
@@ -126,7 +125,7 @@ export function simulationTxBytes(input: SimulationTxInput): Uint8Array {
 }
 
 /** The fee a quote declares, as the Fee message a transaction carries. */
-export function feeFromQuote(quote: FeeQuote, options: { payer?: string; granter?: string } = {}): Fee {
+export function feeFromQuote(quote: FeeQuote, options: Pick<FeeInput, "payer" | "granter"> = {}): Fee {
   return makeFee({
     amount: quote.declared.map((c) => ({ denom: c.denom, amount: c.amount })),
     gasLimit: quote.gasLimit,

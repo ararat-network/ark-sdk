@@ -182,9 +182,9 @@ export {
   loadNetwork,
   Network,
   REGISTRY_REPOSITORY,
-  RegistryError,
   registrySource,
 } from "./registry/network.js";
+export { RegistryError } from "./registry/parse.js";
 export type { ArkFeatures, ArkJson, AssetJson, AssetListJson, ChainJson, DenomUnit, Endpoint, Explorer, RegistryFiles } from "./registry/types.js";
 export {
   type FeeInput,

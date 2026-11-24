@@ -170,17 +170,16 @@ export interface InclusionOptions {
 /** How long a transaction must stay unfound past its timeout height before it is called expired: two of Ark's block intervals. */
 export const DEFAULT_EXPIRY_GRACE_MS = 10_000;
 
-const abortReason = (signal: AbortSignal): Error => (signal.reason instanceof Error ? signal.reason : new Error("aborted"));
-
+/** Sleeps, or ends at once with the signal's reason as the caller gave it when the signal aborts, as fetch does. */
 const defaultSleep = (ms: number, signal?: AbortSignal): Promise<void> =>
   new Promise((resolve, reject) => {
     if (signal?.aborted) {
-      reject(abortReason(signal));
+      reject(signal.reason);
       return;
     }
     const onAbort = () => {
       clearTimeout(t);
-      reject(abortReason(signal as AbortSignal));
+      reject(signal?.reason);
     };
     const t = setTimeout(() => {
       signal?.removeEventListener("abort", onAbort);
@@ -194,16 +193,19 @@ function transient(err: unknown): boolean {
   return err instanceof EndpointsExhausted || isEndpointFault(err);
 }
 
-async function latestHeight(client: Pick<QueryClient, "node">): Promise<bigint> {
+/**
+ * The node's latest height, and whether it says it is still catching up with the chain: its newest blocks are then
+ * ahead of its transaction index. Both come in the node's answer on its sync state, a few dozen bytes; the latest
+ * block, which carries its transactions and its commit twice over, is read only for a node whose answer has no
+ * height, one built on an SDK from before the answer carried it.
+ */
+async function chainTip(client: Pick<QueryClient, "node">): Promise<{ height: bigint; catchingUp: boolean }> {
+  const state = await client.node.syncing();
+  if (state.latestBlockHeight > 0n) return { height: state.latestBlockHeight, catchingUp: state.syncing };
   const latest = await client.node.latestBlock();
   const height = latest.sdkBlock?.header?.height ?? latest.block?.header?.height;
   if (height === undefined) throw new ArkSdkError("the node reported no latest block");
-  return height;
-}
-
-/** Whether the node says it is still catching up with the chain: its newest blocks are then ahead of its transaction index. */
-async function catchingUp(client: Pick<QueryClient, "node">): Promise<boolean> {
-  return (await client.node.syncing()).syncing;
+  return { height, catchingUp: state.syncing };
 }
 
 /**
@@ -236,10 +238,10 @@ export async function waitForInclusion(client: Pick<QueryClient, "tx" | "node">,
       if (found) return found.response;
       lastError = undefined;
       if (timeoutHeight !== undefined) {
-        const height = await latestHeight(client);
+        const { height, catchingUp } = await chainTip(client);
         if (height > timeoutHeight) {
           pastSince ??= now();
-          if (now() - pastSince >= expiryGraceMs && !(await catchingUp(client))) {
+          if (now() - pastSince >= expiryGraceMs && !catchingUp) {
             const last = await lookUpTx(client, hash);
             if (last) return last.response;
             throw new TransactionExpired(hash, timeoutHeight, height);

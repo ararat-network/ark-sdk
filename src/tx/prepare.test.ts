@@ -18,19 +18,19 @@ import { PrepareError, prepareAndSign, sendTx } from "./prepare.js";
 const f = fixture("bank_send_taxed");
 const key = fixtureKey("trader");
 const signer = MemorySigner.fromPrivateKey(fromHex(key.private_key_hex));
-const body = fromProtoJson(TxBodySchema, f.tx!.body);
+const body = fromProtoJson(TxBodySchema, f.tx.body);
 
-const HASH = f.tx_hash!;
+const HASH = f.tx_hash;
 
 /** A node answering the flow's requests in order, each a route prefix with its reply; any other request takes the next step of its script. */
 function node(sequence = "2") {
   return fakeNode([], {
     "GET /cosmos/auth/v1beta1/account_info/": () => json({ info: { address: signer.address, pub_key: null, account_number: "3", sequence } }),
     "POST /cosmos/tx/v1beta1/simulate": () => json({ gas_info: { gas_wanted: "0", gas_used: "217391" }, result: null }),
-    "POST /ark/treasury/v1/compute_tax": () => json({ tax: f.fee!.tax, tax_base: [{ denom: "ausd", amount: "10000000000000000000" }] }),
+    "POST /ark/treasury/v1/compute_tax": () => json({ tax: f.fee.tax, tax_base: [{ denom: "ausd", amount: "10000000000000000000" }] }),
     "GET /ark/treasury/v1/gas_prices": () =>
       json({
-        gas_prices: [f.fee!.gas_price, { denom: "anoah", gas_price: "100000000000.000000000000000000", derived_height: "0" }],
+        gas_prices: [f.fee.gas_price, { denom: "anoah", gas_price: "100000000000.000000000000000000", derived_height: "0" }],
         reference_gas_price: { denom: "axdr", gas_price: "100000000000.000000000000000000", derived_height: "0" },
       }),
   });
@@ -43,7 +43,7 @@ const base = (client: QueryClient) => ({
   chainId: f.chain_id,
   messages: body.messages,
   feeDenom: "ausd",
-  headroom: { stable: f.fee!.pad_stable, noah: f.fee!.pad_noah },
+  headroom: { stable: f.fee.pad_stable, noah: f.fee.pad_noah },
   gasAdjustment: 1.15,
 });
 
@@ -52,7 +52,7 @@ test("prepareAndSign reproduces a fixture from a node's answers", async () => {
   const prepared = await prepareAndSign(base(client));
   assert.equal(prepared.simulatedGas, 217391n);
   assert.equal(prepared.gasLimit, 250000n, "ceil(217391 × 1.15)");
-  assert.deepEqual(amounts(prepared.quote.declared), amounts(f.fee!.declared));
+  assert.deepEqual(amounts(prepared.quote.declared), amounts(f.fee.declared));
   assert.deepEqual(amounts(prepared.taxBase), ["10000000000000000000ausd"]);
   assert.equal(toBase64(prepared.signed.txBytes), f.tx_bytes);
   assert.equal(prepared.signed.hash, HASH);
@@ -141,7 +141,7 @@ test("a given gas limit or account skips the query for it, and an unlisted fee d
   assert.equal(tipped.quote.tip?.amount, "5");
   assert.deepEqual(
     amounts(fromBinary(AuthInfoSchema, tipped.signed.authInfoBytes).fee!.amount),
-    [...amounts(f.fee!.declared), "5anoah"],
+    [...amounts(f.fee.declared), "5anoah"],
     "the tip is the last leg of the signed fee",
   );
   const missing = node();
@@ -193,7 +193,7 @@ test("sendTx broadcasts and confirms, and signs again at the sequence the chain 
   untimed.script.push(broadcastOk, notFound, included);
   const landed = await sendTx({ ...base(untimed.client), timeoutHeight: 0n }, { sleep: async () => {} });
   assert.equal(landed.response.height, 7n);
-  assert.ok(!untimed.calls.some((c) => c.includes("blocks/latest")));
+  assert.ok(!untimed.calls.some((c) => c.includes("/tendermint/")));
 
   // CheckTx names the sequence; the committed account still shows the old one
   // while the earlier transaction is pending, so the log is what is used.
@@ -265,7 +265,7 @@ test("once a broadcast is accepted, or may have been, sendTx signs nothing again
 test("the flow signs in amino mode, encoding the messages through the client's registry", async () => {
   const prepared = await prepareAndSign({ ...base(node().client), mode: "amino" });
   assert.equal(prepared.signed.mode, "amino");
-  assert.equal(utf8Decode(aminoSignDocBytes(prepared.signed.aminoSignDoc!)), f.sign_mode_amino!.sign_bytes, "the document a Ledger signs for this fixture");
+  assert.equal(utf8Decode(aminoSignDocBytes(prepared.signed.aminoSignDoc!)), f.sign_mode_amino.sign_bytes, "the document a Ledger signs for this fixture");
 });
 
 test("the simulation runs over the body that is signed, its memo and timeouts included", async () => {

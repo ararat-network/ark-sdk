@@ -7,29 +7,28 @@ import { test } from "node:test";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { fromProtoJson, makeAminoSignDoc, toProtoJson } from "../defaults.js";
 import { AuthInfoSchema, TxBodySchema, TxRawSchema, TxSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
-import { fixtures } from "../testing/fixtures.js";
+import { txFixtures } from "../testing/fixtures.js";
 import { expectedTxJson } from "../testing/gaps.js";
 import { aminoSignDocBytes } from "./aminojson.js";
 import { fromBase64, toBase64, utf8Decode } from "./bytes.js";
 import { materialise } from "./gogo.js";
 
-for (const f of fixtures()) {
-  if (!f.tx_bytes) continue;
+for (const f of txFixtures()) {
   test(`${f.name}: proto JSON view, bytes from JSON, amino sign bytes`, () => {
-    const raw = fromBinary(TxRawSchema, fromBase64(f.tx_bytes!));
-    assert.equal(toBase64(raw.bodyBytes), f.sign_mode_direct!.body_bytes);
-    assert.equal(toBase64(raw.authInfoBytes), f.sign_mode_direct!.auth_info_bytes);
+    const raw = fromBinary(TxRawSchema, fromBase64(f.tx_bytes));
+    assert.equal(toBase64(raw.bodyBytes), f.sign_mode_direct.body_bytes);
+    assert.equal(toBase64(raw.authInfoBytes), f.sign_mode_direct.auth_info_bytes);
     const body = fromBinary(TxBodySchema, raw.bodyBytes);
     const authInfo = fromBinary(AuthInfoSchema, raw.authInfoBytes);
     const tx = create(TxSchema, { body, authInfo, signatures: raw.signatures });
 
     assert.deepEqual(toProtoJson(TxSchema, tx), expectedTxJson(f.name, f.tx));
 
-    const rebuilt = fromProtoJson(TxSchema, f.tx!);
-    assert.equal(toBase64(toBinary(TxBodySchema, materialise(TxBodySchema, rebuilt.body!))), f.sign_mode_direct!.body_bytes, "body bytes from JSON");
+    const rebuilt = fromProtoJson(TxSchema, f.tx);
+    assert.equal(toBase64(toBinary(TxBodySchema, materialise(TxBodySchema, rebuilt.body!))), f.sign_mode_direct.body_bytes, "body bytes from JSON");
     assert.equal(
       toBase64(toBinary(AuthInfoSchema, materialise(AuthInfoSchema, rebuilt.authInfo!))),
-      f.sign_mode_direct!.auth_info_bytes,
+      f.sign_mode_direct.auth_info_bytes,
       "auth info bytes from JSON",
     );
 
@@ -37,9 +36,9 @@ for (const f of fixtures()) {
       body,
       fee: authInfo.fee!,
       chainId: f.chain_id,
-      accountNumber: BigInt(f.signer!.account_number),
-      sequence: BigInt(f.signer!.sequence),
+      accountNumber: BigInt(f.signer.account_number),
+      sequence: BigInt(f.signer.sequence),
     });
-    assert.equal(utf8Decode(aminoSignDocBytes(doc)), f.sign_mode_amino!.sign_bytes);
+    assert.equal(utf8Decode(aminoSignDocBytes(doc)), f.sign_mode_amino.sign_bytes);
   });
 }

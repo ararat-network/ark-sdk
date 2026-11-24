@@ -2,23 +2,19 @@
 // (denominations, prefix, coin type, genesis identity) and the hand-kept half
 // (endpoints) arrive in the same files; the SDK reads both here and nowhere
 // else, so an app never carries its own copy. The files are checked member
-// by member before anything is read from them, the prefix and coin type are
-// held to the SDK's own, and an endpoint is accepted over https, or http on
-// the loopback: the registry is fetched from a branch by default, and a
-// change there must fail loudly here, never reach a signer as a TypeError or
-// an address as a different chain's.
+// by member, in parse.ts, before anything is read from them, the prefix and
+// coin type are held to the SDK's own, and an endpoint is accepted over
+// https, or http on the loopback: the registry is fetched from a branch by
+// default, and a change there must fail loudly here, never reach a signer as
+// a TypeError or an address as a different chain's.
 import { sha256 } from "@noble/hashes/sha2.js";
 
 import { toHex } from "../codec/bytes.js";
-import { isJsonObject } from "../codec/json.js";
-import { ArkSdkError, errorMessage } from "../errors.js";
-import { DEFAULT_PREFIX } from "../keys/address.js";
+import { errorMessage } from "../errors.js";
+import { DEFAULT_PREFIX, validatorPrefix } from "../keys/address.js";
 import { ARK_COIN_TYPE } from "../keys/hd.js";
-import type { ArkFeatures, ArkJson, AssetJson, AssetListJson, ChainJson, DenomUnit, Endpoint, Explorer } from "./types.js";
-
-export class RegistryError extends ArkSdkError {
-  override readonly name: string = "RegistryError";
-}
+import { parseArk, parseAssets, parseChain, RegistryError } from "./parse.js";
+import type { ArkFeatures, AssetJson, DenomUnit, Endpoint, Explorer } from "./types.js";
 
 /** Thrown when a genesis file is not the one the registry names for the network. */
 export class GenesisMismatch extends RegistryError {
@@ -30,6 +26,11 @@ export class GenesisMismatch extends RegistryError {
   ) {
     super(`genesis for ${chainId}: expected sha256 ${expected}, got ${actual}`);
   }
+}
+
+/** Whether a unit answers to a name: its denomination, or one of its aliases. */
+function answersTo(unit: DenomUnit, name: string): boolean {
+  return unit.denom === name || (unit.aliases?.includes(name) ?? false);
 }
 
 /** One asset of the network: its base denomination and the units it is shown in. */
@@ -74,7 +75,7 @@ export class Asset {
   }
 
   unit(denom: string): DenomUnit {
-    const unit = this.units.find((u) => u.denom === denom || u.aliases?.includes(denom));
+    const unit = this.units.find((u) => answersTo(u, denom));
     if (!unit) throw new RegistryError(`asset ${this.base}: no unit ${denom}`);
     return unit;
   }
@@ -112,7 +113,7 @@ export class Network {
   /** Every asset by base denomination. */
   readonly assets: ReadonlyMap<string, Asset>;
 
-  private constructor(files: UncheckedFiles) {
+  private constructor(files: { chain: unknown; assets: unknown; ark: unknown }) {
     // Each file is parsed into the members the SDK reads, checked one by one: nothing below reads the files themselves.
     const chain = parseChain(files.chain);
     const assets = parseAssets(files.assets);
@@ -178,7 +179,7 @@ export class Network {
    * checking each member the SDK reads and that the files agree. `RegistryFiles`
    * is their shape; nothing is taken on trust from a value typed as it.
    */
-  static fromRegistry(files: UncheckedFiles): Network {
+  static fromRegistry(files: { chain: unknown; assets: unknown; ark: unknown }): Network {
     return new Network(files);
   }
 
@@ -190,14 +191,14 @@ export class Network {
   /** The asset whose base, display, or alias unit is `denom`. */
   assetByUnit(denom: string): Asset | undefined {
     for (const a of this.assets.values()) {
-      if (a.units.some((u) => u.denom === denom || u.aliases?.includes(denom))) return a;
+      if (a.units.some((u) => answersTo(u, denom))) return a;
     }
     return undefined;
   }
 
   /** The address prefix for a validator operator. */
   get validatorPrefix(): string {
-    return `${this.bech32Prefix}valoper`;
+    return validatorPrefix(this.bech32Prefix);
   }
 
   /** The first REST endpoint, which a client reaches the gateway through. */
@@ -302,195 +303,6 @@ export async function loadNetwork(name: string, options: LoadOptions = {}): Prom
   // who asked for the testnet another network's chain ID and endpoints.
   if (network.name !== name) throw new RegistryError(`${source}/${name} describes the network ${network.name}, not ${name}`);
   return network;
-}
-
-/** The three files before they are checked: whatever the JSON held. */
-interface UncheckedFiles {
-  chain: unknown;
-  assets: unknown;
-  ark: unknown;
-}
-
-// The parsers below read the files as the unknown JSON they are and return
-// the members the SDK reads, each one checked: a member that is missing or
-// mistyped is refused by name, and one that no parser returns cannot be read.
-// What a network hands on as it was written, an endpoint, an explorer, the
-// feature flags, keeps the members the SDK does not name beside the checked
-// ones, in a copy the files no longer share.
-
-type JsonObject = Record<string, unknown>;
-
-function object(value: unknown, where: string): JsonObject {
-  if (!isJsonObject(value)) throw new RegistryError(`${where} is not an object`);
-  return value;
-}
-
-function member(o: JsonObject, key: string, where: string): unknown {
-  if (!(key in o)) throw new RegistryError(`${where}: ${key} is missing`);
-  return o[key];
-}
-
-function text(o: JsonObject, key: string, where: string): string {
-  const v = member(o, key, where);
-  if (typeof v !== "string" || v === "") throw new RegistryError(`${where}: ${key} must be a non-empty string`);
-  return v;
-}
-
-function optionalText(o: JsonObject, key: string, where: string): string | undefined {
-  return o[key] === undefined ? undefined : text(o, key, where);
-}
-
-function wholeNumber(o: JsonObject, key: string, where: string): number {
-  const v = member(o, key, where);
-  if (typeof v !== "number" || !Number.isInteger(v) || v < 0) throw new RegistryError(`${where}: ${key} must be a whole number`);
-  return v;
-}
-
-function flag(o: JsonObject, key: string, where: string): boolean {
-  const v = member(o, key, where);
-  if (typeof v !== "boolean") throw new RegistryError(`${where}: ${key} must be true or false`);
-  return v;
-}
-
-function list(o: JsonObject, key: string, where: string): unknown[] {
-  const v = member(o, key, where);
-  if (!Array.isArray(v)) throw new RegistryError(`${where}: ${key} must be a list`);
-  return v;
-}
-
-function optionalList(o: JsonObject, key: string, where: string): unknown[] | undefined {
-  return o[key] === undefined ? undefined : list(o, key, where);
-}
-
-const isText = (x: unknown): x is string => typeof x === "string" && x !== "";
-
-function texts(o: JsonObject, key: string, where: string): string[] {
-  const v = list(o, key, where);
-  if (!v.every(isText)) throw new RegistryError(`${where}: ${key} must be a list of non-empty strings`);
-  return v;
-}
-
-function optionalTexts(o: JsonObject, key: string, where: string): string[] | undefined {
-  return o[key] === undefined ? undefined : texts(o, key, where);
-}
-
-function endpoints(o: JsonObject, key: string, where: string): Endpoint[] | undefined {
-  return optionalList(o, key, where)?.map((e, i) => {
-    const at = `${where}: ${key}[${i}]`;
-    const entry = object(e, at);
-    const address = text(entry, "address", at);
-    optionalText(entry, "provider", at);
-    return { ...entry, address };
-  });
-}
-
-function parseChain(value: unknown): ChainJson {
-  const where = "chain.json";
-  const chain = object(value, where);
-  const parsed: ChainJson = {
-    chain_name: text(chain, "chain_name", where),
-    chain_id: text(chain, "chain_id", where),
-    pretty_name: optionalText(chain, "pretty_name", where),
-    network_type: optionalText(chain, "network_type", where),
-    bech32_prefix: text(chain, "bech32_prefix", where),
-    slip44: wholeNumber(chain, "slip44", where),
-  };
-  if (chain.staking !== undefined) {
-    const at = `${where}: staking`;
-    const tokens = optionalList(object(chain.staking, at), "staking_tokens", at);
-    parsed.staking = {
-      staking_tokens: tokens?.map((t, i) => ({ denom: text(object(t, `${where}: staking_tokens[${i}]`), "denom", `${where}: staking_tokens[${i}]`) })),
-    };
-  }
-  if (chain.codebase !== undefined) {
-    const at = `${where}: codebase`;
-    const codebase = object(chain.codebase, at);
-    parsed.codebase = {
-      recommended_version: optionalText(codebase, "recommended_version", at),
-      compatible_versions: optionalTexts(codebase, "compatible_versions", at),
-      genesis:
-        codebase.genesis === undefined ? undefined : { genesis_url: optionalText(object(codebase.genesis, `${at}.genesis`), "genesis_url", `${at}.genesis`) },
-    };
-  }
-  if (chain.apis !== undefined) {
-    const at = `${where}: apis`;
-    const apis = object(chain.apis, at);
-    parsed.apis = { rpc: endpoints(apis, "rpc", at), rest: endpoints(apis, "rest", at), grpc: endpoints(apis, "grpc", at) };
-  }
-  parsed.explorers = optionalList(chain, "explorers", where)?.map((e, i): Explorer => {
-    const at = `${where}: explorers[${i}]`;
-    const explorer = object(e, at);
-    optionalText(explorer, "kind", at);
-    optionalText(explorer, "url", at);
-    return { ...explorer };
-  });
-  return parsed;
-}
-
-/** The most places a unit can have: 10^77 is the largest power of ten a 256-bit amount holds. */
-const MAX_UNIT_EXPONENT = 77;
-
-function parseAssets(value: unknown): AssetListJson {
-  const where = "assetlist.json";
-  const assets = object(value, where);
-  return {
-    chain_name: text(assets, "chain_name", where),
-    assets: list(assets, "assets", where).map((a, i): AssetJson => {
-      const at = `${where}: assets[${i}]`;
-      const asset = object(a, at);
-      const named = {
-        base: text(asset, "base", at),
-        display: text(asset, "display", at),
-        symbol: text(asset, "symbol", at),
-        name: text(asset, "name", at),
-        description: optionalText(asset, "description", at),
-      };
-      const units = list(asset, "denom_units", at);
-      if (units.length === 0) throw new RegistryError(`${at}: denom_units is empty`);
-      return {
-        ...named,
-        denom_units: units.map((u, j): DenomUnit => {
-          const ut = `${at}.denom_units[${j}]`;
-          const unit = object(u, ut);
-          const exponent = wholeNumber(unit, "exponent", ut);
-          // An amount is at most 256 bits, 78 digits: a unit of more places than 77 names no amount, and its power
-          // of ten is past what the formatters can build.
-          if (exponent > MAX_UNIT_EXPONENT) throw new RegistryError(`${ut}: exponent ${exponent} is more than ${MAX_UNIT_EXPONENT}`);
-          return { denom: text(unit, "denom", ut), exponent, aliases: optionalTexts(unit, "aliases", ut) };
-        }),
-      };
-    }),
-  };
-}
-
-function parseFeatures(value: unknown, where: string): ArkFeatures {
-  const features = object(value, where);
-  // A flag the SDK does not name yet is kept when it is a flag, so a newer registry's reaches an app that knows it.
-  const flags = Object.fromEntries(Object.entries(features).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"));
-  return {
-    ...flags,
-    cosmwasm: flag(features, "cosmwasm", where),
-    vote_extensions: flag(features, "vote_extensions", where),
-    conversion_open: flag(features, "conversion_open", where),
-  };
-}
-
-function parseArk(value: unknown): ArkJson {
-  const where = "ark.json";
-  const ark = object(value, where);
-  return {
-    chain_id: text(ark, "chain_id", where),
-    ark_version: text(ark, "ark_version", where),
-    genesis_sha256: optionalText(ark, "genesis_sha256", where),
-    bech32_prefix: text(ark, "bech32_prefix", where),
-    slip44: wholeNumber(ark, "slip44", where),
-    features: parseFeatures(member(ark, "features", where), `${where}: features`),
-    reference_denom: text(ark, "reference_denom", where),
-    feeds: texts(ark, "feeds", where),
-    fee_denoms: texts(ark, "fee_denoms", where),
-    fee_contract: text(ark, "fee_contract", where),
-    indexer: endpoints(ark, "indexer", where),
-  };
 }
 
 /** An IPv4 address in 127.0.0.0/8. URL writes every IPv4 host as four decimal octets, so nothing else is one. */

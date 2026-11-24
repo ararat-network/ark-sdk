@@ -17,51 +17,54 @@ import { MsgSendSchema } from "../gen/cosmos/bank/v1beta1/tx_pb.js";
 import { Service as NodeService } from "../gen/cosmos/base/tendermint/v1beta1/query_pb.js";
 import { ProposalStatus } from "../gen/cosmos/gov/v1/gov_pb.js";
 import { Query as GovQuery } from "../gen/cosmos/gov/v1/query_pb.js";
-import { Service as TxService } from "../gen/cosmos/tx/v1beta1/service_pb.js";
+import { OrderBy, Service as TxService } from "../gen/cosmos/tx/v1beta1/service_pb.js";
 import { Query as WasmQuery } from "../gen/cosmwasm/wasm/v1/query_pb.js";
 import { amounts, fixtureKey } from "../testing/fixtures.js";
 import { gatewayError, json, stubFetch, unavailable, unreachable } from "../testing/node.js";
 import { QueryClient as CoreQueryClient } from "./client.js";
-import { GatewayClient as CoreGatewayClient, EndpointsExhausted, GrpcCode, QueryError, routeFor, TransportError } from "./gateway.js";
+import { GatewayClient as CoreGatewayClient, EndpointsExhausted, GrpcCode, QueryError, TransportError } from "./gateway.js";
 import { collectAll } from "./pagination.js";
 
 const nodeInfo = () => json({ default_node_info: { network: "localark" }, application_version: null });
 
-test("routes come from the http option: path parameters, query parameters, and bodies", () => {
-  const member = routeFor(DisbursementQuery.method.member, { address: "ark1abc" });
-  assert.deepEqual(member, { verb: "GET", path: "/ark/disbursement/v1/members/ark1abc", body: undefined });
+test("routes come from the http option: path parameters, query parameters, and bodies", async () => {
+  // Each call's route is read off the request the node saw; the answer is empty, which every response type reads.
+  const { fetch, seen } = stubFetch(() => json({}));
+  const gateway = new GatewayClient("http://node", { fetch });
+  const sent = () => seen.at(-1);
 
-  const grants = routeFor(DisbursementQuery.method.grants, {
-    beneficiary: "",
-    committee_term: "0",
-    registrar_term: "2",
-    pagination: { limit: "10", key: "", count_total: true, reverse: false },
-    kind: "GRANT_KIND_MEMBER",
-  });
-  assert.equal(grants.verb, "GET");
-  assert.equal(grants.path, "/ark/disbursement/v1/grants?registrar_term=2&pagination.limit=10&pagination.count_total=true&kind=GRANT_KIND_MEMBER");
+  await gateway.call(DisbursementQuery, "member", { address: "ark1abc" });
+  assert.deepEqual([sent()?.call, sent()?.body], ["GET /ark/disbursement/v1/members/ark1abc", undefined]);
 
-  const tax = routeFor(TreasuryQuery.method.computeTax, { messages: [{ "@type": "/cosmos.bank.v1beta1.MsgSend" }] });
-  assert.equal(tax.verb, "POST");
-  assert.equal(tax.path, "/ark/treasury/v1/compute_tax");
-  assert.deepEqual(tax.body, { messages: [{ "@type": "/cosmos.bank.v1beta1.MsgSend" }] });
+  // What is at its default is left out of the query: an empty string, a zero, false, and an enum's zero value.
+  await gateway.call(DisbursementQuery, "grants", { registrarTerm: 2n, pagination: { limit: 10n, countTotal: true }, kind: GrantKind.MEMBER });
+  assert.equal(sent()?.call, "GET /ark/disbursement/v1/grants?registrar_term=2&pagination.limit=10&pagination.count_total=true&kind=GRANT_KIND_MEMBER");
 
-  const getTx = routeFor(TxService.method.getTx, { hash: "ABCD" });
-  assert.equal(getTx.path, "/cosmos/tx/v1beta1/txs/ABCD");
-  const unordered = routeFor(TxService.method.getTxsEvent, { query: "tx.height=7", page: "1", limit: "50", order_by: "ORDER_BY_UNSPECIFIED" });
-  assert.equal(unordered.path, "/cosmos/tx/v1beta1/txs?query=tx.height%3D7&page=1&limit=50", "an enum's zero value is not sent");
-  const ordered = routeFor(TxService.method.getTxsEvent, { query: "tx.height=7", page: "1", limit: "50", order_by: "ORDER_BY_DESC" });
-  assert.ok(ordered.path.endsWith("&order_by=ORDER_BY_DESC"));
-  assert.throws(() => routeFor(DisbursementQuery.method.member, {}), /lacks address/);
+  await gateway.call(TreasuryQuery, "computeTax", { messages: [packAny(MsgSendSchema, create(MsgSendSchema))] });
+  assert.equal(sent()?.call, "POST /ark/treasury/v1/compute_tax");
+  assert.equal((JSON.parse(sent()?.body ?? "{}") as { messages: { "@type": string }[] }).messages[0]?.["@type"], "/cosmos.bank.v1beta1.MsgSend");
+
+  await gateway.call(TxService, "getTx", { hash: "ABCD" });
+  assert.equal(sent()?.call, "GET /cosmos/tx/v1beta1/txs/ABCD");
+  await gateway.call(TxService, "getTxsEvent", { query: "tx.height=7", page: 1n, limit: 50n });
+  assert.equal(sent()?.call, "GET /cosmos/tx/v1beta1/txs?page=1&limit=50&query=tx.height%3D7", "an enum's zero value is not sent");
+  await gateway.call(TxService, "getTxsEvent", { query: "tx.height=7", page: 1n, limit: 50n, orderBy: OrderBy.DESC });
+  assert.equal(sent()?.call, "GET /cosmos/tx/v1beta1/txs?order_by=ORDER_BY_DESC&page=1&limit=50&query=tx.height%3D7");
+
+  const before = seen.length;
+  await assert.rejects(gateway.call(DisbursementQuery, "member", {}), (err: unknown) => err instanceof ArkSdkError && /lacks address/.test(err.message));
+  assert.equal(seen.length, before, "a request that cannot be routed is not sent");
 });
 
 test("a route refuses an empty path parameter, and gov.params names its params type", async () => {
   // An empty value would leave "/cosmos/gov/v1/params/", a path the gateway has no route for.
-  for (const params_type of ["", null]) {
-    assert.throws(() => routeFor(GovQuery.method.params, { params_type }), /request lacks params_type for the route/);
+  const routed = stubFetch(() => json({}));
+  const gateway = new GatewayClient("http://node", { fetch: routed.fetch });
+  for (const request of [{ paramsType: "" }, {}]) {
+    await assert.rejects(gateway.call(GovQuery, "params", request), /request lacks params_type for the route/);
   }
-  assert.throws(() => routeFor(GovQuery.method.params, {}), /request lacks params_type for the route/);
-  assert.equal(routeFor(GovQuery.method.proposal, { proposal_id: "0" }).path, "/cosmos/gov/v1/proposals/0", "zero is a value, not an absence");
+  await gateway.call(GovQuery, "proposal", { proposalId: 0n });
+  assert.equal(routed.seen.at(-1)?.call, "GET /cosmos/gov/v1/proposals/0", "zero is a value, not an absence");
 
   const { fetch, seen } = stubFetch(() => json({ voting_params: null, deposit_params: null, tally_params: null, params: null }));
   await new QueryClient("http://node", { fetch }).gov.params("voting");

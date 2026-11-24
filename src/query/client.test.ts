@@ -10,7 +10,8 @@ import { toBase64 } from "../codec/bytes.js";
 import { vestedCoins } from "../decode/account.js";
 import { QueryClient } from "../defaults.js";
 import { file_cosmos_auth_v1beta1_auth } from "../gen/cosmos/auth/v1beta1/auth_pb.js";
-import { GenesisMismatch, Network, RegistryError } from "../registry/network.js";
+import { GenesisMismatch, Network } from "../registry/network.js";
+import { RegistryError } from "../registry/parse.js";
 import { amounts, registryFiles } from "../testing/fixtures.js";
 import { json, stubFetch } from "../testing/node.js";
 import { FUTURE_ACCOUNT_URL, registryWithFutureTypes } from "../testing/registry.js";
@@ -113,10 +114,10 @@ test("decodedAccount reads the gateway's JSON for a vesting account", async () =
 });
 
 test("decodedAccount names an account of a type the registry lacks as unknown, with its type URL", async () => {
-  const { fetch } = stubFetch(() => json({ account: { "@type": "/ark.future.v1.SeatAccount", address: "ark1x" } }));
+  const { fetch } = stubFetch(() => json({ account: { "@type": FUTURE_ACCOUNT_URL, address: "ark1x" } }));
   const decoded = await new QueryClient("http://node", { fetch }).auth.decodedAccount("ark1x");
   assert.equal(decoded.kind, "unknown");
-  assert.equal(decoded.typeUrl, "/ark.future.v1.SeatAccount");
+  assert.equal(decoded.typeUrl, FUTURE_ACCOUNT_URL);
   assert.equal(decoded.message, undefined);
 });
 

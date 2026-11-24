@@ -49,7 +49,7 @@ export function decodeAddress(address: string, options: AddressDecodeOptions = {
   try {
     decoded = bech32.decode(address as `${string}1${string}`, 90);
   } catch (err) {
-    throw new AddressError(`invalid bech32 address ${address}: ${errorMessage(err)}`);
+    throw new AddressError(`invalid bech32 address ${address}: ${errorMessage(err)}`, { cause: err });
   }
   if (options.prefix !== undefined && decoded.prefix !== options.prefix) {
     throw new AddressError(`address ${address} has prefix ${decoded.prefix}, expected ${options.prefix}`);

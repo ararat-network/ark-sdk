@@ -5,7 +5,7 @@
 import { create } from "@bufbuild/protobuf";
 
 import { stripTrailing } from "../codec/bytes.js";
-import { coin, intFromWire } from "../codec/coins.js";
+import { type CoinInput, coin, intFromWire } from "../codec/coins.js";
 import { LegacyDec } from "../codec/dec.js";
 import { decimalParts, fixedPointText, INTEGER_TEXT, scaleDecimal } from "../codec/fixed.js";
 import { ArkSdkError } from "../errors.js";
@@ -65,7 +65,7 @@ function formatDecimal(decimal: string, asset: Asset, options: FormatOptions): s
 }
 
 /** Formats a coin through the network's asset list; an unlisted denomination is shown as the chain's coin text, in base units. */
-export function formatCoin(c: { denom: string; amount: string | bigint }, network: Network, options: FormatOptions = {}): string {
+export function formatCoin(c: CoinInput, network: Network, options: FormatOptions = {}): string {
   const asset = network.asset(c.denom);
   // A coin's text is read as the chain reads it, which is not always its decimal value.
   const amount = typeof c.amount === "string" ? intFromWire(c.amount) : c.amount;
@@ -89,7 +89,7 @@ export function parseCoins(text: string): Coin[] {
 }
 
 /** The chain's text for a coin list: amounts and denominations in denomination order, comma-separated. */
-export function coinsToString(coins: readonly { denom: string; amount: string | bigint }[]): string {
+export function coinsToString(coins: readonly CoinInput[]): string {
   return [...coins]
     .sort((a, b) => (a.denom < b.denom ? -1 : a.denom > b.denom ? 1 : 0))
     .map((c) => `${typeof c.amount === "string" ? intFromWire(c.amount) : c.amount}${c.denom}`)

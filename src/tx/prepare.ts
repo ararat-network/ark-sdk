@@ -8,13 +8,13 @@
 import { SDK_CODESPACE, WRONG_SEQUENCE_CODE } from "../decode/result.js";
 import { ArkSdkError } from "../errors.js";
 import type { Coin } from "../gen/cosmos/base/v1beta1/coin_pb.js";
-import { type Signer, SignerError } from "../keys/signer.js";
+import { type Signer, signerAccountFor } from "../keys/signer.js";
 import type { QueryClient } from "../query/client.js";
 import { QueryError } from "../query/gateway.js";
-import { packMessages, type TxBodyInput } from "./body.js";
+import { type FeeInput, packMessages, type TxBodyInput } from "./body.js";
 import { BroadcastRefused, type BroadcastResult, broadcastSync, type Confirmed, type InclusionOptions, waitForAccepted } from "./broadcast.js";
 import { feeFromQuote, type SignedTx, type SigningMode, signTx, simulationTxBytes } from "./builder.js";
-import { adjustGas, type FeeQuote, gasPriceFor, type Headroom, quoteFee, requireFeeDenom } from "./fee.js";
+import { adjustGas, type FeeQuote, type FeeQuoteInput, gasPriceFor, quoteFee, requireFeeDenom } from "./fee.js";
 
 export class PrepareError extends ArkSdkError {
   override readonly name: string = "PrepareError";
@@ -25,8 +25,12 @@ export interface AccountState {
   sequence: bigint;
 }
 
-/** The body's members, and what the flow needs to price and sign it. An unordered body needs its timeout timestamp. */
-export interface PrepareInput extends TxBodyInput {
+/**
+ * The body's members, and what the flow needs to price and sign it: the quote's headroom, tip, and native
+ * denomination, and the fee's payer and granter, each as FeeQuoteInput and FeeInput say. An unordered body needs its
+ * timeout timestamp.
+ */
+export interface PrepareInput extends TxBodyInput, Pick<FeeQuoteInput, "headroom" | "tip" | "nativeDenom">, Pick<FeeInput, "payer" | "granter"> {
   /** The services the flow reads, a QueryClient or those of its members over one gateway; sendTx reads `node` beside them. */
   client: Pick<QueryClient, "gateway" | "auth" | "tx" | "treasury">;
   signer: Signer;
@@ -34,18 +38,12 @@ export interface PrepareInput extends TxBodyInput {
   chainId: string;
   /** The denomination that pays the base fee; must be on the sheet. Its leg is encoded first unless `legOrder` says otherwise, which is what makes it the one the ante charges. */
   feeDenom: string;
-  headroom: Headroom;
   /** Multiplier on the simulated gas; ignored when gasLimit is given. */
   gasAdjustment: number;
   /** A gas limit to use instead of simulating. */
   gasLimit?: bigint;
-  /** A tip in NOAH base units: its own leg beside a stable gas leg, part of the NOAH leg when NOAH carries the gas. */
-  tip?: bigint;
   /** Denominations first among the fee's legs; left out, a stable `feeDenom` goes first so that it pays. See FeeQuoteInput.legOrder. */
   legOrder?: readonly string[];
-  nativeDenom?: string;
-  payer?: string;
-  granter?: string;
   mode?: SigningMode;
   /** The account's number and sequence, when already known; queried otherwise. */
   account?: AccountState;
@@ -87,8 +85,7 @@ export async function prepareAndSign(input: PrepareInput): Promise<Prepared> {
   // The ante refuses an unordered transaction that carries a sequence: its
   // timeout timestamp stands in for one, so it is simulated and signed at zero.
   const sequence = input.unordered ? 0n : account.sequence;
-  const signerAccount = signerAccounts.find((a) => a.address === input.address);
-  if (!signerAccount) throw new SignerError(`signer holds no account ${input.address}`);
+  const signerAccount = signerAccountFor(signerAccounts, input.address);
 
   let simulatedGas: bigint | undefined;
   let gasLimit = input.gasLimit;

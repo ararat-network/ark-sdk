@@ -178,7 +178,8 @@ export function adjustGas(gasUsed: bigint, adjustment: number): bigint {
     .ceil();
 }
 
-export interface FeeDenomChoiceInput {
+/** A choice among the sheet's denominations, priced as a quote is: the gas limit, headroom, tip, and native denomination are FeeQuoteInput's. */
+export interface FeeDenomChoiceInput extends Pick<FeeQuoteInput, "gasLimit" | "headroom" | "tip" | "nativeDenom"> {
   /** The sheet's non-reference rows. */
   sheet: readonly GasPrice[];
   /** The sheet's reference row, to have the reference denomination offered too; arkd ranks it after NOAH. */
@@ -187,10 +188,6 @@ export interface FeeDenomChoiceInput {
   /** The principal the tax was computed over: what the messages already move. */
   taxBase: readonly Coin[];
   spendable: readonly Coin[];
-  gasLimit: bigint;
-  headroom: Headroom;
-  tip?: bigint;
-  nativeDenom?: string;
 }
 
 /**

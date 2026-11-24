@@ -136,6 +136,15 @@ Fixed:
 - `prepareAndSign`, `sendTx`, and `maxSendable` price a fee denomination by the sheet's reference row when the sheet
   lists a row under the same name, as `affordableFeeDenoms` and arkd do; they took the sheet's row. The chain lists
   the reference apart from the sheet, so no answer of its own changes.
+- `LegacyDec.mulInt` and `quoInt` refuse a number that is not an integer with `DecError`, as `fromInt` does; BigInt's
+  `RangeError` came through.
+- `privateKeyFromMnemonic` refuses a derivation path that is not one with `KeyError`, the library's error as its
+  cause; the library's own came through.
+- `fromOfflineSigner` refuses a sign document whose account number is not an integer with `SignerError`; a wallet
+  returning other text met BigInt's `SyntaxError`.
+- `waitForInclusion`, and `broadcastAndConfirm` and `sendTx` through it, end with the caller's abort reason as it was
+  given. A reason that was not an `Error` was replaced by a bare `Error("aborted")`.
+- `decodeAddress` keeps the bech32 library's error as the cause of its `AddressError`.
 
 Added:
 
@@ -234,6 +243,10 @@ Changed:
   default was the empty string, which requested `/cosmos/gov/v1/params/`, a path the gateway does not serve.
 - The package index names every export where it re-exported each module whole, so a helper one module shares with
   another is no longer public by accident. Apart from the names under Removed, everything exported before still is.
+- `waitForInclusion` with a timeout height reads the node's height and whether it is catching up from one answer,
+  the node's sync state, on each poll. It read the latest block for the height, which carries the block's
+  transactions and its commit twice over, and asked the sync state apart. A node whose sync state carries no height
+  still has its latest block read.
 
 Removed:
 
@@ -247,6 +260,8 @@ Removed:
   `marshalGoJsonBytes`, and `sortKeys` are the surface.
 - `anyHolds`, `schemaFor`, and `concatBytes`, which nothing used. `anyHolds` answered true for an `Any` read without
   its type, which `unpackAnyAs` refuses; `schemaFor(url)` is `registry.getMessage(typeNameOf(url))`.
+- `ChainJson.status`, `ChainJson.fees`, and `ArkJson.logo_URIs`. The types are what the registry's parsers return,
+  and no parser returned these: a network never carried them.
 
 ## 0.2.0
 
