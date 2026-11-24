@@ -71,10 +71,12 @@ import {
 
 const send = typed(MsgSendSchema, create(MsgSendSchema, { fromAddress, toAddress, amount: [coin("ausd", 10n ** 18n)] }));
 const [account] = await signer.accounts();
+if (!account) throw new Error("the signer holds no account");
 const { info } = await client.auth.accountInfo(fromAddress);
 if (!info) throw new Error(`no account at ${fromAddress}`);
 
 const simulated = await client.tx.simulate(simulationTxBytes({ messages: [send], publicKey: account.publicKey, sequence: info.sequence }));
+if (!simulated.gasInfo) throw new Error("the simulation returned no gas info");
 const gasLimit = adjustGas(simulated.gasInfo.gasUsed, arkdPolicy.gasAdjustment);
 const { tax } = await client.treasury.computeTax(packMessages([send]));
 const sheet = await client.treasury.gasPrices();

@@ -420,3 +420,21 @@ test("bytes in a route's path are sent as the gateway reads them: base64 in the 
   const { models } = (await new GatewayClient("http://node", { fetch: state.fetch }).call(WasmQuery, "allContractState", { address: "ark1c" })).value;
   assert.equal(new TextDecoder().decode(models[0]!.key), "config");
 });
+
+test("an answer that is not JSON blames the endpoint, and a facade's argument is needed at run time too", async () => {
+  // A proxy's error page served with a 200: the node behind another endpoint may still answer.
+  const { fetch, seen } = stubFetch(({ url }) => (url.startsWith("http://a/") ? new Response("<html>maintenance</html>") : nodeInfo()));
+  const client = new QueryClient(["http://a", "http://b"], { fetch });
+  assert.equal((await client.node.info()).defaultNodeInfo?.network, "localark");
+  assert.deepEqual(
+    seen.map((s) => s.url.slice(0, 9)),
+    ["http://a/", "http://b/"],
+  );
+  assert.equal(client.gateway.baseUrl, "http://b");
+  const alone = new QueryClient("http://a", { fetch });
+  await assert.rejects(alone.node.info(), (err: unknown) => err instanceof TransportError && /not JSON/.test(err.message));
+
+  // gov.params takes its params type by the types; a caller they do not reach is refused, not sent to another route.
+  const untyped = client.gov.params as unknown as () => Promise<unknown>;
+  await assert.rejects(untyped(), (err: unknown) => err instanceof ArkSdkError && /lacks params_type/.test(err.message));
+});

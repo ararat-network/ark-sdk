@@ -12,6 +12,7 @@ import { MsgSetRecognitionPolicySchema } from "../gen/ark/reserve/v1/tx_pb.js";
 import { BaseAccountSchema } from "../gen/cosmos/auth/v1beta1/auth_pb.js";
 import { MsgGrantSchema } from "../gen/cosmos/authz/v1beta1/tx_pb.js";
 import { MsgMultiSendSchema, MsgSendSchema } from "../gen/cosmos/bank/v1beta1/tx_pb.js";
+import { CoinSchema } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import { MsgDepositSchema } from "../gen/cosmos/gov/v1/tx_pb.js";
 import { GenesisStateSchema as StakingGenesisStateSchema } from "../gen/cosmos/staking/v1beta1/genesis_pb.js";
 import { FeeSchema, TxBodySchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
@@ -128,4 +129,14 @@ test("amino: the document holds a string as the transaction's bytes carry it, ha
   const text = new TextDecoder().decode(bytes);
   assert.ok(text.includes('"memo":"gm \ufffd"'), "the character itself, three bytes, not a six-character escape");
   assert.ok(!text.includes("\\ufffd"));
+});
+
+test("amino: a message with no amino name is encoded bare, and one with a name under it", () => {
+  const coin = create(CoinSchema, { denom: "ausd", amount: "5" });
+  assert.deepEqual(aminoEncode(CoinSchema, coin), { denom: "ausd", amount: "5" }, "no wrapper for a type the chain gives no amino name");
+  const send = create(MsgSendSchema, { fromAddress: "ark1a", toAddress: "ark1b", amount: [coin] });
+  assert.deepEqual(aminoEncode(MsgSendSchema, send), {
+    type: "cosmos-sdk/MsgSend",
+    value: { from_address: "ark1a", to_address: "ark1b", amount: [{ denom: "ausd", amount: "5" }] },
+  });
 });

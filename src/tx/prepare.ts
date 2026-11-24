@@ -70,6 +70,7 @@ export interface Prepared {
  */
 export async function prepareAndSign(input: PrepareInput): Promise<Prepared> {
   const { client } = input;
+  if (!input.feeDenom) throw new FeeError("no fee denomination: feeDenom names the one that pays the base fee, and none is chosen for you");
   const messages = packMessages(input.messages);
   if (input.unordered && !input.timeoutTimestamp) {
     throw new PrepareError("an unordered transaction needs a timeout timestamp: it is what the chain orders and expires it by");

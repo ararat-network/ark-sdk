@@ -320,3 +320,11 @@ test("the fee the flow signs has the fee denomination's leg first, before a tax 
   // The caller's order is signed as given: an empty one is denomination order, as arkd encodes the same fee.
   assert.deepEqual(signedLegs(await prepareAndSign({ ...input(taxedInEur()), legOrder: [] })), ["5500000000000000000aeur", "30140000000000000ausd"]);
 });
+
+test("a fee denomination left out is said to be missing, before any request", async () => {
+  const n = node();
+  for (const feeDenom of ["", undefined as unknown as string]) {
+    await assert.rejects(prepareAndSign({ ...base(n.client), feeDenom }), (err: unknown) => err instanceof FeeError && /no fee denomination/.test(err.message));
+  }
+  assert.equal(n.calls.length, 0);
+});

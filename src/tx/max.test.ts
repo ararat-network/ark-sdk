@@ -145,6 +145,7 @@ test("nothing to send: a balance no larger than what is kept back, and one the t
   assert.equal((await maxSendable(base({ ...ARK, rate: "1" }, "aeur", 1005n * EUR, "ausd"))).amount, 0n);
   await assert.rejects(maxSendable({ ...base(ARK, "aeur", 1005n * EUR, "ausd"), tip: -1n }), FeeError);
   await assert.rejects(maxSendable(base(ARK, "aeur", -1n, "ausd")), FeeError);
+  await assert.rejects(maxSendable(base(ARK, "aeur", 1005n * EUR, "")), (err: unknown) => err instanceof FeeError && /no fee denomination/.test(err.message));
 });
 
 test("the answer is the largest for every small balance, and for awkward large ones, in a handful of queries", async () => {

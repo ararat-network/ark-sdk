@@ -31,6 +31,11 @@ test("only the defaulting layer imports the full registry", () => {
     .sort();
   // The registry itself reads the generated file list; nothing else under the core entry may reach either.
   assert.deepEqual(importing, ["codec/registry.ts", "defaults.ts", "index.ts"]);
+  // Nor may it reach them through the defaulting layer, which only the main entry imports.
+  const defaulting = walk(root)
+    .filter((path) => /from "[^"]*\/defaults\.js"/.test(readFileSync(path, "utf8")))
+    .map((path) => path.slice(root.length));
+  assert.deepEqual(defaulting, ["index.ts"]);
 });
 
 test("the core entry exports every name the main entry does, but for the full registry", () => {

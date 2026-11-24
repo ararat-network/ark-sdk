@@ -58,3 +58,19 @@ test("errorMessage reads an Error's message and anything else as text", () => {
   assert.equal(errorMessage("plain"), "plain");
   assert.equal(errorMessage(undefined), "undefined");
 });
+
+test("every error class names itself by the name it is exported under", () => {
+  // The name is a literal on each class, since a minifier renames the class: a literal copied from another class would mislabel it.
+  const args: Record<string, unknown[]> = {
+    EndpointsExhausted: [[]],
+    NodeVersionUnlisted: ["v9", []],
+    BroadcastRefused: [{ hash: "AB", code: 1, codespace: "sdk", rawLog: "" }],
+    InclusionUnknown: [{ hash: "AB" }, new Error("cause")],
+  };
+  const classes = Object.entries(sdk).filter(([, value]) => typeof value === "function" && value.prototype instanceof Error);
+  assert.ok(classes.length >= 29);
+  for (const [name, value] of classes) {
+    const made = Reflect.construct(value as new (...a: unknown[]) => Error, args[name] ?? ["x", "y", "z", "w", []]);
+    assert.equal(made.name, name);
+  }
+});

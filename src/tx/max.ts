@@ -61,6 +61,7 @@ export async function maxSendable(input: MaxSendableInput): Promise<MaxSendable>
   const tip = input.tip ?? 0n;
   if (tip < 0n) throw new FeeError(`tip ${tip} is negative`);
   if (input.spendable < 0n) throw new FeeError(`spendable balance ${input.spendable} is negative`);
+  if (!input.feeDenom) throw new FeeError("no fee denomination: feeDenom names the one that pays the base fee, and none is chosen for you");
 
   // A NOAH leg is drawn whole, so a tip leaves a NOAH balance in full.
   let reserved = input.denom === native ? tip : 0n;

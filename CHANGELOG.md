@@ -41,6 +41,14 @@ Fixed:
   `coinsToString`, `LegacyDec.fromWire`, the vesting and fee arithmetic, and the JSON view now give the chain's
   number, and refuse text the chain refuses; `fromProtoJson` reads an `Int`'s JSON text the same way. The amino
   document still carries a string `Int`'s text as it is, as the chain's does.
+- `formatAssetAmount`, `formatCoin`, and `formatDecCoin` accept a `minimumFractionDigits` above the default most of
+  six; the most stayed at six, and the formatter threw `RangeError`. The most is raised to the least asked for.
+- `shortenAddress` with a tail of zero ends at the ellipsis. `slice(-0)` is the whole string, so the address came
+  back whole after it. A negative or fractional count is read as a whole number, zero at least.
+- `prepareAndSign`, `sendTx`, and `maxSendable` say that a fee denomination is missing when `feeDenom` is empty; the
+  error named an empty denomination as absent from the gas price sheet, after the flow's requests.
+- The README's simulate sample compiles under `strict`: it read a signer's first account and a simulation's gas
+  info without checking either was there.
 - A bytes field in a route's path is sent as the gateway reads it: base64 in the URL's alphabet, of the bytes
   themselves. `gateway.call` put a smart contract query's JSON in the path, which the gateway refused, and the
   standard alphabet elsewhere, whose `/` the gateway takes for a path separator: a raw contract state key or

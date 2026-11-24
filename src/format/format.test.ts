@@ -95,6 +95,24 @@ test("coin text with a leading zero is refused, and a decoded coin's text is sho
   assert.throws(() => formatCoin({ denom: "ausd", amount: "08" }, network), CoinError);
 });
 
+test("a least number of places above the default most raises the most, and no tail is no tail", () => {
+  // Asking for eight places at least used to throw: the most stayed at its default six.
+  assert.equal(formatAssetAmount("1500000000000000000", usd, { locale: "en-US", minimumFractionDigits: 8, symbol: false }), "1.50000000");
+  assert.equal(formatAssetAmount("1500000000000000000", usd, { locale: "en-US", minimumFractionDigits: 2, symbol: false }), "1.50");
+  assert.equal(formatAssetAmount("1234567890000000000", usd, { locale: "en-US", minimumFractionDigits: 2, maximumFractionDigits: 4, symbol: false }), "1.2345");
+  assert.equal(
+    formatAssetAmount("1500000000000000000", usd, { locale: "en-US", minimumFractionDigits: 99, symbol: false }),
+    `1.5${"0".repeat(19)}`,
+    "twenty at most",
+  );
+
+  const address = "ark1fec7dnxl3fre9zmc3kyvtt357de3ek9fnlu96j";
+  assert.equal(shortenAddress(address, { tail: 0 }), "ark1fec7d…", "slice(-0) would have been the whole address again");
+  assert.equal(shortenAddress(address, { head: 0 }), "ark1…lu96j");
+  assert.equal(shortenAddress(address, { head: -3, tail: -1 }), "ark1…");
+  assert.equal(shortenAddress(address, { head: 2.9, tail: 2.9 }), "ark1fe…6j");
+});
+
 test("shortenAddress keeps the prefix and both ends", () => {
   assert.equal(shortenAddress("ark1fec7dnxl3fre9zmc3kyvtt357de3ek9fnlu96j"), "ark1fec7d…lu96j");
   // The separator is the last "1": the data part never contains one.

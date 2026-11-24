@@ -36,8 +36,9 @@ export function fromDisplayUnits(text: string, exponent: number): bigint {
 export interface FormatOptions {
   /** BCP 47 tag; the runtime's default locale when omitted. */
   locale?: string;
-  /** Most fractional digits shown; 6 by default, the exponent at most. */
+  /** Most fractional digits shown; 6 by default, 20 at most, and never fewer than the least asked for. */
   maximumFractionDigits?: number;
+  /** Fewest fractional digits shown, padded with zeros; none by default, 20 at most. */
   minimumFractionDigits?: number;
   /** Rounding of the dropped places; down by default. */
   roundingMode?: "trunc" | "halfExpand" | "ceil" | "floor";
@@ -51,9 +52,11 @@ export function formatAssetAmount(base: bigint | string, asset: Asset, options: 
 }
 
 function formatDecimal(decimal: string, asset: Asset, options: FormatOptions): string {
+  const minimum = Math.min(options.minimumFractionDigits ?? 0, 20);
   const formatter = new Intl.NumberFormat(options.locale, {
-    minimumFractionDigits: options.minimumFractionDigits ?? 0,
-    maximumFractionDigits: Math.min(options.maximumFractionDigits ?? 6, 20),
+    minimumFractionDigits: minimum,
+    // The formatter refuses a most below the least: asking for more places than the default most raises the most.
+    maximumFractionDigits: Math.max(minimum, Math.min(options.maximumFractionDigits ?? 6, 20)),
     roundingMode: options.roundingMode ?? "trunc",
   });
   // A numeric string is formatted exactly, where a number would round it to a float first.

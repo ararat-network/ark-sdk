@@ -4,8 +4,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { create, createRegistry, fromBinary } from "@bufbuild/protobuf";
-import { AnySchema } from "@bufbuild/protobuf/wkt";
+import { create, createRegistry, fromBinary, toBinary } from "@bufbuild/protobuf";
+import { AnySchema, DurationSchema } from "@bufbuild/protobuf/wkt";
 import { aminoEncodeAny, decodeMessage, fromProtoJson, toProtoJson, unpackAny } from "../defaults.js";
 import { ArkSdkError } from "../errors.js";
 import { PricesResponseSchema } from "../gen/ark/pricefeed/v1/pricefeed_pb.js";
@@ -22,6 +22,7 @@ import { UnknownTypeError, unknownAnyJson, unpackAnyAs } from "./any.js";
 import { fromHex, utf8Decode, utf8Encode } from "./bytes.js";
 import { CoinError } from "./coins.js";
 import { LegacyDec } from "./dec.js";
+import { isJsonObject } from "./json.js";
 import { ProtoJsonError, unknownEnumNames } from "./protojson.js";
 
 test("map fields render as objects and read back", () => {
@@ -229,4 +230,17 @@ test("bytes cast to HexBytes are uppercase hex in the chain's JSON, and a list o
 
   // wasmd names every access type: one it does not list is "Unspecified", never a bare number.
   assert.deepEqual(toProtoJson(AccessConfigSchema, create(AccessConfigSchema, { permission: 5 as AccessType })), { permission: "Unspecified", addresses: [] });
+});
+
+test('a message that renders as one value sits under "value" in an Any, and null is not a JSON object', () => {
+  // A Duration renders as text, so inside an Any it has no members to lay beside "@type".
+  const registry = createRegistry(DurationSchema);
+  const any = create(AnySchema, {
+    typeUrl: "/google.protobuf.Duration",
+    value: toBinary(DurationSchema, create(DurationSchema, { seconds: 1n, nanos: 500_000_000 })),
+  });
+  assert.deepEqual(toProtoJson(AnySchema, any, { registry }), { "@type": "/google.protobuf.Duration", value: "1.500s" });
+  assert.deepEqual(fromProtoJson(AnySchema, { "@type": "/google.protobuf.Duration", value: "1.500s" }, { registry }).value, any.value);
+  for (const notAnObject of [null, [], "text", 1, true]) assert.equal(isJsonObject(notAnObject), false);
+  assert.equal(isJsonObject({}), true);
 });
