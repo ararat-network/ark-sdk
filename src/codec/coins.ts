@@ -9,17 +9,12 @@ import { ArkSdkError } from "../errors.js";
 import { type Coin, CoinSchema } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import { CANONICAL_INTEGER_TEXT, goIntegerText } from "./fixed.js";
 
+/** math.Int's bound: the chain refuses an integer of more than 256 bits. */
+const MAX_INT = 2n ** 256n - 1n;
+
 export class CoinError extends ArkSdkError {
   override readonly name: string = "CoinError";
 }
-
-export interface CoinInput {
-  denom: string;
-  amount: bigint | string;
-}
-
-/** math.Int's bound: the chain refuses an integer of more than 256 bits. */
-const MAX_INT = 2n ** 256n - 1n;
 
 /**
  * The integer a math.Int's text holds, as the chain reads it; empty reads as
@@ -50,6 +45,11 @@ export function coin(denom: string, amount: bigint | string): Coin {
   if (value < 0n) throw new CoinError(`negative amount ${value}${denom}`);
   if (value > MAX_INT) throw new CoinError(`amount of ${denom} out of range: ${value}`);
   return create(CoinSchema, { denom, amount: value.toString() });
+}
+
+export interface CoinInput {
+  denom: string;
+  amount: bigint | string;
 }
 
 export function coins(inputs: readonly CoinInput[]): Coin[] {

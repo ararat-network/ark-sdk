@@ -9,14 +9,6 @@ import { registry } from "../codec/registry.js";
 export const FUTURE_MSG_URL = "/ark.future.v1.MsgNew";
 export const FUTURE_ACCOUNT_URL = "/ark.future.v1.SeatAccount";
 
-const text = (name: string, number: number) => ({
-  name,
-  number,
-  jsonName: name,
-  type: FieldDescriptorProto_Type.STRING,
-  label: FieldDescriptorProto_Label.OPTIONAL,
-});
-
 /** Every generated type, and ark.future.v1's MsgNew {sender, amount} and SeatAccount {address} beside them. */
 export function registryWithFutureTypes(): Registry {
   const future = createFileRegistry(
@@ -36,3 +28,11 @@ export function registryWithFutureTypes(): Registry {
   );
   return createRegistry(registry, future);
 }
+
+const text = (name: string, number: number) => ({
+  name,
+  number,
+  jsonName: name,
+  type: FieldDescriptorProto_Type.STRING,
+  label: FieldDescriptorProto_Label.OPTIONAL,
+});

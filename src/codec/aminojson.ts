@@ -66,15 +66,6 @@ export interface AminoSignDocInput {
   sequence: bigint;
 }
 
-/**
- * A string as the transaction's bytes carry it. The bytes are UTF-8, where half of a surrogate pair becomes U+FFFD,
- * and the chain builds its document from the bytes: the document signed here must hold the same character, not
- * the half the caller's string held.
- */
-function wellFormed(text: string): string {
-  return utf8Decode(utf8Encode(text));
-}
-
 /** The amino sign document of a transaction, as the chain's handler builds it. */
 export function makeAminoSignDoc(input: AminoSignDocInput, options: AminoOptions): AminoSignDoc {
   const { body, fee } = input;
@@ -99,6 +90,15 @@ export function makeAminoSignDoc(input: AminoSignDocInput, options: AminoOptions
   if (body.unordered) doc.unordered = true;
   if (body.timeoutTimestamp) doc.timeout_timestamp = timestampToAmino(body.timeoutTimestamp);
   return doc;
+}
+
+/**
+ * A string as the transaction's bytes carry it. The bytes are UTF-8, where half of a surrogate pair becomes U+FFFD,
+ * and the chain builds its document from the bytes: the document signed here must hold the same character, not
+ * the half the caller's string held.
+ */
+function wellFormed(text: string): string {
+  return utf8Decode(utf8Encode(text));
 }
 
 /** The sign bytes for an amino sign document: compact JSON, keys sorted, Go escaping. */
@@ -289,12 +289,6 @@ const inlineJson: FieldEncoder = (r, f) => {
   return sortKeys(parsed);
 };
 
-/** The text of a Dec or an Int field, which is a string field or a bytes one and no other. */
-function numericField(r: ReflectMessage, f: DescField): string {
-  if (f.fieldKind !== "scalar" || (f.scalar !== ScalarType.STRING && f.scalar !== ScalarType.BYTES)) throw new AminoError(`unsupported type for ${f.name}`);
-  return numericText(r.get(f));
-}
-
 const cosmosDec: FieldEncoder = (r, f) => {
   const v = numericField(r, f);
   return v === "" ? "0" : LegacyDec.fromWire(v).toString();
@@ -306,6 +300,12 @@ const cosmosInt: FieldEncoder = (r, f) => {
   // The chain's encoder writes a string field's text as it is, and reads the bytes of one as an Int before writing it.
   return f.fieldKind === "scalar" && f.scalar === ScalarType.BYTES ? intFromWire(v).toString() : v;
 };
+
+/** The text of a Dec or an Int field, which is a string field or a bytes one and no other. */
+function numericField(r: ReflectMessage, f: DescField): string {
+  if (f.fieldKind !== "scalar" || (f.scalar !== ScalarType.STRING && f.scalar !== ScalarType.BYTES)) throw new AminoError(`unsupported type for ${f.name}`);
+  return numericText(r.get(f));
+}
 
 function keyFieldEncoder(r: ReflectMessage): JsonValue {
   const key = r.desc.fields.find((f) => f.name === "key");

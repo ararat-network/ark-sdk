@@ -43,9 +43,6 @@ export function txResponse(overrides: Record<string, unknown> = {}): Record<stri
   return { txhash: "", code: 0, codespace: "", raw_log: "", height: "0", gas_wanted: "0", gas_used: "0", events: [], logs: [], ...overrides };
 }
 
-/** A node's answer to one request. */
-export type Reply = (request: SeenRequest) => Response | Promise<Response>;
-
 /** An error as the gateway renders one: the gRPC code and its message, under an HTTP status. */
 export function gatewayError(code: number, message: string, status: number): Response {
   return json({ code, message, details: [] }, status);
@@ -61,6 +58,9 @@ export const unavailable = (): Response => gatewayError(14, "unavailable", 503);
 export const unreachable = (): never => {
   throw new TypeError("fetch failed");
 };
+
+/** A node's answer to one request. */
+export type Reply = (request: SeenRequest) => Response | Promise<Response>;
 
 /** CheckTx's acceptance of a broadcast, from a node that echoes the transaction's hash. */
 export const accepted =

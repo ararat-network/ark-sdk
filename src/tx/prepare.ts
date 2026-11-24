@@ -138,26 +138,6 @@ export interface SendOptions extends InclusionOptions {
 
 export type Sent = Prepared & Confirmed;
 
-const EXPECTED_SEQUENCE = /account sequence mismatch, expected (\d+), got \d+/;
-
-/**
- * The sequence the chain expects, when an error is a sequence mismatch. It
- * surfaces at simulation, which runs against the mempool's state and so sees
- * a pending transaction, as a query error; or at CheckTx as the SDK's code
- * 32. Either way the log names the expected sequence, which the committed
- * account does not show while the earlier transaction is still pending. This
- * only reads the error: signing again on its answer is safe when the error
- * came before the broadcast or is CheckTx's refusal, and not for an error met
- * after a broadcast was accepted, whose text a faulty node could choose.
- */
-export function expectedSequence(err: unknown): bigint | undefined {
-  let log: string | undefined;
-  if (err instanceof BroadcastRefused && err.result.codespace === SDK_CODESPACE && err.result.code === WRONG_SEQUENCE_CODE) log = err.result.rawLog;
-  else if (err instanceof QueryError) log = err.message;
-  const m = log === undefined ? null : EXPECTED_SEQUENCE.exec(log);
-  return m ? BigInt(m[1] as string) : undefined;
-}
-
 /**
  * prepareAndSign, broadcast, and the block, signing once more at the chain's
  * sequence when another transaction took it. The second signature is made
@@ -208,4 +188,24 @@ async function signAndBroadcast(input: PrepareInput, signAgain: boolean): Promis
   const expected = signAgain ? expectedSequence(refused) : undefined;
   if (expected === undefined) throw refused;
   return { expected };
+}
+
+const EXPECTED_SEQUENCE = /account sequence mismatch, expected (\d+), got \d+/;
+
+/**
+ * The sequence the chain expects, when an error is a sequence mismatch. It
+ * surfaces at simulation, which runs against the mempool's state and so sees
+ * a pending transaction, as a query error; or at CheckTx as the SDK's code
+ * 32. Either way the log names the expected sequence, which the committed
+ * account does not show while the earlier transaction is still pending. This
+ * only reads the error: signing again on its answer is safe when the error
+ * came before the broadcast or is CheckTx's refusal, and not for an error met
+ * after a broadcast was accepted, whose text a faulty node could choose.
+ */
+export function expectedSequence(err: unknown): bigint | undefined {
+  let log: string | undefined;
+  if (err instanceof BroadcastRefused && err.result.codespace === SDK_CODESPACE && err.result.code === WRONG_SEQUENCE_CODE) log = err.result.rawLog;
+  else if (err instanceof QueryError) log = err.message;
+  const m = log === undefined ? null : EXPECTED_SEQUENCE.exec(log);
+  return m ? BigInt(m[1] as string) : undefined;
 }

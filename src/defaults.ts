@@ -48,10 +48,6 @@ export { registry };
 /** An options type with its registry optional: left out, it is every generated type. */
 type Defaulted<T> = Omit<T, "registry"> & RegistryOption;
 
-function withRegistry<T extends RegistryOption>(options: T): T & { registry: Registry } {
-  return { ...options, registry: options.registry ?? registry };
-}
-
 export type AminoOptions = RegistryOption;
 export type EventDecodeOptions = RegistryOption;
 export type TxDecodeOptions = RegistryOption;
@@ -151,4 +147,8 @@ export class QueryClient extends CoreQueryClient {
   static override forNetwork(network: Network, options: GatewayOptions = {}): QueryClient {
     return new QueryClient(restEndpoints(network), options);
   }
+}
+
+function withRegistry<T extends RegistryOption>(options: T): T & { registry: Registry } {
+  return { ...options, registry: options.registry ?? registry };
 }

@@ -15,22 +15,6 @@ export function isJsonObject(value: unknown): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-/** Compares two strings by their UTF-8 bytes, which is code point order. */
-export function compareUtf8(a: string, b: string): number {
-  let i = 0;
-  let j = 0;
-  while (i < a.length && j < b.length) {
-    const ca = a.codePointAt(i) as number;
-    const cb = b.codePointAt(j) as number;
-    if (ca !== cb) return ca < cb ? -1 : 1;
-    i += ca > 0xffff ? 2 : 1;
-    j += cb > 0xffff ? 2 : 1;
-  }
-  if (i < a.length) return 1;
-  if (j < b.length) return -1;
-  return 0;
-}
-
 /** Returns a copy with every object's keys sorted, recursively. */
 export function sortKeys(value: JsonValue): JsonValue {
   if (Array.isArray(value)) return value.map(sortKeys);
@@ -65,6 +49,22 @@ export function marshalGoJson(value: JsonValue): string {
 /** Serialises to UTF-8 bytes. */
 export function marshalGoJsonBytes(value: JsonValue): Uint8Array {
   return new TextEncoder().encode(marshalGoJson(value));
+}
+
+/** Compares two strings by their UTF-8 bytes, which is code point order. */
+export function compareUtf8(a: string, b: string): number {
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    const ca = a.codePointAt(i) as number;
+    const cb = b.codePointAt(j) as number;
+    if (ca !== cb) return ca < cb ? -1 : 1;
+    i += ca > 0xffff ? 2 : 1;
+    j += cb > 0xffff ? 2 : 1;
+  }
+  if (i < a.length) return 1;
+  if (j < b.length) return -1;
+  return 0;
 }
 
 /** Quotes a string with Go's escaping rules (HTML-safe, Go 1.22 short escapes). */

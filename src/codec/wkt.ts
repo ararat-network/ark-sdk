@@ -15,21 +15,6 @@ export class WktError extends ArkSdkError {
   override readonly name: string = "WktError";
 }
 
-function isoSeconds(seconds: bigint): string {
-  const ms = Number(seconds) * 1000;
-  if (!Number.isSafeInteger(ms)) throw new WktError(`timestamp out of range: ${seconds}`);
-  const iso = new Date(ms).toISOString();
-  if (iso.length !== 24) throw new WktError(`timestamp out of range: ${seconds}`);
-  return iso.slice(0, 19);
-}
-
-/** jsonpb's fraction of a second: nothing, or a point and 3, 6, or 9 digits, the fewest that hold the nanoseconds. */
-function jsonpbFraction(nanos: number | bigint): string {
-  let frac = `.${String(nanos).padStart(9, "0")}`;
-  for (const suffix of ["000", "000", ".000"]) if (frac.endsWith(suffix)) frac = frac.slice(0, -suffix.length);
-  return frac;
-}
-
 /** jsonpb: RFC 3339 with 0, 3, 6, or 9 fractional digits. */
 export function timestampToProtoJson(ts: Timestamp): string {
   if (ts.nanos < 0 || ts.nanos >= 1_000_000_000) throw new WktError(`timestamp nanos out of range: ${ts.nanos}`);
@@ -41,6 +26,14 @@ export function timestampToAmino(ts: Timestamp): string {
   if (ts.nanos < 0) throw new WktError(`timestamp nanos must be non-negative: ${ts.nanos}`);
   const frac = ts.nanos === 0 ? "" : `.${stripTrailing(String(ts.nanos).padStart(9, "0"), "0")}`;
   return `${isoSeconds(ts.seconds) + frac}Z`;
+}
+
+function isoSeconds(seconds: bigint): string {
+  const ms = Number(seconds) * 1000;
+  if (!Number.isSafeInteger(ms)) throw new WktError(`timestamp out of range: ${seconds}`);
+  const iso = new Date(ms).toISOString();
+  if (iso.length !== 24) throw new WktError(`timestamp out of range: ${seconds}`);
+  return iso.slice(0, 19);
 }
 
 const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/;
@@ -70,6 +63,13 @@ export function durationToProtoJson(d: Duration): string {
   const sign = total < 0n ? "-" : "";
   const abs = total < 0n ? -total : total;
   return `${sign}${abs / NANOS}${jsonpbFraction(abs % NANOS)}s`;
+}
+
+/** jsonpb's fraction of a second: nothing, or a point and 3, 6, or 9 digits, the fewest that hold the nanoseconds. */
+function jsonpbFraction(nanos: number | bigint): string {
+  let frac = `.${String(nanos).padStart(9, "0")}`;
+  for (const suffix of ["000", "000", ".000"]) if (frac.endsWith(suffix)) frac = frac.slice(0, -suffix.length);
+  return frac;
 }
 
 /**

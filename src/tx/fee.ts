@@ -36,39 +36,15 @@ export class FeeError extends ArkSdkError {
   override readonly name: string = "FeeError";
 }
 
-/** The fee denomination a flow was given, refused when empty: none is chosen for the caller. Internal: not exported from the core entry. */
-export function requireFeeDenom(feeDenom: string): string {
-  if (!feeDenom) throw new FeeError("no fee denomination: feeDenom names the one that pays the base fee, and none is chosen for you");
-  return feeDenom;
-}
-
-/** A tip in NOAH base units, zero when none is given; a negative one is refused. Internal: not exported from the core entry. */
-export function checkedTip(tip: bigint | undefined): bigint {
-  const amount = tip ?? 0n;
-  if (amount < 0n) throw new FeeError(`tip ${amount} is negative`);
-  return amount;
-}
-
-/**
- * The rows that price gas, one to a denomination: the sheet's, and the reference row standing for its own. The chain
- * lists the reference apart from the sheet; given both under one name, the reference row is the one that prices, as
- * arkd has it.
- */
-function priceRows(sheet: readonly GasPrice[], reference: GasPrice | undefined): GasPrice[] {
-  return reference ? [...sheet.filter((row) => row.denom !== reference.denom), reference] : [...sheet];
-}
-
-/** The row of the gas price sheet that prices a fee denomination; one the chain does not accept is refused. Internal: not exported from the core entry. */
-export function gasPriceFor(sheet: { gasPrices: readonly GasPrice[]; referenceGasPrice?: GasPrice | undefined }, feeDenom: string): GasPrice {
-  const price = priceRows(sheet.gasPrices, sheet.referenceGasPrice).find((row) => row.denom === feeDenom);
-  if (!price) throw new FeeError(`${feeDenom} is not on the gas price sheet; the chain does not accept it for the base fee`);
-  return price;
-}
-
 /** The gas leg one denomination requires: ceil(gas_price × gas_limit), in base units. */
 export function requiredGasFee(gasPrice: GasPrice, gasLimit: bigint): Coin {
   if (gasLimit <= 0n) throw new FeeError("gas limit must be positive");
   return coin(gasPrice.denom, LegacyDec.fromWire(gasPrice.gasPrice).mulInt(gasLimit).ceil());
+}
+
+/** ceil(amount × multiplier). */
+export function liftLeg(leg: Coin, headroom: string): Coin {
+  return coin(leg.denom, LegacyDec.fromInt(intFromWire(leg.amount)).mul(multiplier(headroom)).ceil());
 }
 
 /** A headroom multiplier as a decimal, refused below 1. */
@@ -76,11 +52,6 @@ function multiplier(headroom: string): LegacyDec {
   const m = LegacyDec.fromString(headroom);
   if (m.compare(LegacyDec.one()) < 0) throw new FeeError(`headroom ${headroom} is below 1`);
   return m;
-}
-
-/** ceil(amount × multiplier). */
-export function liftLeg(leg: Coin, headroom: string): Coin {
-  return coin(leg.denom, LegacyDec.fromInt(intFromWire(leg.amount)).mul(multiplier(headroom)).ceil());
 }
 
 export interface FeeQuoteInput {
@@ -220,4 +191,33 @@ export function affordableFeeDenoms(input: FeeDenomChoiceInput): string[] {
     if (covered) out.push(price.denom);
   }
   return out;
+}
+
+/**
+ * The rows that price gas, one to a denomination: the sheet's, and the reference row standing for its own. The chain
+ * lists the reference apart from the sheet; given both under one name, the reference row is the one that prices, as
+ * arkd has it.
+ */
+function priceRows(sheet: readonly GasPrice[], reference: GasPrice | undefined): GasPrice[] {
+  return reference ? [...sheet.filter((row) => row.denom !== reference.denom), reference] : [...sheet];
+}
+
+/** The fee denomination a flow was given, refused when empty: none is chosen for the caller. Internal: not exported from the core entry. */
+export function requireFeeDenom(feeDenom: string): string {
+  if (!feeDenom) throw new FeeError("no fee denomination: feeDenom names the one that pays the base fee, and none is chosen for you");
+  return feeDenom;
+}
+
+/** A tip in NOAH base units, zero when none is given; a negative one is refused. Internal: not exported from the core entry. */
+export function checkedTip(tip: bigint | undefined): bigint {
+  const amount = tip ?? 0n;
+  if (amount < 0n) throw new FeeError(`tip ${amount} is negative`);
+  return amount;
+}
+
+/** The row of the gas price sheet that prices a fee denomination; one the chain does not accept is refused. Internal: not exported from the core entry. */
+export function gasPriceFor(sheet: { gasPrices: readonly GasPrice[]; referenceGasPrice?: GasPrice | undefined }, feeDenom: string): GasPrice {
+  const price = priceRows(sheet.gasPrices, sheet.referenceGasPrice).find((row) => row.denom === feeDenom);
+  if (!price) throw new FeeError(`${feeDenom} is not on the gas price sheet; the chain does not accept it for the base fee`);
+  return price;
 }
