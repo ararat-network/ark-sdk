@@ -2,6 +2,8 @@
 // the wire and in generated messages as its scaled integer in decimal text.
 // Arithmetic here mirrors the Go type where the fee contract uses it: Mul
 // rounds half to even at the 18th place, Ceil and TruncateInt are exact.
+
+import { ArkSdkError } from "../errors.js";
 import { decimalParts, fixedPointText, INTEGER_TEXT, scaleDecimal } from "./fixed.js";
 
 export const DEC_PRECISION = 18;
@@ -10,7 +12,7 @@ const HALF_UNIT = UNIT / 2n;
 /** Go's LegacyDec holds |scaled| up to 2^256 × 10^18 − 1, 316 bits. */
 const MAX_SCALED = 2n ** 256n * UNIT - 1n;
 
-export class DecError extends Error {
+export class DecError extends ArkSdkError {
   override readonly name: string = "DecError";
 }
 

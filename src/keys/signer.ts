@@ -7,6 +7,7 @@ import type { Any } from "@bufbuild/protobuf/wkt";
 
 import type { AminoSignDoc } from "../codec/aminojson.js";
 import { packAny } from "../codec/any.js";
+import { ArkSdkError } from "../errors.js";
 import { PubKeySchema } from "../gen/cosmos/crypto/secp256k1/keys_pb.js";
 import type { SignDoc } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 
@@ -45,6 +46,6 @@ export interface Signer {
   signAmino(address: string, signDoc: AminoSignDoc): Promise<AminoSignature>;
 }
 
-export class SignerError extends Error {
+export class SignerError extends ArkSdkError {
   override readonly name: string = "SignerError";
 }

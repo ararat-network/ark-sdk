@@ -7,6 +7,7 @@
 
 import { txHash } from "../codec/hash.js";
 import { SDK_CODESPACE, TX_IN_MEMPOOL_CODE } from "../decode/result.js";
+import { ArkSdkError, errorMessage } from "../errors.js";
 import type { TxResponse } from "../gen/cosmos/base/abci/v1beta1/abci_pb.js";
 import type { QueryClient } from "../query/client.js";
 import { EndpointsExhausted, isEndpointFault, QueryError, TransportError } from "../query/gateway.js";
@@ -31,7 +32,7 @@ export interface BroadcastResult {
   alreadyInMempool: boolean;
 }
 
-export class BroadcastRefused extends Error {
+export class BroadcastRefused extends ArkSdkError {
   override readonly name: string = "BroadcastRefused";
   constructor(readonly result: BroadcastResult) {
     super(`transaction ${result.hash} refused by CheckTx: code ${result.code} (${result.codespace}): ${result.rawLog}`);
@@ -43,18 +44,18 @@ export class BroadcastRefused extends Error {
  * node's, or carried no verdict: the transaction may be in the mempool; poll
  * the hash.
  */
-export class BroadcastUnknown extends Error {
+export class BroadcastUnknown extends ArkSdkError {
   override readonly name: string = "BroadcastUnknown";
   constructor(
     readonly hash: string,
     override readonly cause: unknown,
   ) {
-    super(`transaction ${hash} may have reached the mempool, the broadcast's outcome is unknown: ${cause instanceof Error ? cause.message : String(cause)}`);
+    super(`transaction ${hash} may have reached the mempool, the broadcast's outcome is unknown: ${errorMessage(cause)}`);
   }
 }
 
 /** The chain is past the transaction's timeout height and no block carried it: it can no longer be included. */
-export class TransactionExpired extends Error {
+export class TransactionExpired extends ArkSdkError {
   override readonly name: string = "TransactionExpired";
   constructor(
     readonly hash: string,
@@ -65,7 +66,7 @@ export class TransactionExpired extends Error {
   }
 }
 
-export class InclusionTimeout extends Error {
+export class InclusionTimeout extends ArkSdkError {
   override readonly name: string = "InclusionTimeout";
   constructor(
     readonly hash: string,
@@ -152,7 +153,7 @@ function transient(err: unknown): boolean {
 async function latestHeight(client: QueryClient): Promise<bigint> {
   const latest = await client.node.latestBlock();
   const height = latest.sdkBlock?.header?.height ?? latest.block?.header?.height;
-  if (height === undefined) throw new Error("the node reported no latest block");
+  if (height === undefined) throw new ArkSdkError("the node reported no latest block");
   return height;
 }
 

@@ -6,8 +6,9 @@
 // gas adjustment, or a denomination for the caller; it only runs the steps in
 // the right order on the same messages.
 import { SDK_CODESPACE, WRONG_SEQUENCE_CODE } from "../decode/result.js";
+import { ArkSdkError } from "../errors.js";
 import type { Coin } from "../gen/cosmos/base/v1beta1/coin_pb.js";
-import type { Signer } from "../keys/signer.js";
+import { type Signer, SignerError } from "../keys/signer.js";
 import type { QueryClient } from "../query/client.js";
 import { QueryError } from "../query/gateway.js";
 import { packMessages, type TxBodyInput } from "./body.js";
@@ -15,7 +16,7 @@ import { BroadcastRefused, broadcastAndConfirm, type Confirmed, type InclusionOp
 import { feeFromQuote, type SignedTx, type SigningMode, signTx, simulationTxBytes } from "./builder.js";
 import { adjustGas, FeeError, type FeeQuote, type Headroom, quoteFee } from "./fee.js";
 
-export class PrepareError extends Error {
+export class PrepareError extends ArkSdkError {
   override readonly name: string = "PrepareError";
 }
 
@@ -86,7 +87,7 @@ export async function prepareAndSign(input: PrepareInput): Promise<Prepared> {
   // timeout timestamp stands in for one, so it is simulated and signed at zero.
   const sequence = input.unordered ? 0n : account.sequence;
   const signerAccount = signerAccounts.find((a) => a.address === input.address);
-  if (!signerAccount) throw new PrepareError(`signer holds no account ${input.address}`);
+  if (!signerAccount) throw new SignerError(`signer holds no account ${input.address}`);
 
   let simulatedGas: bigint | undefined;
   let gasLimit = input.gasLimit;

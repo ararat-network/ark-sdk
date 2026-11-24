@@ -2,14 +2,17 @@
 // protobuf-es's type.googleapis.com form, which the chain would refuse.
 import { create, type DescMessage, fromBinary, type Message, type MessageShape, type Registry, toBinary } from "@bufbuild/protobuf";
 import { type Any, AnySchema } from "@bufbuild/protobuf/wkt";
-
+import { ArkSdkError } from "../errors.js";
 import type { JsonObject } from "./json.js";
 import { registry as defaultRegistry } from "./registry.js";
 
-export class UnknownTypeError extends Error {
+export class UnknownTypeError extends ArkSdkError {
   override readonly name: string = "UnknownTypeError";
-  constructor(readonly typeUrl: string) {
-    super(`unknown type ${typeUrl}`);
+  constructor(
+    readonly typeUrl: string,
+    message = `unknown type ${typeUrl}`,
+  ) {
+    super(message);
   }
 }
 

@@ -7,6 +7,7 @@
 import { type DescField, type DescMessage, fromBinary, type MessageShape, type Registry, ScalarType } from "@bufbuild/protobuf";
 import { type ReflectList, type ReflectMessage, reflect } from "@bufbuild/protobuf/reflect";
 import type { Any, Duration, Timestamp } from "@bufbuild/protobuf/wkt";
+import { ArkSdkError } from "../errors.js";
 import { CoinSchema } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import type { Fee, TxBody } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { typeNameOf, typeUrlOf, UnknownTypeError, unknownAnyJson } from "./any.js";
@@ -50,7 +51,7 @@ export interface AminoSignDoc {
   timeout_timestamp?: string;
 }
 
-export class AminoError extends Error {
+export class AminoError extends ArkSdkError {
   override readonly name: string = "AminoError";
 }
 

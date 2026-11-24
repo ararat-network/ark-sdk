@@ -9,6 +9,7 @@
 // so beside a NOAH gas leg the tax legs are declared exact, with no slack.
 import { coin, sumCoins } from "../codec/coins.js";
 import { LegacyDec } from "../codec/dec.js";
+import { ArkSdkError } from "../errors.js";
 import type { GasPrice } from "../gen/ark/treasury/v1/treasury_pb.js";
 import type { Coin } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 
@@ -28,7 +29,7 @@ export const arkdPolicy = {
   gasAdjustment: 1.15,
 } as const;
 
-export class FeeError extends Error {
+export class FeeError extends ArkSdkError {
   override readonly name: string = "FeeError";
 }
 

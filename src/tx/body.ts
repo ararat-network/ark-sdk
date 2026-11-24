@@ -4,7 +4,7 @@
 import { create, type DescMessage, isMessage, type MessageShape } from "@bufbuild/protobuf";
 import { type Any, AnySchema, type Timestamp } from "@bufbuild/protobuf/wkt";
 
-import { packAny, unknownAnyJson } from "../codec/any.js";
+import { packAny, UnknownTypeError, unknownAnyJson } from "../codec/any.js";
 import { type CoinInput, coins } from "../codec/coins.js";
 import { materialise } from "../codec/gogo.js";
 import { SignMode } from "../gen/cosmos/tx/signing/v1beta1/signing_pb.js";
@@ -41,7 +41,8 @@ export function typed<Desc extends DescMessage>(schema: Desc, message: MessageSh
 export function packMessages(messages: readonly TxMessage[]): Any[] {
   return messages.map((m) => {
     if (!isMessage(m, AnySchema)) return packAny(m.schema, materialise(m.schema, m.message));
-    if (unknownAnyJson(m)) throw new Error(`message ${m.typeUrl} was read without its type and holds no bytes; it cannot be put in a transaction`);
+    if (unknownAnyJson(m))
+      throw new UnknownTypeError(m.typeUrl, `message ${m.typeUrl} was read without its type and holds no bytes; it cannot be put in a transaction`);
     return m;
   });
 }

@@ -8,6 +8,7 @@ import { type DecodedEvent, decodeEvents } from "../decode/events.js";
 import { decodeMsgResponses } from "../decode/responses.js";
 import { classifyResult, type Outcome } from "../decode/result.js";
 import { type DecodedMessage, decodeTxMessages } from "../decode/tx.js";
+import { ArkSdkError } from "../errors.js";
 import type { TxResponse } from "../gen/cosmos/base/abci/v1beta1/abci_pb.js";
 import type { OrderBy } from "../gen/cosmos/tx/v1beta1/service_pb.js";
 import type { Tx } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
@@ -79,7 +80,7 @@ export async function searchTxs(client: QueryClient, query: string, options: Sea
 }
 
 /** The node answered a lookup with a different transaction than the one asked for. */
-export class WrongTransaction extends Error {
+export class WrongTransaction extends ArkSdkError {
   override readonly name: string = "WrongTransaction";
   constructor(
     readonly hash: string,

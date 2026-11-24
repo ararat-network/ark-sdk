@@ -5,6 +5,7 @@
 import type { MessageInitShape } from "@bufbuild/protobuf";
 import type { Any } from "@bufbuild/protobuf/wkt";
 import { type DecodedAccount, decodeAccount } from "../decode/account.js";
+import { ArkSdkError } from "../errors.js";
 import type { QueryGrantsRequestSchema } from "../gen/ark/disbursement/v1/query_pb.js";
 import { Query as DisbursementQuery } from "../gen/ark/disbursement/v1/query_pb.js";
 import { Query as MarketQuery } from "../gen/ark/market/v1/query_pb.js";
@@ -22,7 +23,7 @@ import { BroadcastMode, OrderBy, Service as TxService } from "../gen/cosmos/tx/v
 import { type Network, RegistryError } from "../registry/network.js";
 import { type CallOptions, GatewayClient, type GatewayOptions } from "./gateway.js";
 
-export class NetworkMismatch extends Error {
+export class NetworkMismatch extends ArkSdkError {
   override readonly name: string = "NetworkMismatch";
   constructor(
     readonly expected: string,
@@ -33,7 +34,7 @@ export class NetworkMismatch extends Error {
 }
 
 /** The node runs a binary version the registry does not list as compatible, and the caller asked for one it does. */
-export class NodeVersionUnlisted extends Error {
+export class NodeVersionUnlisted extends ArkSdkError {
   override readonly name: string = "NodeVersionUnlisted";
   constructor(
     readonly version: string,
@@ -76,7 +77,7 @@ export class QueryClient {
   /** A client over the network's REST endpoints, in the registry's order, moving on when one cannot answer. */
   static forNetwork(network: Network, options: GatewayOptions = {}): QueryClient {
     const urls = network.endpoints.rest.map((e) => e.address);
-    if (urls.length === 0) throw new Error(`network ${network.chainId} lists no REST endpoint`);
+    if (urls.length === 0) throw new RegistryError(`network ${network.chainId} lists no REST endpoint`);
     return new QueryClient(urls, options);
   }
 
@@ -161,7 +162,7 @@ export class QueryClient {
     /** The account decoded by type: base, module, or one of the vesting accounts, with its schedule. */
     decodedAccount: async (address: string): Promise<DecodedAccount> => {
       const { account } = await this.#value(AuthQuery, "account", { address });
-      if (!account) throw new Error(`no account at ${address}`);
+      if (!account) throw new ArkSdkError(`no account at ${address}`);
       return decodeAccount(account, this.gateway.registry);
     },
   };

@@ -1,10 +1,10 @@
 // sdk.Coin values: amounts in base units as decimal text, built from a bigint
 // or a string, and summed the way sdk.Coins holds them.
 import { create } from "@bufbuild/protobuf";
-
+import { ArkSdkError } from "../errors.js";
 import { type Coin, CoinSchema } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 
-export class CoinError extends Error {
+export class CoinError extends ArkSdkError {
   override readonly name: string = "CoinError";
 }
 

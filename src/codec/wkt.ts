@@ -3,7 +3,7 @@
 // seconds, but differently, so each has its own function.
 import { create } from "@bufbuild/protobuf";
 import { type Duration, DurationSchema, type Timestamp, TimestampSchema } from "@bufbuild/protobuf/wkt";
-
+import { ArkSdkError } from "../errors.js";
 import { stripTrailing } from "./bytes.js";
 
 const NANOS = 1_000_000_000n;
@@ -11,7 +11,7 @@ const NANOS = 1_000_000_000n;
 /** Go's zero time.Time, 0001-01-01T00:00:00Z, which a non-nullable Timestamp holds when unset. */
 export const GO_ZERO_TIME_SECONDS = -62135596800n;
 
-export class WktError extends Error {
+export class WktError extends ArkSdkError {
   override readonly name: string = "WktError";
 }
 

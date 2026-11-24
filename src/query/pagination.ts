@@ -1,7 +1,7 @@
 // Walking a paginated query: the gateway returns a page and the key of the
 // next; the walker asks again until the key is empty, within a page budget.
 import type { MessageInitShape } from "@bufbuild/protobuf";
-
+import { ArkSdkError } from "../errors.js";
 import type { PageRequestSchema, PageResponse } from "../gen/cosmos/base/query/v1beta1/pagination_pb.js";
 
 export type PageRequestInit = MessageInitShape<typeof PageRequestSchema>;
@@ -13,7 +13,7 @@ export interface PaginateOptions {
   maxPages?: number;
 }
 
-export class PaginationError extends Error {
+export class PaginationError extends ArkSdkError {
   override readonly name: string = "PaginationError";
   constructor(
     message: string,

@@ -6,7 +6,7 @@ import { fromHex, toBase64 } from "../codec/bytes.js";
 import { fromProtoJson } from "../codec/protojson.js";
 import { AuthInfoSchema, TxBodySchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { MemorySigner } from "../keys/memory_signer.js";
-import type { Signer } from "../keys/signer.js";
+import { type Signer, SignerError } from "../keys/signer.js";
 import type { QueryClient } from "../query/client.js";
 import { amounts, fixture, fixtureKey } from "../testing/fixtures.js";
 import { fakeNode, json, txResponse } from "../testing/node.js";
@@ -80,6 +80,11 @@ test("prepareAndSign asks the signer for its accounts once, and signTx uses the 
   const prepared = await prepareAndSign({ ...base(node().client), signer: counting });
   assert.equal(toBase64(prepared.signed.txBytes), f.tx_bytes);
   assert.equal(asked, 1, "a wallet or a device is asked once per transaction");
+});
+
+test("an address the signer holds no account for is the signer's refusal, as it is in signTx", async () => {
+  const stranger = MemorySigner.random().address;
+  await assert.rejects(prepareAndSign({ ...base(node().client), address: stranger }), SignerError);
 });
 
 test("a given gas limit or account skips the query for it, and an unlisted fee denomination is refused", async () => {

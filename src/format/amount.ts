@@ -8,10 +8,11 @@ import { stripTrailing } from "../codec/bytes.js";
 import { coin } from "../codec/coins.js";
 import { LegacyDec } from "../codec/dec.js";
 import { decimalParts, fixedPointText, INTEGER_TEXT, scaleDecimal } from "../codec/fixed.js";
+import { ArkSdkError } from "../errors.js";
 import { type Coin, type DecCoin, DecCoinSchema } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import type { Asset, Network } from "../registry/network.js";
 
-export class AmountError extends Error {
+export class AmountError extends ArkSdkError {
   override readonly name: string = "AmountError";
 }
 

@@ -4,12 +4,13 @@
 import { ripemd160 } from "@noble/hashes/legacy.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bech32 } from "@scure/base";
+import { ArkSdkError, errorMessage } from "../errors.js";
 
 export const ADDRESS_LENGTH = 20;
 export const CONTRACT_ADDRESS_LENGTH = 32;
 export const DEFAULT_PREFIX = "ark";
 
-export class AddressError extends Error {
+export class AddressError extends ArkSdkError {
   override readonly name: string = "AddressError";
 }
 
@@ -48,7 +49,7 @@ export function decodeAddress(address: string, options: AddressDecodeOptions = {
   try {
     decoded = bech32.decode(address as `${string}1${string}`, 90);
   } catch (err) {
-    throw new AddressError(`invalid bech32 address ${address}: ${(err as Error).message}`);
+    throw new AddressError(`invalid bech32 address ${address}: ${errorMessage(err)}`);
   }
   if (options.prefix !== undefined && decoded.prefix !== options.prefix) {
     throw new AddressError(`address ${address} has prefix ${decoded.prefix}, expected ${options.prefix}`);

@@ -13,6 +13,7 @@ import { stripTrailing } from "../codec/bytes.js";
 import { isJsonObject, type JsonObject, type JsonValue } from "../codec/json.js";
 import { fromProtoJson, toProtoJson } from "../codec/protojson.js";
 import { registry as defaultRegistry, type RegistryOption } from "../codec/registry.js";
+import { ArkSdkError, errorMessage } from "../errors.js";
 import { http } from "../gen/google/api/annotations_pb.js";
 
 /** gRPC status codes the gateway reports in its error body. */
@@ -36,7 +37,7 @@ export enum GrpcCode {
   Unauthenticated = 16,
 }
 
-export class QueryError extends Error {
+export class QueryError extends ArkSdkError {
   override readonly name: string = "QueryError";
   constructor(
     readonly grpcCode: number,
@@ -54,13 +55,13 @@ export class QueryError extends Error {
 }
 
 /** The node could not be reached or did not answer HTTP. */
-export class TransportError extends Error {
+export class TransportError extends ArkSdkError {
   override readonly name: string = "TransportError";
   constructor(
     readonly url: string,
     override readonly cause: unknown,
   ) {
-    super(`${url}: ${cause instanceof Error ? cause.message : String(cause)}`);
+    super(`${url}: ${errorMessage(cause)}`);
   }
 }
 
@@ -70,15 +71,11 @@ export interface EndpointAttempt {
 }
 
 /** Every endpoint was at fault for one call; each attempt's error is kept, the last as the cause. */
-export class EndpointsExhausted extends Error {
+export class EndpointsExhausted extends ArkSdkError {
   override readonly name: string = "EndpointsExhausted";
   constructor(readonly attempts: readonly EndpointAttempt[]) {
-    super(`every endpoint failed: ${attempts.map((a) => `${a.url}: ${describe(a.error)}`).join("; ")}`, { cause: attempts[attempts.length - 1]?.error });
+    super(`every endpoint failed: ${attempts.map((a) => `${a.url}: ${errorMessage(a.error)}`).join("; ")}`, { cause: attempts[attempts.length - 1]?.error });
   }
-}
-
-function describe(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 /** HTTP statuses that say the endpoint, not the request, is at fault: rate limited, or a gateway that cannot reach its node. */
@@ -144,7 +141,7 @@ export class GatewayClient {
 
   constructor(baseUrl: string | readonly string[], options: GatewayOptions = {}) {
     const urls = (typeof baseUrl === "string" ? [baseUrl] : [...baseUrl]).map((u) => stripTrailing(u, "/"));
-    if (urls.length === 0) throw new Error("a gateway client needs at least one endpoint");
+    if (urls.length === 0) throw new ArkSdkError("a gateway client needs at least one endpoint");
     this.baseUrls = urls;
     this.#fetch = options.fetch ?? globalThis.fetch;
     this.#headers = { ...options.headers };
@@ -251,17 +248,18 @@ function gatewayError(json: JsonValue, status: number, url: string): QueryError 
 
 /** The gateway route of a method for one request, from its google.api.http option. */
 export function routeFor(method: DescMethod, request: JsonObject): Route {
-  if (!hasOption(method, http)) throw new Error(`${method.parent.typeName}.${method.name} has no gateway route`);
+  if (!hasOption(method, http)) throw new ArkSdkError(`${method.parent.typeName}.${method.name} has no gateway route`);
   const rule = getOption(method, http);
   const pattern = rule.pattern;
-  if (pattern.case === undefined || pattern.case === "custom") throw new Error(`${method.parent.typeName}.${method.name}: unsupported route pattern`);
+  if (pattern.case === undefined || pattern.case === "custom") throw new ArkSdkError(`${method.parent.typeName}.${method.name}: unsupported route pattern`);
   const verb = pattern.case.toUpperCase() as Route["verb"];
   const remaining: JsonObject = { ...request };
   const path = pattern.value.replace(/\{([^}=]+)(?:=[^}]*)?\}/g, (_, name: string) => {
     const value = remaining[name];
     delete remaining[name];
     // An empty value would leave an empty path segment, which is another route or none.
-    if (value === undefined || value === null || value === "") throw new Error(`${method.parent.typeName}.${method.name}: request lacks ${name} for the route`);
+    if (value === undefined || value === null || value === "")
+      throw new ArkSdkError(`${method.parent.typeName}.${method.name}: request lacks ${name} for the route`);
     return encodeURIComponent(typeof value === "string" ? value : JSON.stringify(value));
   });
   if (rule.body === "*") return { verb, path, body: remaining };

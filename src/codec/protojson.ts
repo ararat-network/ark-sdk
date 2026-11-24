@@ -17,7 +17,7 @@ import {
 } from "@bufbuild/protobuf";
 import { type ReflectList, type ReflectMap, type ReflectMessage, reflect } from "@bufbuild/protobuf/reflect";
 import { type Any, AnySchema, type Duration, DurationSchema, type Timestamp, TimestampSchema } from "@bufbuild/protobuf/wkt";
-
+import { ArkSdkError } from "../errors.js";
 import { anyFromUnknownJson, typeNameOf, typeUrlOf, UnknownTypeError, unknownAnyJson } from "./any.js";
 import { fromBase64, toBase64, utf8Decode, utf8Encode } from "./bytes.js";
 import { LegacyDec } from "./dec.js";
@@ -26,7 +26,7 @@ import { fieldOptions } from "./options.js";
 import { registry as defaultRegistry, type RegistryOption } from "./registry.js";
 import { durationFromText, durationToProtoJson, GO_ZERO_TIME_SECONDS, timestampFromText, timestampToProtoJson } from "./wkt.js";
 
-export class ProtoJsonError extends Error {
+export class ProtoJsonError extends ArkSdkError {
   override readonly name: string = "ProtoJsonError";
 }
 

@@ -11,11 +11,12 @@ import { sha256 } from "@noble/hashes/sha2.js";
 
 import { toHex } from "../codec/bytes.js";
 import { isJsonObject } from "../codec/json.js";
+import { ArkSdkError, errorMessage } from "../errors.js";
 import { DEFAULT_PREFIX } from "../keys/address.js";
 import { ARK_COIN_TYPE } from "../keys/hd.js";
 import type { ArkFeatures, AssetJson, DenomUnit, Endpoint, Explorer, RegistryFiles } from "./types.js";
 
-export class RegistryError extends Error {
+export class RegistryError extends ArkSdkError {
   override readonly name: string = "RegistryError";
 }
 
@@ -232,7 +233,7 @@ export async function loadNetwork(name: string, options: LoadOptions = {}): Prom
     try {
       return await response.json();
     } catch (err) {
-      throw new RegistryError(`${url}: not JSON: ${err instanceof Error ? err.message : String(err)}`);
+      throw new RegistryError(`${url}: not JSON: ${errorMessage(err)}`);
     }
   };
   const [chain, assets, ark] = await Promise.all([read("chain.json"), read("assetlist.json"), read("ark.json")]);

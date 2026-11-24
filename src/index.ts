@@ -17,6 +17,7 @@ export * from "./decode/events.js";
 export * from "./decode/responses.js";
 export * from "./decode/result.js";
 export * from "./decode/tx.js";
+export { ArkSdkError } from "./errors.js";
 export * from "./format/address.js";
 export * from "./format/amount.js";
 export * from "./keys/address.js";

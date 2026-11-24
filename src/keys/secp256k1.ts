@@ -4,6 +4,7 @@
 // bytes rather than merely valid signatures.
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { sha256 } from "@noble/hashes/sha2.js";
+import { ArkSdkError } from "../errors.js";
 
 export const PRIVATE_KEY_LENGTH = 32;
 export const PUBLIC_KEY_LENGTH = 33;
@@ -12,7 +13,7 @@ export const SIGNATURE_LENGTH = 64;
 /** The curve order, for the low-S check. */
 const CURVE_ORDER = secp256k1.Point.Fn.ORDER;
 
-export class KeyError extends Error {
+export class KeyError extends ArkSdkError {
   override readonly name: string = "KeyError";
 }
 

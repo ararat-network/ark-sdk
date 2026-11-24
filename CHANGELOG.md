@@ -34,6 +34,8 @@ Added:
 
 - `unknownAnyJson` and `anyFromUnknownJson`, and `unknownAny: "keep"` on `fromProtoJson`, which still throws on an
   unknown type by default.
+- `ArkSdkError`, the base of every error the SDK throws on purpose: one `instanceof` tells a refusal the SDK made
+  from a bug or the runtime's own failure. Every error class the package exports extends it and keeps its own name.
 - `GatewayClient.registry`, the types the client resolves an `Any` against, readable so that what decodes one of its
   answers uses the same; and `RegistryOption`, the `registry` member every reader's options share.
 - `lookUpTx`, the node's answer for one transaction by hash, undecoded: undefined while the node has none, and
@@ -45,6 +47,13 @@ Added:
 
 Changed:
 
+- Refusals that were a bare `Error` carry an SDK class. `packMessages` throws `UnknownTypeError` for a message read
+  without its type, as the amino encoder does, and `UnknownTypeError` takes the message to say so with.
+  `QueryClient.forNetwork` throws `RegistryError` for a network that lists no REST endpoint. A request the gateway
+  client cannot build, a client given no endpoint, `decodedAccount` answered with no account, and a node that reports
+  no latest block throw `ArkSdkError` itself.
+- `prepareAndSign` throws `SignerError`, no longer `PrepareError`, when the signer holds no account for the address,
+  as `signTx` does.
 - `searchTxs` and `fetchTx` decode with the client's registry unless one is passed; they used every generated type.
   A client built without a registry is unaffected. One built with a narrower registry now gets a typed event or a
   message response decoded only when that registry holds its type, so pass a registry to keep the old result.
