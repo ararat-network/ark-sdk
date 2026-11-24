@@ -41,6 +41,16 @@ Fixed:
   `coinsToString`, `LegacyDec.fromWire`, the vesting and fee arithmetic, and the JSON view now give the chain's
   number, and refuse text the chain refuses; `fromProtoJson` reads an `Int`'s JSON text the same way. The amino
   document still carries a string `Int`'s text as it is, as the chain's does.
+- The denomination chosen to pay the base fee pays it. `quoteFee` and `prepareAndSign` encoded the fee's legs in
+  denomination order, and the ante charges the first stable leg, in encoded order, whose slack above its tax covers
+  the base fee. A lifted tax leg has slack, so on a taxed send in a denomination that sorts before `feeDenom`, from
+  about 47 EUR at a 0.5% tax and a 1.1 headroom, the ante took the base fee from the tax leg's denomination while
+  the quote named `feeDenom`; a payer holding exactly the principal and its tax there had the transfer fail with
+  the fee kept. A stable gas leg is now encoded first.
+- `affordableFeeDenoms` offers a denomination when the payer holds what the chain draws. It required the lifted
+  ceiling of every leg, a tax leg's included, though the ante draws a tax leg's tax and no more: a payer holding
+  exactly the principal and its tax was not offered another denomination for the gas, the one case that needs it.
+  The gas leg is still counted at its ceiling, as arkd counts it, and a NOAH leg whole.
 - `sendTx` signs again on a sequence mismatch only while the first transaction cannot be in the mempool: when the
   flow before the broadcast met it, or CheckTx refused the transaction for it. It read the text of any query error
   from the whole flow, the wait after an accepted broadcast included, so a lookup answered with the ante's sequence
@@ -64,6 +74,9 @@ Fixed:
 
 Added:
 
+- `FeeDenomChoiceInput.reference`, the sheet's reference row: given it, `affordableFeeDenoms` offers the reference
+  denomination where arkd ranks it, after NOAH and before the rest of the sheet. Its comment claimed arkd's order
+  while the reference, arkd's first choice for a send of it, was never offered.
 - `InclusionUnknown`, thrown by `sendTx` and `broadcastAndConfirm` when the wait for a block fails after the mempool
   accepted the transaction: it carries the hash, the mempool's verdict, and what the wait met as the cause.
 - `InclusionOptions.expiryGraceMs` and `DEFAULT_EXPIRY_GRACE_MS`, how long a transaction stays unfound past its
@@ -91,6 +104,10 @@ Added:
 
 Changed:
 
+- With a stable gas leg and no `legOrder`, the fee's legs are signed with the gas leg's denomination first, where
+  they were in denomination order. A fee of one leg, or with NOAH carrying the gas, is unchanged. For a fee of
+  several legs the signed bytes now differ from arkd's for the same inputs, since arkd can only sort; `legOrder: []`
+  gives denomination order.
 - After an accepted broadcast, `sendTx` and `broadcastAndConfirm` throw `InclusionUnknown` where they threw whatever
   the wait met: a node's error answering a lookup, or the caller's abort, which is now its `cause`. Such an error
   carried no hash, and a caller of `sendTx` holds neither the bytes nor the hash, so a transaction was left in the

@@ -31,7 +31,7 @@ export interface PrepareInput extends TxBodyInput {
   signer: Signer;
   address: string;
   chainId: string;
-  /** The denomination that pays the base fee; must be on the sheet. */
+  /** The denomination that pays the base fee; must be on the sheet. Its leg is encoded first unless `legOrder` says otherwise, which is what makes it the one the ante charges. */
   feeDenom: string;
   headroom: Headroom;
   /** Multiplier on the simulated gas; ignored when gasLimit is given. */
@@ -40,6 +40,7 @@ export interface PrepareInput extends TxBodyInput {
   gasLimit?: bigint;
   /** A tip in NOAH base units: its own leg beside a stable gas leg, part of the NOAH leg when NOAH carries the gas. */
   tip?: bigint;
+  /** Denominations first among the fee's legs; left out, a stable `feeDenom` goes first so that it pays. See FeeQuoteInput.legOrder. */
   legOrder?: readonly string[];
   nativeDenom?: string;
   payer?: string;

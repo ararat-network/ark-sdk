@@ -98,7 +98,10 @@ const sent = await sendTx({ client, signer, address: fromAddress, chainId: netwo
 ```
 
 `quote` says what is declared and why: the tax legs, the gas leg at the sheet's price and the height that priced it,
-each leg's lift, and the tip, exact, when NOAH carries the gas. The fee denomination is yours. Beside a stable gas
+each leg's lift, and the tip, exact, when NOAH carries the gas. The fee denomination is yours, and a stable one's leg
+is encoded first: the ante charges the first stable leg, in encoded order, whose slack covers the base fee, and in
+denomination order a lifted tax leg that sorts ahead would pay it, in a denomination you did not choose. `legOrder`
+sets another order, and an empty one gives the denominations', which is what arkd signs. Beside a stable gas
 leg every lift is free; beside a NOAH gas leg the tax legs are declared exact, since the ante takes the base fee from
 a stable leg's slack before it lets NOAH pay and would then charge the whole NOAH leg as tip, so a tax that rises
 before inclusion refuses the transaction for a new quote. `tip`, in NOAH base units, buys priority: its own leg

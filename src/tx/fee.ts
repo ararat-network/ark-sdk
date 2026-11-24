@@ -7,6 +7,9 @@
 // with the payer, a NOAH leg is charged whole and its excess is the tip. The
 // ante takes the base fee from a stable leg's slack before it lets NOAH pay,
 // so beside a NOAH gas leg the tax legs are declared exact, with no slack.
+// Among stable legs it charges the first, in the order they are encoded,
+// whose slack covers the base fee, and a lifted tax leg has slack: the gas
+// leg's denomination is therefore encoded first, so that it is the one that pays.
 import { coin, intFromWire, sumCoins } from "../codec/coins.js";
 import { LegacyDec } from "../codec/dec.js";
 import { ArkSdkError } from "../errors.js";
@@ -62,7 +65,12 @@ export interface FeeQuoteInput {
   /** A tip in NOAH base units: its own leg beside a stable gas leg, part of the NOAH leg when NOAH carries the gas. */
   tip?: bigint;
   nativeDenom?: string;
-  /** Denominations first in the declaration, so the ante tries them first for the base fee; the rest follow in denomination order. */
+  /**
+   * Denominations first in the declaration, so the ante tries them first for the base fee; the rest follow in
+   * denomination order. Left out, a stable gas leg's denomination goes first: in denomination order a tax leg that
+   * sorts before it would pay the base fee from its lift, in the denomination the caller did not choose and may
+   * hold none to spare of. An empty list is denomination order, as arkd encodes it.
+   */
   legOrder?: readonly string[];
 }
 
@@ -89,6 +97,10 @@ export interface FeeQuote {
  * none, and a tax that rises before inclusion refuses the transaction for a
  * new quote rather than being absorbed. A tip is NOAH on top: its own leg
  * beside a stable gas leg, part of the NOAH leg when NOAH carries the gas.
+ * A stable gas leg is encoded first unless the caller orders the legs, so the
+ * ante reaches it before a tax leg's lift. If its price rises past the
+ * headroom before inclusion the ante passes over it, and a tax leg's lift
+ * may then pay: the headroom is what bounds that.
  */
 export function quoteFee(input: FeeQuoteInput): FeeQuote {
   const native = input.nativeDenom ?? NOAH_DENOM;
@@ -103,10 +115,11 @@ export function quoteFee(input: FeeQuoteInput): FeeQuote {
     if (leg.denom === native) return coin(native, intFromWire(liftLeg(leg, input.headroom.noah).amount) + tipAmount);
     return noahPays ? leg : liftLeg(leg, input.headroom.stable);
   });
-  if (input.legOrder) {
-    const order = input.legOrder;
-    declared = [...declared].sort((a, b) => rank(order, a.denom) - rank(order, b.denom));
-  }
+  // The ante charges the first stable leg, in encoded order, whose slack covers the base fee. The sort is stable,
+  // so what the order does not name stays in denomination order. Beside a NOAH gas leg no stable leg has slack and
+  // the order decides nothing, so it is left as it is.
+  const order = input.legOrder ?? (noahPays ? [] : [required.denom]);
+  declared = [...declared].sort((a, b) => rank(order, a.denom) - rank(order, b.denom));
   // The ante skips NOAH when it picks the paying leg, so a tip leg's place
   // changes nothing; it goes last, after the legs that can pay.
   if (!noahPays && tipAmount > 0n) declared = [...declared, coin(native, tipAmount)];
@@ -140,6 +153,8 @@ export function adjustGas(gasUsed: bigint, adjustment: number): bigint {
 export interface FeeDenomChoiceInput {
   /** The sheet's non-reference rows. */
   sheet: readonly GasPrice[];
+  /** The sheet's reference row, to have the reference denomination offered too; arkd ranks it after NOAH. */
+  reference?: GasPrice;
   tax: readonly Coin[];
   /** The principal the tax was computed over: what the messages already move. */
   taxBase: readonly Coin[];
@@ -153,18 +168,30 @@ export interface FeeDenomChoiceInput {
 /**
  * Denominations whose spendable balance covers a declaration priced in them,
  * net of the principal the messages move, in arkd's preference order: the
- * denominations in the tax base, then NOAH, then the rest of the sheet. A
- * convenience for a payer who has not said which to pay in; the chain is the
- * arbiter either way.
+ * denominations in the tax base, then NOAH, then the reference when its row
+ * is given, then the rest of the sheet as it lists them. A convenience for a
+ * payer who has not said which to pay in; the chain is the arbiter either way.
+ *
+ * Covering means holding what the chain draws. The NOAH leg is drawn whole.
+ * The gas leg is counted at its ceiling, as arkd counts it, since its price
+ * moves every block. A tax leg beside a stable gas leg is counted at the tax
+ * itself: the ante draws no more unless the tax rises, and counting its lift
+ * would rule out a payer who holds exactly the principal and its tax, the one
+ * with most reason to pay gas in another denomination.
  */
 export function affordableFeeDenoms(input: FeeDenomChoiceInput): string[] {
   const native = input.nativeDenom ?? NOAH_DENOM;
-  const preferred = [...new Set([...input.taxBase.map((c) => c.denom), native])];
-  const ordered = [...input.sheet].sort((a, b) => rank(preferred, a.denom) - rank(preferred, b.denom));
+  const reference = input.reference;
+  // The reference row stands for its denomination, as arkd lets it replace a sheet row of the same name.
+  const rows = reference ? [...input.sheet.filter((row) => row.denom !== reference.denom), reference] : [...input.sheet];
+  const preferred = [...new Set([...input.taxBase.map((c) => c.denom), native, ...(reference ? [reference.denom] : [])])];
+  const ordered = rows.sort((a, b) => rank(preferred, a.denom) - rank(preferred, b.denom));
+  const taxed = sumCoins(input.tax);
   const out: string[] = [];
   for (const price of ordered) {
     const quote = quoteFee({ tax: input.tax, gasPrice: price, gasLimit: input.gasLimit, headroom: input.headroom, tip: input.tip, nativeDenom: native });
-    const needed = sumCoins(quote.declared, input.taxBase);
+    const drawn = quote.declared.map((leg) => (leg.denom === native || leg.denom === price.denom ? leg : (taxed.find((t) => t.denom === leg.denom) ?? leg)));
+    const needed = sumCoins(drawn, input.taxBase);
     const covered = needed.every((n) => intFromWire(input.spendable.find((s) => s.denom === n.denom)?.amount ?? "0") >= intFromWire(n.amount));
     if (covered) out.push(price.denom);
   }

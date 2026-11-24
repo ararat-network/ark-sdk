@@ -293,3 +293,30 @@ test("the simulation runs over the body that is signed, its memo and timeouts in
   assert.deepEqual(simulated(u), unordered.signed.bodyBytes);
   assert.equal(fromBinary(TxBodySchema, simulated(u)).unordered, true);
 });
+
+test("the fee the flow signs has the fee denomination's leg first, before a tax leg that sorts ahead of it", async () => {
+  // The messages are taxed in aeur and the gas is paid in ausd: in denomination order the aeur leg would come first,
+  // and the ante would take the base fee from its lift.
+  const taxedInEur = () => {
+    const n = node();
+    n.replies["POST /ark/treasury/v1/compute_tax"] = () => json({ tax: [{ denom: "aeur", amount: "5000000000000000000" }], tax_base: [] });
+    n.replies["GET /ark/treasury/v1/gas_prices"] = () =>
+      json({
+        gas_prices: [
+          { denom: "aeur", gas_price: "117000000000.000000000000000000", derived_height: "5" },
+          { denom: "ausd", gas_price: "137000000000.000000000000000000", derived_height: "5" },
+        ],
+        reference_gas_price: null,
+      });
+    return n;
+  };
+  const signedLegs = (prepared: { signed: { authInfoBytes: Uint8Array } }) => amounts(fromBinary(AuthInfoSchema, prepared.signed.authInfoBytes).fee!.amount);
+  const input = (n: ReturnType<typeof node>) => ({ ...base(n.client), gasLimit: 200000n, headroom: { stable: "1.1", noah: "1.05" } });
+
+  const prepared = await prepareAndSign(input(taxedInEur()));
+  assert.deepEqual(signedLegs(prepared), ["30140000000000000ausd", "5500000000000000000aeur"]);
+  assert.equal(prepared.quote.required.denom, "ausd");
+
+  // The caller's order is signed as given: an empty one is denomination order, as arkd encodes the same fee.
+  assert.deepEqual(signedLegs(await prepareAndSign({ ...input(taxedInEur()), legOrder: [] })), ["5500000000000000000aeur", "30140000000000000ausd"]);
+});
