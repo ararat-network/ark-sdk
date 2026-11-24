@@ -5,7 +5,7 @@ import type { JsonValue } from "../codec/json.js";
 import { fixture } from "../testing/fixtures.js";
 import { json, stubFetch } from "../testing/node.js";
 import { QueryClient } from "./client.js";
-import { fetchTx, searchTxs, txQuery } from "./search.js";
+import { fetchTx, lookUpTx, searchTxs, txQuery, WrongTransaction } from "./search.js";
 
 const f = fixture("multi_message");
 const found = {
@@ -92,4 +92,14 @@ test("fetchTx returns undefined for a pending hash and the decoded transaction o
   assert.equal(item?.messages.length, 2);
   const broken = stub(() => new Response("<html>", { status: 500 }));
   await assert.rejects(fetchTx(broken.client, f.tx_hash!));
+});
+
+test("fetchTx refuses an answer for another transaction, and takes the hash in either case", async () => {
+  const answer = stub(() => json({ tx: f.tx, tx_response: found.tx_responses[0] }));
+  const other = "AA".repeat(32);
+  await assert.rejects(fetchTx(answer.client, other), (err: unknown) => err instanceof WrongTransaction && err.hash === other && err.answered === f.tx_hash);
+  assert.equal((await fetchTx(answer.client, f.tx_hash!.toLowerCase()))?.hash, f.tx_hash, "case is not a difference");
+  const [raw] = [await lookUpTx(answer.client, f.tx_hash!)];
+  assert.equal(raw?.response.txhash, f.tx_hash, "lookUpTx returns the node's answer undecoded");
+  assert.equal(raw?.tx?.body?.messages.length, 2);
 });

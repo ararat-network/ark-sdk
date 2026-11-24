@@ -6,6 +6,7 @@ import { fromHex, toBase64 } from "../codec/bytes.js";
 import { fromProtoJson } from "../codec/protojson.js";
 import { AuthInfoSchema, TxBodySchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { MemorySigner } from "../keys/memory_signer.js";
+import type { Signer } from "../keys/signer.js";
 import type { QueryClient } from "../query/client.js";
 import { amounts, fixture, fixtureKey } from "../testing/fixtures.js";
 import { fakeNode, json, txResponse } from "../testing/node.js";
@@ -64,6 +65,21 @@ test("prepareAndSign reproduces a fixture from a node's answers", async () => {
     ],
     "the steps run in the contract's order",
   );
+});
+
+test("prepareAndSign asks the signer for its accounts once, and signTx uses the account it is handed", async () => {
+  let asked = 0;
+  const counting: Signer = {
+    accounts: () => {
+      asked++;
+      return signer.accounts();
+    },
+    signDirect: (address, doc) => signer.signDirect(address, doc),
+    signAmino: (address, doc) => signer.signAmino(address, doc),
+  };
+  const prepared = await prepareAndSign({ ...base(node().client), signer: counting });
+  assert.equal(toBase64(prepared.signed.txBytes), f.tx_bytes);
+  assert.equal(asked, 1, "a wallet or a device is asked once per transaction");
 });
 
 test("a given gas limit or account skips the query for it, and an unlisted fee denomination is refused", async () => {

@@ -5,14 +5,14 @@
 // multisig key: its sign document binds one public key and sequence, which a
 // multisig account does not have as one.
 import { toBinary } from "@bufbuild/protobuf";
-import type { Any, Timestamp } from "@bufbuild/protobuf/wkt";
+import type { Any } from "@bufbuild/protobuf/wkt";
 
 import { type AminoSignDoc, aminoSignDocBytes, makeAminoSignDoc } from "../codec/aminojson.js";
 import { bytesEqual } from "../codec/bytes.js";
 import { txHash } from "../codec/hash.js";
 import { type Fee, type SignDoc, SignDocSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
-import { MULTISIG_PUBLIC_KEY_URL, type Signer, SignerError } from "../keys/signer.js";
-import { makeAuthInfo, makeFee, makeSignerInfo, makeTxBody, SignMode, type TxMessage } from "./body.js";
+import { MULTISIG_PUBLIC_KEY_URL, type Signer, type SignerAccount, SignerError } from "../keys/signer.js";
+import { makeAuthInfo, makeFee, makeSignerInfo, makeTxBody, SignMode, type TxBodyInput } from "./body.js";
 import type { FeeQuote } from "./fee.js";
 import { directSignBytes, encodeAuthInfo, encodeTxBody, encodeTxRaw, makeSignDoc } from "./signdoc.js";
 
@@ -32,18 +32,15 @@ export class SignerAlteredDocument extends SignerError {
   }
 }
 
-export interface SignTxInput {
+/** The body's members, and who signs it at what account number, sequence, and fee. */
+export interface SignTxInput extends TxBodyInput {
   signer: Signer;
   address: string;
+  /** The signer's account for `address`, when the caller already holds it; the signer is asked for its accounts otherwise. */
+  signerAccount?: SignerAccount;
   chainId: string;
   accountNumber: bigint;
   sequence: bigint;
-  messages: readonly TxMessage[];
-  memo?: string;
-  timeoutHeight?: bigint;
-  /** An unordered transaction, valid until its timeout timestamp in place of a sequence: the chain refuses one whose sequence is not zero. */
-  unordered?: boolean;
-  timeoutTimestamp?: Timestamp;
   /** The declared fee, a ceiling; see fee.ts for how it is priced. */
   fee: Fee;
   /** direct by default; amino for a Ledger. */
@@ -68,17 +65,12 @@ export interface SignedTx {
 /** Builds and signs a transaction for one signer. */
 export async function signTx(input: SignTxInput): Promise<SignedTx> {
   const mode = input.mode ?? "direct";
-  const account = (await input.signer.accounts()).find((a) => a.address === input.address);
+  const account = input.signerAccount ?? (await input.signer.accounts()).find((a) => a.address === input.address);
   if (!account) throw new SignerError(`signer holds no account ${input.address}`);
+  if (account.address !== input.address) throw new SignerError(`the signer account given is ${account.address}, not ${input.address}`);
   checkKeyForMode(account.publicKey, mode);
 
-  const body = makeTxBody({
-    messages: input.messages,
-    memo: input.memo,
-    timeoutHeight: input.timeoutHeight,
-    timeoutTimestamp: input.timeoutTimestamp,
-    unordered: input.unordered,
-  });
+  const body = makeTxBody(input);
   const bodyBytes = encodeTxBody(body);
   const signMode = mode === "direct" ? SignMode.DIRECT : SignMode.LEGACY_AMINO_JSON;
   const authInfo = makeAuthInfo([makeSignerInfo(account.publicKey, input.sequence, signMode)], input.fee);
@@ -108,12 +100,7 @@ function checkKeyForMode(publicKey: Any, mode: SigningMode): void {
   throw new SignerError("multisig signing, with its bit array mode info and combined signature, is not built here yet");
 }
 
-export interface SimulationTxInput {
-  messages: readonly TxMessage[];
-  memo?: string;
-  timeoutHeight?: bigint;
-  unordered?: boolean;
-  timeoutTimestamp?: Timestamp;
+export interface SimulationTxInput extends TxBodyInput {
   publicKey: Any;
   sequence: bigint;
   /** A fee to meter the transfer under, or none: the ante then charges its fee-transfer allowance instead. */
@@ -122,13 +109,7 @@ export interface SimulationTxInput {
 
 /** An unsigned transaction for Simulate: the real body and signer info with an empty signature. */
 export function simulationTxBytes(input: SimulationTxInput): Uint8Array {
-  const body = makeTxBody({
-    messages: input.messages,
-    memo: input.memo,
-    timeoutHeight: input.timeoutHeight,
-    timeoutTimestamp: input.timeoutTimestamp,
-    unordered: input.unordered,
-  });
+  const body = makeTxBody(input);
   const fee = input.fee ?? makeFee({ amount: [], gasLimit: 0n });
   const authInfo = makeAuthInfo([makeSignerInfo(input.publicKey, input.sequence, SignMode.DIRECT)], fee);
   return encodeTxRaw({ bodyBytes: encodeTxBody(body), authInfoBytes: encodeAuthInfo(authInfo), signatures: [new Uint8Array()] });

@@ -1,8 +1,8 @@
 // The parts of a transaction: the body with its messages, the signer info,
 // the fee, and the auth info. Messages are packed under their Cosmos type
 // URL after the gogo pass, so the bytes are what the chain itself would write.
-import { create, type DescMessage, type MessageShape } from "@bufbuild/protobuf";
-import type { Any, Timestamp } from "@bufbuild/protobuf/wkt";
+import { create, type DescMessage, isMessage, type MessageShape } from "@bufbuild/protobuf";
+import { type Any, AnySchema, type Timestamp } from "@bufbuild/protobuf/wkt";
 
 import { packAny, unknownAnyJson } from "../codec/any.js";
 import { type CoinInput, coins } from "../codec/coins.js";
@@ -33,10 +33,6 @@ export function typed<Desc extends DescMessage>(schema: Desc, message: MessageSh
   return { schema, message };
 }
 
-function isAny(m: TxMessage): m is Any {
-  return (m as Any).$typeName === "google.protobuf.Any";
-}
-
 /**
  * Packs each message under its type URL; an Any passes through. One that was
  * read from a node without its type is refused: it holds no bytes, and
@@ -44,7 +40,7 @@ function isAny(m: TxMessage): m is Any {
  */
 export function packMessages(messages: readonly TxMessage[]): Any[] {
   return messages.map((m) => {
-    if (!isAny(m)) return packAny(m.schema, materialise(m.schema, m.message));
+    if (!isMessage(m, AnySchema)) return packAny(m.schema, materialise(m.schema, m.message));
     if (unknownAnyJson(m)) throw new Error(`message ${m.typeUrl} was read without its type and holds no bytes; it cannot be put in a transaction`);
     return m;
   });
@@ -55,6 +51,7 @@ export interface TxBodyInput {
   memo?: string;
   timeoutHeight?: bigint;
   timeoutTimestamp?: Timestamp;
+  /** An unordered transaction, valid until its timeout timestamp in place of a sequence: the chain refuses one whose sequence is not zero. */
   unordered?: boolean;
 }
 

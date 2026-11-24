@@ -7,6 +7,7 @@ import { create } from "@bufbuild/protobuf";
 import { stripTrailing } from "../codec/bytes.js";
 import { coin } from "../codec/coins.js";
 import { LegacyDec } from "../codec/dec.js";
+import { decimalParts, fixedPointText, INTEGER_TEXT, scaleDecimal } from "../codec/fixed.js";
 import { type Coin, type DecCoin, DecCoinSchema } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import type { Asset, Network } from "../registry/network.js";
 
@@ -14,29 +15,21 @@ export class AmountError extends Error {
   override readonly name: string = "AmountError";
 }
 
-const INTEGER = /^-?\d+$/;
-const DECIMAL = /^(-?)(\d+)(?:\.(\d+))?$/;
-
 /** Base units to an exact decimal in display units, trailing zeros dropped. */
 export function toDisplayUnits(base: bigint | string, exponent: number): string {
-  if (typeof base === "string" && !INTEGER.test(base)) throw new AmountError(`not an integer amount: ${base}`);
+  if (typeof base === "string" && !INTEGER_TEXT.test(base)) throw new AmountError(`not an integer amount: ${base}`);
   const value = BigInt(base);
   if (exponent === 0) return value.toString();
-  const negative = value < 0n;
-  const digits = (negative ? -value : value).toString().padStart(exponent + 1, "0");
-  const point = digits.length - exponent;
-  const fraction = stripTrailing(digits.slice(point), "0");
-  return (negative ? "-" : "") + digits.slice(0, point) + (fraction === "" ? "" : `.${fraction}`);
+  // The zeros go first, and stop at the point; the point goes only when nothing is left after it.
+  return stripTrailing(stripTrailing(fixedPointText(value, exponent), "0"), ".");
 }
 
 /** A decimal in display units to base units; refuses more places than the exponent allows. */
 export function fromDisplayUnits(text: string, exponent: number): bigint {
-  const m = DECIMAL.exec(text.trim());
-  if (!m) throw new AmountError(`not a decimal amount: ${text}`);
-  const fraction = m[3] ?? "";
-  if (fraction.length > exponent) throw new AmountError(`${text} has more than ${exponent} decimal places`);
-  const scaled = BigInt(m[2] as string) * 10n ** BigInt(exponent) + BigInt(fraction.padEnd(exponent, "0") || "0");
-  return m[1] === "-" ? -scaled : scaled;
+  const parts = decimalParts(text.trim());
+  if (!parts) throw new AmountError(`not a decimal amount: ${text}`);
+  if (parts.fraction.length > exponent) throw new AmountError(`${text} has more than ${exponent} decimal places`);
+  return scaleDecimal(parts, exponent);
 }
 
 export interface FormatOptions {
@@ -62,7 +55,8 @@ function formatDecimal(decimal: string, asset: Asset, options: FormatOptions): s
     maximumFractionDigits: Math.min(options.maximumFractionDigits ?? 6, 20),
     roundingMode: options.roundingMode ?? "trunc",
   });
-  const number = formatter.format(decimal as unknown as number);
+  // A numeric string is formatted exactly, where a number would round it to a float first.
+  const number = formatter.format(decimal as `${number}`);
   return options.symbol === false ? number : `${number} ${asset.symbol}`;
 }
 

@@ -8,6 +8,11 @@ export interface JsonObject {
   [key: string]: JsonValue;
 }
 
+/** Whether a value read from JSON is an object: not null, not an array, not a scalar. */
+export function isJsonObject(value: unknown): value is JsonObject {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 /** Compares two strings by their UTF-8 bytes, which is code point order. */
 export function compareUtf8(a: string, b: string): number {
   let i = 0;

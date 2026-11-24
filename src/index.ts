@@ -9,7 +9,7 @@ export * from "./codec/gogo.js";
 export * from "./codec/hash.js";
 export * from "./codec/json.js";
 export * from "./codec/options.js";
-export * from "./codec/protojson.js";
+export { type FromProtoJsonOptions, fromProtoJson, ProtoJsonError, type ToProtoJsonOptions, toProtoJson } from "./codec/protojson.js";
 export * from "./codec/registry.js";
 export * from "./codec/wkt.js";
 export * from "./decode/account.js";

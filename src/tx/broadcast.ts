@@ -6,12 +6,11 @@
 // and says so with the hash to poll.
 
 import { txHash } from "../codec/hash.js";
+import { SDK_CODESPACE, TX_IN_MEMPOOL_CODE } from "../decode/result.js";
 import type { TxResponse } from "../gen/cosmos/base/abci/v1beta1/abci_pb.js";
 import type { QueryClient } from "../query/client.js";
 import { EndpointsExhausted, isEndpointFault, QueryError, TransportError } from "../query/gateway.js";
-
-/** The SDK's code for a transaction the mempool already holds: the first broadcast reached it. */
-const TX_IN_MEMPOOL_CACHE = 19;
+import { lookUpTx } from "../query/search.js";
 
 /**
  * Statuses a proxy in front of the node answers with when the node's own
@@ -88,7 +87,7 @@ export class InclusionTimeout extends Error {
  */
 export async function broadcastSync(client: QueryClient, txBytes: Uint8Array): Promise<BroadcastResult> {
   const hash = txHash(txBytes);
-  let r: Awaited<ReturnType<QueryClient["tx"]["broadcast"]>>["txResponse"];
+  let r: TxResponse | undefined;
   try {
     r = (await client.tx.broadcast(txBytes)).txResponse;
   } catch (err) {
@@ -97,7 +96,8 @@ export async function broadcastSync(client: QueryClient, txBytes: Uint8Array): P
     throw err;
   }
   if (!r) throw new BroadcastUnknown(hash, new Error("the node answered without a verdict"));
-  const alreadyInMempool = r.code === TX_IN_MEMPOOL_CACHE && r.codespace === "sdk";
+  // The mempool already holds the transaction: the first broadcast reached it.
+  const alreadyInMempool = r.code === TX_IN_MEMPOOL_CODE && r.codespace === SDK_CODESPACE;
   // The hash is the bytes' own, never the one the node echoes: it is what is
   // polled next, and an answer for another transaction must not redirect that.
   return {
@@ -149,29 +149,6 @@ function transient(err: unknown): boolean {
   return err instanceof EndpointsExhausted || isEndpointFault(err);
 }
 
-/** The node answered a lookup with a different transaction than the one asked for. */
-export class WrongTransaction extends Error {
-  override readonly name: string = "WrongTransaction";
-  constructor(
-    readonly hash: string,
-    readonly answered: string,
-  ) {
-    super(`the node answered for transaction ${answered}, not ${hash}`);
-  }
-}
-
-/** The committed transaction, or undefined while the node has none under the hash; an answer for another hash is refused. */
-async function lookUp(client: QueryClient, hash: string): Promise<TxResponse | undefined> {
-  try {
-    const found = (await client.tx.getTx(hash)).txResponse;
-    if (found && found.txhash !== "" && found.txhash.toUpperCase() !== hash.toUpperCase()) throw new WrongTransaction(hash, found.txhash);
-    return found;
-  } catch (err) {
-    if (err instanceof QueryError && err.isNotFound) return undefined;
-    throw err;
-  }
-}
-
 async function latestHeight(client: QueryClient): Promise<bigint> {
   const latest = await client.node.latestBlock();
   const height = latest.sdkBlock?.header?.height ?? latest.block?.header?.height;
@@ -199,14 +176,14 @@ export async function waitForInclusion(client: QueryClient, hash: string, option
   let lastError: unknown;
   for (;;) {
     try {
-      const found = await lookUp(client, hash);
-      if (found) return found;
+      const found = await lookUpTx(client, hash);
+      if (found) return found.response;
       lastError = undefined;
       if (timeoutHeight !== undefined) {
         const height = await latestHeight(client);
         if (height > timeoutHeight) {
-          const last = await lookUp(client, hash);
-          if (last) return last;
+          const last = await lookUpTx(client, hash);
+          if (last) return last.response;
           throw new TransactionExpired(hash, timeoutHeight, height);
         }
       }

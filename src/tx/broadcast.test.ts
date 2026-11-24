@@ -2,17 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { txHash } from "../codec/hash.js";
 import { QueryError } from "../query/gateway.js";
+import { WrongTransaction } from "../query/search.js";
 import { fakeNode, json, txResponse } from "../testing/node.js";
-import {
-  BroadcastRefused,
-  BroadcastUnknown,
-  broadcastAndConfirm,
-  broadcastSync,
-  InclusionTimeout,
-  TransactionExpired,
-  WrongTransaction,
-  waitForInclusion,
-} from "./broadcast.js";
+import { BroadcastRefused, BroadcastUnknown, broadcastAndConfirm, broadcastSync, InclusionTimeout, TransactionExpired, waitForInclusion } from "./broadcast.js";
 
 /** The hash of the one-byte transaction the tests broadcast, which an honest node echoes. */
 const HASH = txHash(new Uint8Array([1]));

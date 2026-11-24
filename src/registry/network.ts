@@ -10,6 +10,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 
 import { toHex } from "../codec/bytes.js";
+import { isJsonObject } from "../codec/json.js";
 import { DEFAULT_PREFIX } from "../keys/address.js";
 import { ARK_COIN_TYPE } from "../keys/hd.js";
 import type { ArkFeatures, AssetJson, DenomUnit, Endpoint, Explorer, RegistryFiles } from "./types.js";
@@ -244,8 +245,8 @@ export async function loadNetwork(name: string, options: LoadOptions = {}): Prom
 type JsonObject = Record<string, unknown>;
 
 function object(value: unknown, where: string): JsonObject {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new RegistryError(`${where} is not an object`);
-  return value as JsonObject;
+  if (!isJsonObject(value)) throw new RegistryError(`${where} is not an object`);
+  return value;
 }
 
 function member(o: JsonObject, key: string, where: string): unknown {

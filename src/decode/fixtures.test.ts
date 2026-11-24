@@ -28,7 +28,13 @@ for (const f of all) {
       messages.map((m) => m["@type"]),
     );
     assert.ok(decoded.messages.every((m) => m.known && m.message !== undefined && m.schema !== undefined));
-    assert.deepEqual(decoded.json, expectedTxJson(f.name, f.tx));
+    const expected = expectedTxJson(f.name, f.tx);
+    assert.deepEqual(decoded.json, expected);
+    assert.deepEqual(
+      decoded.messages.map((m) => m.json),
+      (expected.body as JsonObject).messages,
+      "each message's JSON is the transaction's own rendering of it",
+    );
     assert.equal(decoded.memo, f.tx!.body.memo);
     assert.equal(decoded.signers.length, 1);
     assert.equal(decoded.signers[0]?.sequence, BigInt(f.signer!.sequence));

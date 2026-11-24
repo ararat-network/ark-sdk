@@ -4,14 +4,24 @@
 // pointer field is null, a non-nullable one is always present, Decs read as
 // decimals, and a wasm message's JSON is inlined. The reverse direction reads
 // the same dialect back into generated messages.
-import { create, type DescEnum, type DescField, type DescMessage, fromBinary, type MessageShape, type Registry, ScalarType } from "@bufbuild/protobuf";
+import {
+  create,
+  type DescEnum,
+  type DescField,
+  type DescMessage,
+  fromBinary,
+  type MessageShape,
+  type Registry,
+  ScalarType,
+  toBinary,
+} from "@bufbuild/protobuf";
 import { type ReflectList, type ReflectMap, type ReflectMessage, reflect } from "@bufbuild/protobuf/reflect";
 import { type Any, AnySchema, type Duration, DurationSchema, type Timestamp, TimestampSchema } from "@bufbuild/protobuf/wkt";
 
 import { anyFromUnknownJson, typeNameOf, typeUrlOf, UnknownTypeError, unknownAnyJson } from "./any.js";
 import { fromBase64, toBase64, utf8Decode, utf8Encode } from "./bytes.js";
 import { LegacyDec } from "./dec.js";
-import type { JsonObject, JsonValue } from "./json.js";
+import { isJsonObject, type JsonObject, type JsonValue } from "./json.js";
 import { fieldOptions } from "./options.js";
 import { registry as defaultRegistry } from "./registry.js";
 import { durationFromText, durationToProtoJson, GO_ZERO_TIME_SECONDS, timestampFromText, timestampToProtoJson } from "./wkt.js";
@@ -97,9 +107,15 @@ function anyToJson(any: Any, ctx: WriteContext): JsonValue {
     if (ctx.unknownAny === "raw") return { "@type": any.typeUrl, value: toBase64(any.value) };
     throw new UnknownTypeError(any.typeUrl);
   }
-  const value = messageToJson(reflect(schema, fromBinary(schema, any.value)), ctx);
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return { "@type": any.typeUrl, value };
-  return { "@type": any.typeUrl, ...value };
+  return anyJson(any.typeUrl, messageToJson(reflect(schema, fromBinary(schema, any.value)), ctx));
+}
+
+/**
+ * A message's JSON as an Any carries it: its members beside "@type", or under "value" for a message that renders as
+ * a scalar. Shared with the decoder, which already holds the decoded message; not re-exported from the index.
+ */
+export function anyJson(typeUrl: string, value: JsonValue): JsonObject {
+  return isJsonObject(value) ? { "@type": typeUrl, ...value } : { "@type": typeUrl, value };
 }
 
 function fieldToJson(r: ReflectMessage, f: DescField, ctx: WriteContext): JsonValue {
@@ -250,7 +266,7 @@ function messageFromJson(desc: DescMessage, json: JsonValue, ctx: ReadContext): 
     case WKT_ANY:
       return reflect(AnySchema, anyFromJson(json, ctx));
   }
-  if (json === null || typeof json !== "object" || Array.isArray(json)) throw new ProtoJsonError(`${desc.typeName}: expected an object`);
+  if (!isJsonObject(json)) throw new ProtoJsonError(`${desc.typeName}: expected an object`);
   const r = reflect(desc);
   for (const [key, value] of Object.entries(json)) {
     const f = fieldByJsonKey(desc, key);
@@ -265,7 +281,7 @@ function messageFromJson(desc: DescMessage, json: JsonValue, ctx: ReadContext): 
 }
 
 function anyFromJson(json: JsonValue, ctx: ReadContext): Any {
-  if (json === null || typeof json !== "object" || Array.isArray(json)) throw new ProtoJsonError("Any: expected an object");
+  if (!isJsonObject(json)) throw new ProtoJsonError("Any: expected an object");
   const { "@type": typeUrl, ...rest } = json;
   if (typeof typeUrl !== "string") {
     if (Object.keys(json).length === 0) return create(AnySchema);
@@ -278,10 +294,8 @@ function anyFromJson(json: JsonValue, ctx: ReadContext): Any {
   }
   const wkt = schema.typeName === WKT_TIMESTAMP || schema.typeName === WKT_DURATION || schema.typeName === WKT_ANY;
   const inner = messageFromJson(schema, wkt ? (rest.value as JsonValue) : rest, ctx);
-  return create(AnySchema, { typeUrl: typeUrlOf(schema), value: toBinaryImpl(schema, inner.message) });
+  return create(AnySchema, { typeUrl: typeUrlOf(schema), value: toBinary(schema, inner.message) });
 }
-
-import { toBinary as toBinaryImpl } from "@bufbuild/protobuf";
 
 function setFieldFromJson(r: ReflectMessage, f: DescField, json: JsonValue, ctx: ReadContext): void {
   switch (f.fieldKind) {
@@ -304,7 +318,7 @@ function setFieldFromJson(r: ReflectMessage, f: DescField, json: JsonValue, ctx:
       return;
     }
     case "map": {
-      if (json === null || typeof json !== "object" || Array.isArray(json)) throw new ProtoJsonError(`${f.parent.typeName}.${f.name}: expected an object`);
+      if (!isJsonObject(json)) throw new ProtoJsonError(`${f.parent.typeName}.${f.name}: expected an object`);
       const map = r.get(f);
       for (const [k, item] of Object.entries(json)) {
         const key = mapKeyFromJson(f.mapKey, k);

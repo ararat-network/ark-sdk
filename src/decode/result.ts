@@ -52,6 +52,9 @@ export const sdkErrors: Readonly<Record<number, string>> = {
 export const SDK_CODESPACE = "sdk";
 export const UNDEFINED_CODESPACE = "undefined";
 export const PANIC_CODE = 111222;
+/** The SDK errors the transaction flow acts on by code: a mempool that already holds the transaction, and a sequence another transaction took. */
+export const TX_IN_MEMPOOL_CODE = 19;
+export const WRONG_SEQUENCE_CODE = 32;
 
 export interface TxResultLike {
   code: number;

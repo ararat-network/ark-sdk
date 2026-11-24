@@ -77,14 +77,38 @@ export async function searchTxs(client: QueryClient, query: string, options: Sea
   };
 }
 
-/** One committed transaction by hash, or undefined while it is pending or unknown. */
-export async function fetchTx(client: QueryClient, hash: string, registry?: Registry): Promise<FoundTx | undefined> {
+/** The node answered a lookup with a different transaction than the one asked for. */
+export class WrongTransaction extends Error {
+  override readonly name: string = "WrongTransaction";
+  constructor(
+    readonly hash: string,
+    readonly answered: string,
+  ) {
+    super(`the node answered for transaction ${answered}, not ${hash}`);
+  }
+}
+
+/**
+ * The node's answer for one committed transaction by hash, as it sent it, or
+ * undefined while the node has none under the hash: NotFound means pending or
+ * unknown, not a failure. An answer for another hash is refused, so a faulty
+ * endpoint cannot pass one transaction's result off as another's.
+ */
+export async function lookUpTx(client: QueryClient, hash: string): Promise<{ response: TxResponse; tx: Tx | undefined } | undefined> {
   try {
-    const result = await client.tx.getTx(hash);
-    if (!result.txResponse) return undefined;
-    return foundTx(result.txResponse, result.tx, registry);
+    const found = await client.tx.getTx(hash);
+    const response = found.txResponse;
+    if (!response) return undefined;
+    if (response.txhash !== "" && response.txhash.toUpperCase() !== hash.toUpperCase()) throw new WrongTransaction(hash, response.txhash);
+    return { response, tx: found.tx };
   } catch (err) {
     if (err instanceof QueryError && err.isNotFound) return undefined;
     throw err;
   }
+}
+
+/** One committed transaction by hash, decoded, or undefined while it is pending or unknown. */
+export async function fetchTx(client: QueryClient, hash: string, registry?: Registry): Promise<FoundTx | undefined> {
+  const found = await lookUpTx(client, hash);
+  return found && foundTx(found.response, found.tx, registry);
 }

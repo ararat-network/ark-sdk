@@ -32,8 +32,25 @@ Added:
 
 - `unknownAnyJson` and `anyFromUnknownJson`, and `unknownAny: "keep"` on `fromProtoJson`, which still throws on an
   unknown type by default.
+- `lookUpTx`, the node's answer for one transaction by hash, undecoded: undefined while the node has none, and
+  refusing an answer for another hash. `fetchTx` and `waitForInclusion` both read through it.
+- `SignTxInput.signerAccount`, the signer's account when the caller already holds it. `prepareAndSign` passes the one
+  it read, so a wallet or a device is asked for its accounts once per transaction, not twice.
+- `isJsonObject`, the guard for a `JsonObject`, and `TX_IN_MEMPOOL_CODE` and `WRONG_SEQUENCE_CODE`, the two SDK error
+  codes the transaction flow acts on, beside `SDK_CODESPACE`.
 
 Changed:
+
+- `fetchTx` throws `WrongTransaction` when the node answers with another transaction's hash, as `waitForInclusion`
+  does. It used to return that transaction decoded.
+- `prepareAndSign` asks for the tax and the gas price sheet together, and for the chain's account and the signer's
+  together, so a send waits on three round trips before signing where it waited on four. The requests are still issued
+  in the fee contract's order, and the simulation still comes before the tax and the sheet.
+- `decodeTx` renders each message once: a `DecodedMessage`'s `json` is the same object as its entry in the
+  transaction's `json`, where it used to be an equal copy.
+- `SignTxInput`, `SimulationTxInput`, and `PrepareInput` extend `TxBodyInput` in place of repeating its members.
+- `AminoMsg` is a type alias, no longer an interface, so the amino encoder returns one without a cast. It has the same
+  members; only code that merged a declaration into the interface is affected.
 
 - `client.gov.params` takes its params type, `"voting"`, `"tallying"`, or `"deposit"`, as a required argument. The
   default was the empty string, which requested `/cosmos/gov/v1/params/`, a path the gateway does not serve.

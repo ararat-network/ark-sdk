@@ -23,12 +23,17 @@ function isoSeconds(seconds: bigint): string {
   return iso.slice(0, 19);
 }
 
+/** jsonpb's fraction of a second: nothing, or a point and 3, 6, or 9 digits, the fewest that hold the nanoseconds. */
+function jsonpbFraction(nanos: number | bigint): string {
+  let frac = `.${String(nanos).padStart(9, "0")}`;
+  for (const suffix of ["000", "000", ".000"]) if (frac.endsWith(suffix)) frac = frac.slice(0, -suffix.length);
+  return frac;
+}
+
 /** jsonpb: RFC 3339 with 0, 3, 6, or 9 fractional digits. */
 export function timestampToProtoJson(ts: Timestamp): string {
   if (ts.nanos < 0 || ts.nanos >= 1_000_000_000) throw new WktError(`timestamp nanos out of range: ${ts.nanos}`);
-  let frac = `.${String(ts.nanos).padStart(9, "0")}`;
-  for (const suffix of ["000", "000", ".000"]) if (frac.endsWith(suffix)) frac = frac.slice(0, -suffix.length);
-  return `${isoSeconds(ts.seconds) + frac}Z`;
+  return `${isoSeconds(ts.seconds) + jsonpbFraction(ts.nanos)}Z`;
 }
 
 /** Go's time.RFC3339 when nanos are zero, RFC3339Nano otherwise: trailing zeros dropped. */
@@ -64,15 +69,13 @@ export function durationToProtoJson(d: Duration): string {
   const total = d.seconds * NANOS + BigInt(d.nanos);
   const sign = total < 0n ? "-" : "";
   const abs = total < 0n ? -total : total;
-  let frac = `.${String(abs % NANOS).padStart(9, "0")}`;
-  for (const suffix of ["000", "000", ".000"]) if (frac.endsWith(suffix)) frac = frac.slice(0, -suffix.length);
-  return `${sign}${abs / NANOS}${frac}s`;
+  return `${sign}${abs / NANOS}${jsonpbFraction(abs % NANOS)}s`;
 }
 
-/** Amino: the whole duration in nanoseconds, as a quoted integer. */
 /** The chain's x/tx bound on a duration's seconds, ten thousand years either way. */
 const MAX_DURATION_SECONDS = 315_576_000_000n;
 
+/** Amino: the whole duration in nanoseconds, as a quoted integer. */
 export function durationToAmino(d: Duration): string {
   if (d.seconds > MAX_DURATION_SECONDS || d.seconds < -MAX_DURATION_SECONDS) throw new WktError(`duration out of range: ${d.seconds}s`);
   if (d.nanos <= -1_000_000_000 || d.nanos >= 1_000_000_000) throw new WktError(`duration nanos out of range: ${d.nanos}`);

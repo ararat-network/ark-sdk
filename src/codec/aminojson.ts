@@ -31,10 +31,11 @@ export interface AminoCoin {
   amount: string;
 }
 
-export interface AminoMsg {
+/** A type alias, not an interface, so that it is itself JSON: the encoder returns one where a JSON value is expected. */
+export type AminoMsg = {
   type: string;
   value: JsonValue;
-}
+};
 
 /** The StdSignDoc a Ledger displays and signs. Optional members are omitted when zero. */
 export interface AminoSignDoc {
@@ -80,7 +81,7 @@ export function makeAminoSignDoc(input: AminoSignDocInput, options: AminoOptions
       gas: fee.gasLimit.toString(),
     },
     memo: body.memo,
-    msgs: body.messages.map((m) => aminoEncodeAny(m, options) as unknown as AminoMsg),
+    msgs: body.messages.map((m) => marshalAny(m, ctx)),
     sequence: input.sequence.toString(),
   };
   if (fee.payer !== "") doc.fee.payer = fee.payer;
@@ -98,7 +99,9 @@ export function aminoSignDocBytes(doc: AminoSignDoc): Uint8Array {
 
 /** Encodes a message; wrapped as {"type", "value"} when the message has an amino name. */
 export function aminoEncode<Desc extends DescMessage>(schema: Desc, message: MessageShape<Desc>, options: AminoOptions = {}): JsonValue {
-  return beginMarshal(reflect(schema, message), false, { registry: options.registry ?? defaultRegistry });
+  const name = messageOptions(schema).aminoName;
+  const value = marshalMessage(reflect(schema, message), { registry: options.registry ?? defaultRegistry });
+  return name === undefined ? value : { type: name, value };
 }
 
 /** Encodes a packed message as {"type", "value"}, the type its amino name or else its type URL. */
@@ -110,19 +113,14 @@ interface Context {
   registry: Registry;
 }
 
-function beginMarshal(r: ReflectMessage, isAny: boolean, ctx: Context): JsonValue {
-  const opts = messageOptions(r.desc);
-  const name = isAny ? (opts.aminoName ?? typeUrlOf(r.desc)) : opts.aminoName;
-  const value = marshalMessage(r, ctx);
-  return name === undefined ? value : { type: name, value };
-}
-
-function marshalAny(any: Any, ctx: Context): JsonValue {
+/** A packed message as {"type", "value"}: always wrapped, under its amino name or else its type URL. */
+function marshalAny(any: Any, ctx: Context): AminoMsg {
   // An Any read without its type has no bytes to encode, whatever this registry knows.
   if (unknownAnyJson(any)) throw new UnknownTypeError(any.typeUrl);
   const schema = ctx.registry.getMessage(typeNameOf(any.typeUrl));
   if (!schema) throw new UnknownTypeError(any.typeUrl);
-  return beginMarshal(reflect(schema, fromBinary(schema, any.value)), true, ctx);
+  const value = marshalMessage(reflect(schema, fromBinary(schema, any.value)), ctx);
+  return { type: messageOptions(schema).aminoName ?? typeUrlOf(schema), value };
 }
 
 interface Entry {

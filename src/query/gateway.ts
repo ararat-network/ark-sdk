@@ -10,7 +10,7 @@ import { create, type DescMethod, getOption, hasOption, type MessageInitShape, t
 import type { GenService, GenServiceMethods } from "@bufbuild/protobuf/codegenv2";
 
 import { stripTrailing } from "../codec/bytes.js";
-import type { JsonObject, JsonValue } from "../codec/json.js";
+import { isJsonObject, type JsonObject, type JsonValue } from "../codec/json.js";
 import { fromProtoJson, toProtoJson } from "../codec/protojson.js";
 import { registry as defaultRegistry } from "../codec/registry.js";
 import { http } from "../gen/google/api/annotations_pb.js";
@@ -240,7 +240,7 @@ export class GatewayClient {
 }
 
 function gatewayError(json: JsonValue, status: number, url: string): QueryError {
-  if (json !== null && typeof json === "object" && !Array.isArray(json)) {
+  if (isJsonObject(json)) {
     const code = typeof json.code === "number" ? json.code : GrpcCode.Unknown;
     const message = typeof json.message === "string" ? json.message : typeof json.error === "string" ? json.error : JSON.stringify(json);
     const details = Array.isArray(json.details) ? json.details : [];

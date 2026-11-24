@@ -2,6 +2,7 @@
 // the wire and in generated messages as its scaled integer in decimal text.
 // Arithmetic here mirrors the Go type where the fee contract uses it: Mul
 // rounds half to even at the 18th place, Ceil and TruncateInt are exact.
+import { decimalParts, fixedPointText, INTEGER_TEXT, scaleDecimal } from "./fixed.js";
 
 export const DEC_PRECISION = 18;
 const UNIT = 10n ** 18n;
@@ -29,18 +30,15 @@ export class LegacyDec {
   /** From the wire form, the scaled integer's decimal text; empty reads as zero. */
   static fromWire(wire: string): LegacyDec {
     if (wire === "") return new LegacyDec(0n);
-    if (!/^-?\d+$/.test(wire)) throw new DecError(`not a scaled decimal integer: ${wire}`);
+    if (!INTEGER_TEXT.test(wire)) throw new DecError(`not a scaled decimal integer: ${wire}`);
     return new LegacyDec(BigInt(wire));
   }
 
   /** From decimal text such as "0.025" or "-3"; at most 18 fractional digits. */
   static fromString(text: string): LegacyDec {
-    const m = /^(-?)(\d+)(?:\.(\d{1,18}))?$/.exec(text);
-    if (!m) throw new DecError(`not a decimal: ${text}`);
-    const whole = BigInt(m[2] as string);
-    const fraction = BigInt((m[3] ?? "").padEnd(DEC_PRECISION, "0"));
-    const scaled = whole * UNIT + fraction;
-    return new LegacyDec(m[1] === "-" ? -scaled : scaled);
+    const parts = decimalParts(text);
+    if (!parts || parts.fraction.length > DEC_PRECISION) throw new DecError(`not a decimal: ${text}`);
+    return new LegacyDec(scaleDecimal(parts, DEC_PRECISION));
   }
 
   static fromInt(n: bigint | number): LegacyDec {
@@ -62,10 +60,7 @@ export class LegacyDec {
 
   /** Decimal text with exactly 18 fractional digits, as Go's String(). */
   toString(): string {
-    const negative = this.scaled < 0n;
-    const digits = (negative ? -this.scaled : this.scaled).toString().padStart(DEC_PRECISION + 1, "0");
-    const point = digits.length - DEC_PRECISION;
-    return `${(negative ? "-" : "") + digits.slice(0, point)}.${digits.slice(point)}`;
+    return fixedPointText(this.scaled, DEC_PRECISION);
   }
 
   isZero(): boolean {
