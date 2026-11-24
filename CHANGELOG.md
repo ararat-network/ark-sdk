@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+Fixed:
+
+- `waitForInclusion`, and `sendTx` through it, read a timeout height of zero as none. Zero is the body's value for no
+  timeout; it was compared as a height, so the first poll after an accepted broadcast threw `TransactionExpired` for
+  a transaction that then landed.
+
 ## 0.2.0
 
 The signup protocol leaves the SDK. Signup is completed in the Ark app alone, so the protocol, its code, and its

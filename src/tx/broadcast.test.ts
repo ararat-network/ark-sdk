@@ -136,6 +136,10 @@ test("past the timeout height the wait ends with one last look, and before it po
   const plain = node([notFound, included]);
   await waitForInclusion(plain.client, HASH, { sleep: async () => {} });
   assert.ok(!plain.calls.some((c) => c.includes("blocks/latest")), "without a timeout height no block is read");
+
+  const zero = node([notFound, included]);
+  assert.equal((await waitForInclusion(zero.client, HASH, { timeoutHeight: 0n, sleep: async () => {} })).height, 7n);
+  assert.ok(!zero.calls.some((c) => c.includes("blocks/latest")), "height zero is the body's no timeout, not a height the chain is past");
 });
 
 test("an aborted signal ends the wait at once", async () => {

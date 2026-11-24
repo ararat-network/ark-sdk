@@ -97,7 +97,10 @@ export async function broadcastSync(client: QueryClient, txBytes: Uint8Array): P
 export interface InclusionOptions {
   /** How long to poll before giving up; the transaction may still be included after. */
   timeoutMs?: number;
-  /** The body's timeout height, when it has one: past it the transaction is dead, and the wait says so instead of running to the deadline. */
+  /**
+   * The body's timeout height, when it has one: past it the transaction is dead, and the wait says so instead of
+   * running to the deadline. Zero is the body's own value for no timeout and is read as none.
+   */
   timeoutHeight?: bigint;
   pollMs?: number;
   signal?: AbortSignal;
@@ -160,6 +163,9 @@ export async function waitForInclusion(client: QueryClient, hash: string, option
   const pollMs = options.pollMs ?? 1_000;
   const sleep = options.sleep ?? defaultSleep;
   const now = options.now ?? Date.now;
+  // A body with no timeout carries height zero, which every chain height is
+  // past: it must not read as an expiry.
+  const timeoutHeight = options.timeoutHeight !== undefined && options.timeoutHeight > 0n ? options.timeoutHeight : undefined;
   const start = now();
   let lastError: unknown;
   for (;;) {
@@ -167,12 +173,12 @@ export async function waitForInclusion(client: QueryClient, hash: string, option
       const found = await lookUp(client, hash);
       if (found) return found;
       lastError = undefined;
-      if (options.timeoutHeight !== undefined) {
+      if (timeoutHeight !== undefined) {
         const height = await latestHeight(client);
-        if (height > options.timeoutHeight) {
+        if (height > timeoutHeight) {
           const last = await lookUp(client, hash);
           if (last) return last;
-          throw new TransactionExpired(hash, options.timeoutHeight, height);
+          throw new TransactionExpired(hash, timeoutHeight, height);
         }
       }
     } catch (err) {

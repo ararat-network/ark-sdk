@@ -127,6 +127,14 @@ test("sendTx broadcasts and confirms, and signs again at the sequence the chain 
   assert.equal(sent.response.height, 7n);
   assert.equal(sent.broadcast.hash, HASH);
 
+  // A timeout height of zero is the body's no timeout: the wait polls on
+  // instead of reading the chain as past it.
+  const untimed = node();
+  untimed.extra.push(broadcastOk, () => json({ code: 5, message: "tx not found", details: [] }, 404), included);
+  const landed = await sendTx({ ...base(untimed.client), timeoutHeight: 0n }, { sleep: async () => {} });
+  assert.equal(landed.response.height, 7n);
+  assert.ok(!untimed.calls.some((c) => c.includes("blocks/latest")));
+
   // CheckTx names the sequence; the committed account still shows the old one
   // while the earlier transaction is pending, so the log is what is used.
   const r = node();
