@@ -5,11 +5,15 @@ import { create, fromBinary } from "@bufbuild/protobuf";
 import { AnySchema, timestampFromDate } from "@bufbuild/protobuf/wkt";
 
 import { packAny, UnknownTypeError } from "../codec/any.js";
+import { fromHex } from "../codec/bytes.js";
+import { CoinError } from "../codec/coins.js";
+import { DecError, LegacyDec } from "../codec/dec.js";
 import { timestampToAmino } from "../codec/wkt.js";
 import { fromProtoJson, signTx } from "../defaults.js";
 import { MsgExecSchema } from "../gen/cosmos/authz/v1beta1/tx_pb.js";
 import { MsgSendSchema } from "../gen/cosmos/bank/v1beta1/tx_pb.js";
 import { MsgSubmitProposalSchema } from "../gen/cosmos/gov/v1/tx_pb.js";
+import { MsgEditValidatorSchema } from "../gen/cosmos/staking/v1beta1/tx_pb.js";
 import { TxBodySchema, TxRawSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { MemorySigner } from "../keys/memory_signer.js";
 import { makeFee, makeTxBody, packMessages, typed } from "./body.js";
@@ -99,4 +103,32 @@ test("a message that holds one read without its type cannot be put in a transact
   const send = packAny(MsgSendSchema, create(MsgSendSchema, { fromAddress: "ark1a", toAddress: "ark1b" }));
   const [packed] = packMessages([typed(MsgExecSchema, create(MsgExecSchema, { grantee: "ark1g", msgs: [send] }))]);
   assert.deepEqual(fromBinary(MsgExecSchema, packed!.value).msgs[0]?.value, send.value);
+});
+
+test("a message whose amount text the chain would read as another number cannot be packed", () => {
+  // Built without coin(): "0100" would be signed here as one hundred and executed by the chain as sixty-four.
+  const send = (amount: string) =>
+    typed(MsgSendSchema, create(MsgSendSchema, { fromAddress: "ark1a", toAddress: "ark1b", amount: [{ denom: "ausd", amount }] }));
+  for (const text of ["0100", "010", "0x10", "1_000", "+5", "08", "-0"]) {
+    assert.throws(
+      () => packMessages([send(text)]),
+      (err: unknown) => err instanceof CoinError && /cosmos\.base\.v1beta1\.Coin\.amount/.test(err.message),
+      JSON.stringify(text),
+    );
+  }
+  assert.throws(() => makeTxBody({ messages: [send("0100")] }), CoinError);
+  assert.equal(fromBinary(MsgSendSchema, packMessages([send("100")])[0]!.value).amount[0]?.amount, "100");
+
+  // A Dec field holds its scaled integer, and the same rule holds for its text.
+  const edit = (commissionRate: string) => typed(MsgEditValidatorSchema, create(MsgEditValidatorSchema, { validatorAddress: "arkvaloper1x", commissionRate }));
+  assert.throws(() => packMessages([edit("0100000000000000000")]), DecError);
+  assert.throws(() => packMessages([edit("0.1")]), DecError, "the decimal's text is not its wire form");
+  assert.equal(packMessages([edit(LegacyDec.fromString("0.1").toWire())]).length, 1);
+
+  // Bytes packed elsewhere pass through as they are: what they hold is their maker's.
+  const packed = create(AnySchema, {
+    typeUrl: "/cosmos.bank.v1beta1.MsgSend",
+    value: fromHex("0a0861726b3166726f6d120661726b31746f1a0c0a0461757364120430313030"),
+  });
+  assert.deepEqual(packMessages([packed]), [packed]);
 });

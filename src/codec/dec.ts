@@ -4,7 +4,7 @@
 // rounds half to even at the 18th place, Ceil and TruncateInt are exact.
 
 import { ArkSdkError } from "../errors.js";
-import { decimalParts, fixedPointText, INTEGER_TEXT, scaleDecimal } from "./fixed.js";
+import { decimalParts, fixedPointText, goIntegerText, scaleDecimal } from "./fixed.js";
 
 export const DEC_PRECISION = 18;
 const UNIT = 10n ** 18n;
@@ -29,11 +29,15 @@ export class LegacyDec {
     return new LegacyDec(scaled);
   }
 
-  /** From the wire form, the scaled integer's decimal text; empty reads as zero. */
+  /**
+   * From the wire form, the scaled integer's text, read as the chain reads it; empty reads as zero. The chain takes
+   * the base from the text, so a leading zero makes it octal: text another encoder wrote is not always decimal.
+   */
   static fromWire(wire: string): LegacyDec {
     if (wire === "") return new LegacyDec(0n);
-    if (!INTEGER_TEXT.test(wire)) throw new DecError(`not a scaled decimal integer: ${wire}`);
-    return new LegacyDec(BigInt(wire));
+    const scaled = goIntegerText(wire);
+    if (scaled === undefined) throw new DecError(`not a scaled integer as the chain reads one: ${wire}`);
+    return new LegacyDec(scaled);
   }
 
   /** From decimal text such as "0.025" or "-3"; at most 18 fractional digits. */

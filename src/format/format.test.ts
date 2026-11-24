@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { CoinError } from "../codec/coins.js";
 import { LegacyDec } from "../codec/dec.js";
 import { Network } from "../registry/network.js";
 import { registryFiles } from "../testing/fixtures.js";
@@ -67,6 +68,31 @@ test("coin text parses as the chain writes it", () => {
   const c = coinFromDisplay("10.5", usd);
   assert.equal(c.denom, "ausd");
   assert.equal(c.amount, "10500000000000000000");
+});
+
+test("coin text with a leading zero is refused, and a decoded coin's text is shown as the chain reads it", () => {
+  // The chain never writes a leading zero, and reads one as octal: parsing it as decimal would build another amount.
+  assert.throws(() => parseCoin("007ausd"), AmountError);
+  assert.throws(() => parseCoin("0100ausd"), AmountError);
+  assert.throws(() => parseCoins("5ausd,010anoah"), AmountError);
+  assert.equal(parseCoin("0ausd").amount, "0");
+  assert.throws(() => coinFromDisplay("-1", usd), CoinError, "a coin's amount is never negative");
+
+  // A coin out of a decoded message carries the text its sender wrote; "0100" is 64 to the chain.
+  assert.equal(formatCoin({ denom: "ibc/unlisted", amount: "0100" }, network), "64ibc/unlisted");
+  assert.equal(
+    coinsToString([
+      { denom: "ausd", amount: "0100" },
+      { denom: "anoah", amount: "0x10" },
+    ]),
+    "16anoah,64ausd",
+  );
+  const octalOne = `0${(10n ** 18n).toString(8)}`;
+  assert.equal(
+    formatCoin({ denom: "ausd", amount: octalOne }, network, { locale: "en-US" }),
+    formatCoin({ denom: "ausd", amount: 10n ** 18n }, network, { locale: "en-US" }),
+  );
+  assert.throws(() => formatCoin({ denom: "ausd", amount: "08" }, network), CoinError);
 });
 
 test("shortenAddress keeps the prefix and both ends", () => {

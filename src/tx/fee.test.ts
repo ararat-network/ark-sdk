@@ -5,6 +5,7 @@ import { create } from "@bufbuild/protobuf";
 import { coin } from "../codec/coins.js";
 import { LegacyDec } from "../codec/dec.js";
 import { GasPriceSchema } from "../gen/ark/treasury/v1/treasury_pb.js";
+import { CoinSchema } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import { amounts } from "../testing/fixtures.js";
 import { adjustGas, affordableFeeDenoms, arkdPolicy, FeeError, liftLeg, quoteFee, requiredGasFee } from "./fee.js";
 
@@ -17,6 +18,8 @@ test("the gas leg is ceil(price × gas) and a lift is ceil(amount × multiplier)
   assert.equal(liftLeg(coin("ausd", "3"), "1.1").amount, "4", "ceiling, not rounding");
   assert.equal(liftLeg(coin("ausd", "10"), "1").amount, "10");
   assert.throws(() => liftLeg(coin("ausd", "10"), "0.9"), FeeError);
+  // A leg out of a decoded message carries its sender's text, which the chain reads with the base taken from it.
+  assert.equal(liftLeg(create(CoinSchema, { denom: "ausd", amount: "0100" }), "1.5").amount, "96", "64 lifted, not 100");
   assert.throws(() => requiredGasFee(price("ausd", "1"), 0n), FeeError);
 });
 

@@ -6,15 +6,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { type DescMessage, fromBinary } from "@bufbuild/protobuf";
+import { create, type DescMessage, fromBinary } from "@bufbuild/protobuf";
 import { aminoEncode } from "../defaults.js";
 import { MsgSetRecognitionPolicySchema } from "../gen/ark/reserve/v1/tx_pb.js";
 import { BaseAccountSchema } from "../gen/cosmos/auth/v1beta1/auth_pb.js";
 import { MsgGrantSchema } from "../gen/cosmos/authz/v1beta1/tx_pb.js";
 import { MsgMultiSendSchema, MsgSendSchema } from "../gen/cosmos/bank/v1beta1/tx_pb.js";
 import { MsgDepositSchema } from "../gen/cosmos/gov/v1/tx_pb.js";
-import { fromBase64 } from "./bytes.js";
-import { marshalGoJson } from "./json.js";
+import { GenesisStateSchema as StakingGenesisStateSchema } from "../gen/cosmos/staking/v1beta1/genesis_pb.js";
+import { fromBase64, utf8Encode } from "./bytes.js";
+import { materialise } from "./gogo.js";
+import { type JsonObject, marshalGoJson } from "./json.js";
 
 const granter = "ark102p6s52n97e7zcmxc49ufwx04lntre5ktqkkzp";
 const grantee = "ark1lw7jrngdgm88ruz8v7k6s70gssu6vryufel8nq";
@@ -93,3 +95,11 @@ for (const v of vectors) {
     assert.equal(marshalGoJson(aminoEncode(v.schema, message)), v.amino);
   });
 }
+
+test("amino: the bytes of an Int are read as the chain reads them and written as the integer", () => {
+  // The registry's one Int held as bytes. The chain's encoder unmarshals it, base taken from the text, and writes
+  // the integer; a string Int goes out as its text, which the fixtures cover.
+  const state = materialise(StakingGenesisStateSchema, create(StakingGenesisStateSchema));
+  state.lastTotalPower = utf8Encode("0100");
+  assert.equal((aminoEncode(StakingGenesisStateSchema, state) as JsonObject).last_total_power, "64");
+});

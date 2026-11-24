@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { create, createRegistry } from "@bufbuild/protobuf";
+import { create, createRegistry, fromBinary } from "@bufbuild/protobuf";
 import { AnySchema } from "@bufbuild/protobuf/wkt";
 import { aminoEncodeAny, decodeMessage, fromProtoJson, toProtoJson, unpackAny } from "../defaults.js";
 import { PricesResponseSchema } from "../gen/ark/pricefeed/v1/pricefeed_pb.js";
@@ -13,7 +13,8 @@ import { CommissionRatesSchema } from "../gen/cosmos/staking/v1beta1/staking_pb.
 import { TxBodySchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { AccessConfigSchema, AccessType } from "../gen/cosmwasm/wasm/v1/types_pb.js";
 import { UnknownTypeError, unknownAnyJson, unpackAnyAs } from "./any.js";
-import { utf8Encode } from "./bytes.js";
+import { fromHex, utf8Encode } from "./bytes.js";
+import { CoinError } from "./coins.js";
 import { LegacyDec } from "./dec.js";
 import { ProtoJsonError } from "./protojson.js";
 
@@ -108,6 +109,31 @@ test("an Any held as JSON is never decoded from its empty bytes, even by a regis
   assert.equal(decoded.known, false, "the decoder names it unknown though its registry knows the type");
   assert.equal(decoded.message, undefined);
   assert.deepEqual(decoded.json, send);
+});
+
+test("an Int or a Dec renders and reads as the number the chain holds, not as its text's decimal digits", () => {
+  // A bank send whose amount text is "0100": the chain executes it for 64, and its JSON says 64.
+  const bytes = fromHex("0a0861726b3166726f6d120661726b31746f1a0c0a0461757364120430313030");
+  const sent = fromBinary(MsgSendSchema, bytes);
+  const chainJson = { from_address: "ark1from", to_address: "ark1to", amount: [{ denom: "ausd", amount: "64" }] };
+  assert.deepEqual(toProtoJson(MsgSendSchema, sent), chainJson);
+  const any = create(AnySchema, { typeUrl: "/cosmos.bank.v1beta1.MsgSend", value: bytes });
+  assert.deepEqual(decodeMessage(any).json, { "@type": "/cosmos.bank.v1beta1.MsgSend", ...chainJson });
+  // The amino document carries a string Int's text as it is, as the chain's encoder does, so the two still sign the same bytes.
+  assert.deepEqual(aminoEncodeAny(any), {
+    type: "cosmos-sdk/MsgSend",
+    value: { from_address: "ark1from", to_address: "ark1to", amount: [{ denom: "ausd", amount: "0100" }] },
+  });
+
+  // JSON is read the same way: the chain takes the base from the text there too, and a message built from it holds the integer.
+  const read = fromProtoJson(MsgSendSchema, { from_address: "ark1from", to_address: "ark1to", amount: [{ denom: "ausd", amount: "0100" }] });
+  assert.equal(read.amount[0]?.amount, "64");
+  assert.throws(() => fromProtoJson(MsgSendSchema, { amount: [{ denom: "ausd", amount: "08" }] }), CoinError);
+  assert.throws(() => toProtoJson(MsgSendSchema, create(MsgSendSchema, { amount: [{ denom: "ausd", amount: "08" }] })), CoinError, "text the chain refuses");
+
+  // A Dec's scaled integer likewise: Go reads this wire text as 2251799813685248.
+  const rates = create(CommissionRatesSchema, { rate: "0100000000000000000", maxRate: "0x10" });
+  assert.deepEqual(toProtoJson(CommissionRatesSchema, rates), { rate: "0.002251799813685248", max_rate: "0.000000000000000016", max_change_rate: "0" });
 });
 
 test('a non-nullable Dec that never reached the wire renders as gogo\'s "0", a set one at 18 places', () => {

@@ -6,7 +6,7 @@ import type { Message, Registry } from "@bufbuild/protobuf";
 import type { Any } from "@bufbuild/protobuf/wkt";
 
 import { unpackAny } from "../codec/any.js";
-import { coin, sumCoins } from "../codec/coins.js";
+import { coin, intFromWire, sumCoins } from "../codec/coins.js";
 import { LegacyDec } from "../codec/dec.js";
 import type { BaseAccount, ModuleAccount } from "../gen/cosmos/auth/v1beta1/auth_pb.js";
 import type { Coin } from "../gen/cosmos/base/v1beta1/coin_pb.js";
@@ -142,7 +142,7 @@ export function vestedCoins(account: DecodedAccount, atSeconds: bigint): Coin[] 
       if (atSeconds <= start) return [];
       if (atSeconds >= v.endTime) return [...v.originalVesting];
       const share = LegacyDec.fromInt(atSeconds - start).quo(LegacyDec.fromInt(v.endTime - start));
-      return v.originalVesting.map((c) => coin(c.denom, LegacyDec.fromInt(BigInt(c.amount)).mul(share).roundInt()));
+      return v.originalVesting.map((c) => coin(c.denom, LegacyDec.fromInt(intFromWire(c.amount)).mul(share).roundInt()));
     }
     case "delayed_vesting":
       return atSeconds >= v.endTime ? [...v.originalVesting] : [];
@@ -170,6 +170,6 @@ export function vestedCoins(account: DecodedAccount, atSeconds: bigint): Coin[] 
 export function vestingCoins(account: DecodedAccount, atSeconds: bigint): Coin[] {
   const v = account.vesting;
   if (!v) return [];
-  const vested = new Map(vestedCoins(account, atSeconds).map((c) => [c.denom, BigInt(c.amount)]));
-  return v.originalVesting.map((c) => coin(c.denom, BigInt(c.amount) - (vested.get(c.denom) ?? 0n))).filter((c) => c.amount !== "0");
+  const vested = new Map(vestedCoins(account, atSeconds).map((c) => [c.denom, intFromWire(c.amount)]));
+  return v.originalVesting.map((c) => coin(c.denom, intFromWire(c.amount) - (vested.get(c.denom) ?? 0n))).filter((c) => c.amount !== "0");
 }

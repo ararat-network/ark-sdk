@@ -33,7 +33,7 @@ export {
   type WithRegistry,
 } from "./codec/any.js";
 export { bytesEqual, fromBase64, fromHex, toBase64, toHex, utf8Decode, utf8Encode } from "./codec/bytes.js";
-export { CoinError, type CoinInput, coin, coins, sumCoins } from "./codec/coins.js";
+export { CoinError, type CoinInput, coin, coins, intFromWire, sumCoins } from "./codec/coins.js";
 export { DEC_PRECISION, DecError, LegacyDec } from "./codec/dec.js";
 export { materialise } from "./codec/gogo.js";
 export { txHash } from "./codec/hash.js";

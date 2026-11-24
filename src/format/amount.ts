@@ -5,7 +5,7 @@
 import { create } from "@bufbuild/protobuf";
 
 import { stripTrailing } from "../codec/bytes.js";
-import { coin } from "../codec/coins.js";
+import { coin, intFromWire } from "../codec/coins.js";
 import { LegacyDec } from "../codec/dec.js";
 import { decimalParts, fixedPointText, INTEGER_TEXT, scaleDecimal } from "../codec/fixed.js";
 import { ArkSdkError } from "../errors.js";
@@ -64,13 +64,15 @@ function formatDecimal(decimal: string, asset: Asset, options: FormatOptions): s
 /** Formats a coin through the network's asset list; an unlisted denomination is shown as the chain's coin text, in base units. */
 export function formatCoin(c: { denom: string; amount: string | bigint }, network: Network, options: FormatOptions = {}): string {
   const asset = network.asset(c.denom);
-  if (!asset) return `${c.amount.toString()}${c.denom}`;
-  return formatAssetAmount(c.amount, asset, options);
+  // A coin's text is read as the chain reads it, which is not always its decimal value.
+  const amount = typeof c.amount === "string" ? intFromWire(c.amount) : c.amount;
+  if (!asset) return `${amount}${c.denom}`;
+  return formatAssetAmount(amount, asset, options);
 }
 
-const COIN = /^(\d+)([a-zA-Z][a-zA-Z0-9/:._-]{2,127})$/;
+const COIN = /^(0|[1-9]\d*)([a-zA-Z][a-zA-Z0-9/:._-]{2,127})$/;
 
-/** Parses the chain's coin text, such as "1000000000000000000ausd". */
+/** Parses the chain's coin text, such as "1000000000000000000ausd"; the amount as the chain writes it, with no leading zero. */
 export function parseCoin(text: string): Coin {
   const m = COIN.exec(text.trim());
   if (!m) throw new AmountError(`not a coin: ${text}`);
@@ -87,7 +89,7 @@ export function parseCoins(text: string): Coin[] {
 export function coinsToString(coins: readonly { denom: string; amount: string | bigint }[]): string {
   return [...coins]
     .sort((a, b) => (a.denom < b.denom ? -1 : a.denom > b.denom ? 1 : 0))
-    .map((c) => `${c.amount.toString()}${c.denom}`)
+    .map((c) => `${typeof c.amount === "string" ? intFromWire(c.amount) : c.amount}${c.denom}`)
     .join(",");
 }
 

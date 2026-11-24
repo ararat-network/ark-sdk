@@ -20,6 +20,7 @@ import { type Any, AnySchema, type Duration, DurationSchema, type Timestamp, Tim
 import { ArkSdkError } from "../errors.js";
 import { anyFromUnknownJson, typeNameOf, typeUrlOf, UnknownTypeError, unknownAnyJson, type WithRegistry } from "./any.js";
 import { fromBase64, toBase64, utf8Decode, utf8Encode } from "./bytes.js";
+import { intFromWire } from "./coins.js";
 import { LegacyDec } from "./dec.js";
 import { isJsonObject, type JsonObject, type JsonValue } from "./json.js";
 import { fieldOptions } from "./options.js";
@@ -200,7 +201,8 @@ function scalarFieldToJson(r: ReflectMessage, f: DescField & { fieldKind: "scala
   }
   if (o.customtype !== undefined && o.isMathInt) {
     if (!set) return o.nullable ? null : "0";
-    return numericText(v);
+    // The integer the chain reads from the text, which is not always the text's decimal value: "0100" is 64.
+    return intFromWire(numericText(v)).toString();
   }
   if (o.isInlineJson) {
     if (!set) return null;
@@ -388,9 +390,12 @@ function scalarFromJson(type: ScalarType, json: JsonValue, longAsString: boolean
     const wire = LegacyDec.fromString(json).toWire();
     return type === ScalarType.BYTES ? utf8Encode(wire) : wire;
   }
-  if (o.customtype !== undefined && o.isMathInt && type === ScalarType.BYTES) {
+  if (o.customtype !== undefined && o.isMathInt && (type === ScalarType.BYTES || type === ScalarType.STRING)) {
     if (typeof json !== "string") throw new ProtoJsonError(`${where}: expected an integer string`);
-    return utf8Encode(json);
+    // The chain reads an Int's JSON text as it reads the wire's, the base taken from the text, and holds the
+    // integer; a message built from this JSON carries that integer's own text.
+    const text = intFromWire(json).toString();
+    return type === ScalarType.BYTES ? utf8Encode(text) : text;
   }
   if (o.isInlineJson) return utf8Encode(JSON.stringify(json));
   switch (type) {

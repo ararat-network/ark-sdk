@@ -7,7 +7,7 @@
 // with the payer, a NOAH leg is charged whole and its excess is the tip. The
 // ante takes the base fee from a stable leg's slack before it lets NOAH pay,
 // so beside a NOAH gas leg the tax legs are declared exact, with no slack.
-import { coin, sumCoins } from "../codec/coins.js";
+import { coin, intFromWire, sumCoins } from "../codec/coins.js";
 import { LegacyDec } from "../codec/dec.js";
 import { ArkSdkError } from "../errors.js";
 import type { GasPrice } from "../gen/ark/treasury/v1/treasury_pb.js";
@@ -48,7 +48,7 @@ function multiplier(headroom: string): LegacyDec {
 
 /** ceil(amount × multiplier). */
 export function liftLeg(leg: Coin, headroom: string): Coin {
-  return coin(leg.denom, LegacyDec.fromInt(BigInt(leg.amount)).mul(multiplier(headroom)).ceil());
+  return coin(leg.denom, LegacyDec.fromInt(intFromWire(leg.amount)).mul(multiplier(headroom)).ceil());
 }
 
 export interface FeeQuoteInput {
@@ -100,7 +100,7 @@ export function quoteFee(input: FeeQuoteInput): FeeQuote {
   const noahPays = required.denom === native;
   const legs = sumCoins(input.tax, [required]);
   let declared = legs.map((leg) => {
-    if (leg.denom === native) return coin(native, BigInt(liftLeg(leg, input.headroom.noah).amount) + tipAmount);
+    if (leg.denom === native) return coin(native, intFromWire(liftLeg(leg, input.headroom.noah).amount) + tipAmount);
     return noahPays ? leg : liftLeg(leg, input.headroom.stable);
   });
   if (input.legOrder) {
@@ -111,7 +111,7 @@ export function quoteFee(input: FeeQuoteInput): FeeQuote {
   // changes nothing; it goes last, after the legs that can pay.
   if (!noahPays && tipAmount > 0n) declared = [...declared, coin(native, tipAmount)];
   const noah = declared.find((c) => c.denom === native);
-  const tip = noah ? coin(native, BigInt(noah.amount) - (noahPays ? BigInt(required.amount) : 0n)) : undefined;
+  const tip = noah ? coin(native, intFromWire(noah.amount) - (noahPays ? intFromWire(required.amount) : 0n)) : undefined;
   return {
     gasLimit: input.gasLimit,
     tax: [...input.tax],
@@ -165,7 +165,7 @@ export function affordableFeeDenoms(input: FeeDenomChoiceInput): string[] {
   for (const price of ordered) {
     const quote = quoteFee({ tax: input.tax, gasPrice: price, gasLimit: input.gasLimit, headroom: input.headroom, tip: input.tip, nativeDenom: native });
     const needed = sumCoins(quote.declared, input.taxBase);
-    const covered = needed.every((n) => BigInt(input.spendable.find((s) => s.denom === n.denom)?.amount ?? "0") >= BigInt(n.amount));
+    const covered = needed.every((n) => intFromWire(input.spendable.find((s) => s.denom === n.denom)?.amount ?? "0") >= intFromWire(n.amount));
     if (covered) out.push(price.denom);
   }
   return out;

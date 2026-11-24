@@ -25,6 +25,15 @@ test("wire and decimal text round trip", () => {
   assert.throws(() => LegacyDec.fromWire("1.5"), DecError);
 });
 
+test("the wire form is read as the chain reads it, the base taken from the text", () => {
+  // Go's LegacyDec.Unmarshal over each text, run at the chain's math version: a leading zero is octal.
+  assert.equal(LegacyDec.fromWire("0100000000000000000").toString(), "0.002251799813685248");
+  assert.equal(LegacyDec.fromWire("0x10").toString(), "0.000000000000000016");
+  assert.equal(LegacyDec.fromWire("+5").toWire(), "5");
+  assert.equal(LegacyDec.fromWire("1_000").toWire(), "1000");
+  for (const wire of ["08", "1.5", "abc", "1e3", " 1", "-"]) assert.throws(() => LegacyDec.fromWire(wire), DecError, JSON.stringify(wire));
+});
+
 test("fee arithmetic matches the fixtures' figures", () => {
   // bank_send_taxed: ceil(gas_price × 250000) and ceil(leg × 1.1).
   const price = LegacyDec.fromWire("72939460247994164800000000000");

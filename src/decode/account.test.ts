@@ -52,6 +52,17 @@ test("continuous vesting rounds as the SDK's Dec does", () => {
   assert.deepEqual(amounts(vestedCoins(a, 200n)), ["5anoah"]);
 });
 
+test("a schedule's amounts are read as the chain reads them, the base taken from the text", () => {
+  // "0100" is 64 to the chain: half of it has vested half-way, and half is still vesting.
+  const octal = create(ContinuousVestingAccountSchema, {
+    baseVestingAccount: { baseAccount: base, originalVesting: [{ denom: "anoah", amount: "0100" }], endTime: 200n },
+    startTime: 0n,
+  });
+  const a = decodeAccount(packAny(ContinuousVestingAccountSchema, octal));
+  assert.deepEqual(amounts(vestedCoins(a, 100n)), ["32anoah"]);
+  assert.deepEqual(amounts(vestingCoins(a, 100n)), ["32anoah"]);
+});
+
 test("delayed, periodic, and permanently locked accounts follow their schedules", () => {
   const delayed = decodeAccount(
     packAny(

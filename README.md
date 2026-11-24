@@ -117,8 +117,12 @@ const { messages, json } = decodeTx(txBytes);
 const events = decodeEvents(response.events);
 ```
 
-Two things to know when reading messages. A `cosmos.Dec` field holds the chain's wire form, the 18-decimal scaled
-integer; `LegacyDec.fromWire` reads it and the JSON view shows the decimal. And a message type the registry does
+Three things to know when reading messages. A `cosmos.Dec` field holds the chain's wire form, the 18-decimal scaled
+integer; `LegacyDec.fromWire` reads it and the JSON view shows the decimal. A coin's amount, like any `cosmos.Int`,
+holds the text its sender wrote, and the chain takes the base from that text: `"0100"` is 64 to it, octal, not 100.
+`intFromWire` reads it as the chain does, and so do `sumCoins`, the formatters, and the JSON view; `BigInt` does
+not. For the same reason `coin` and the builder refuse amount text the chain would not write, a leading zero
+included, where they could have signed one number for the chain to execute another. And a message type the registry does
 not know decodes as unknown, never under a label it did not earn: with its type URL and bytes from a transaction's
 bytes, and from a gateway answer, which has no bytes for it, with its type URL and the JSON the node rendered, which
 `unknownAnyJson` returns. A known message that carries one, an authz exec around it or an account whose key type is

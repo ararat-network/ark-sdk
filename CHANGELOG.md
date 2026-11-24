@@ -34,6 +34,13 @@ Fixed:
   it lacks, is unknown with the node's JSON, never bytes that name the inner type with none of its content.
   `unpackAny`, the amino encoder, and `packMessages` never treat an empty value as the message, and `packAny` refuses
   a message built around one, so `packMessages` and `signTx` do too.
+- An amount is read as the chain reads it. The chain takes the base of a `cosmos.Int`'s or a `cosmos.Dec`'s text
+  from the text, so `"0100"` is 64 and `"0x10"` is 16, and it executes a transaction that carries one; the SDK read
+  the digits as decimal or passed them through. A send built with `coin("ausd", "0100")` moved 64 where its caller
+  wrote 100, and a transaction's bytes decoded here showed 100 where 64 had moved. `sumCoins`, `formatCoin`,
+  `coinsToString`, `LegacyDec.fromWire`, the vesting and fee arithmetic, and the JSON view now give the chain's
+  number, and refuse text the chain refuses; `fromProtoJson` reads an `Int`'s JSON text the same way. The amino
+  document still carries a string `Int`'s text as it is, as the chain's does.
 - With several endpoints, calls in flight together each walk the endpoints once. A call read the client's current
   endpoint again at every attempt, so one that failed over while another was still waiting sent that other back to
   the endpoint it had just left: it could fail with `EndpointsExhausted` naming one endpoint twice while a healthy
@@ -42,6 +49,8 @@ Fixed:
 
 Added:
 
+- `intFromWire`, the integer a `cosmos.Int`'s text holds as the chain reads it: what to use in place of `BigInt` on
+  a coin's amount out of a decoded message.
 - `unknownAnyJson` and `anyFromUnknownJson`, and `unknownAny: "keep"` on `fromProtoJson`, which still throws on an
   unknown type by default.
 - `@ararat-network/sdk/core`, a second entry with the main entry's names and no default registry: whatever reads an
@@ -63,6 +72,11 @@ Added:
 
 Changed:
 
+- `coin` refuses an amount that is negative, over 256 bits, or text other than decimal digits with no leading zero,
+  with `CoinError`; it passed any text through. `parseCoin` and `parseCoins` refuse a leading zero, and
+  `coinFromDisplay` a negative amount. `packMessages`, and so `signTx` and `prepareAndSign`, refuse a message whose
+  `Int` or `Dec` field holds text the chain would not write. This is a breaking change for a caller that relied on
+  such text being passed on: the chain read it as another number, or refused it.
 - Refusals that were a bare `Error` carry an SDK class. `packMessages` throws `UnknownTypeError` for a message read
   without its type, as the amino encoder does, and `UnknownTypeError` takes the message to say so with.
   `QueryClient.forNetwork` throws `RegistryError` for a network that lists no REST endpoint. A request the gateway

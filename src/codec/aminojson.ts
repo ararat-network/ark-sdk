@@ -12,6 +12,7 @@ import { CoinSchema } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import type { Fee, TxBody } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { typeNameOf, typeUrlOf, UnknownTypeError, unknownAnyJson, type WithRegistry } from "./any.js";
 import { toBase64, utf8Decode } from "./bytes.js";
+import { intFromWire } from "./coins.js";
 import { LegacyDec } from "./dec.js";
 import { compareUtf8, type JsonObject, type JsonValue, marshalGoJsonBytes, sortKeys } from "./json.js";
 import {
@@ -298,7 +299,9 @@ const cosmosDec: FieldEncoder = (r, f) => {
 
 const cosmosInt: FieldEncoder = (r, f) => {
   const v = numericText(r, f);
-  return v === "" ? "0" : v;
+  if (v === "") return "0";
+  // The chain's encoder writes a string field's text as it is, and reads the bytes of one as an Int before writing it.
+  return f.fieldKind === "scalar" && f.scalar === ScalarType.BYTES ? intFromWire(v).toString() : v;
 };
 
 function keyFieldEncoder(r: ReflectMessage): JsonValue {
