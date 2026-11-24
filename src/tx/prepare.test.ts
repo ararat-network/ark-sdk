@@ -11,6 +11,7 @@ import { type Signer, SignerError } from "../keys/signer.js";
 import { QueryError } from "../query/gateway.js";
 import { amounts, fixture, fixtureKey } from "../testing/fixtures.js";
 import { accepted, fakeNode, gatewayError, included, json, notFound, stubFetch, txResponse, unavailable } from "../testing/node.js";
+import { makeFee } from "./body.js";
 import { BroadcastRefused, BroadcastUnknown, InclusionUnknown } from "./broadcast.js";
 import { FeeError } from "./fee.js";
 import { PrepareError, prepareAndSign, sendTx } from "./prepare.js";
@@ -285,6 +286,19 @@ test("the simulation runs over the body that is signed, its memo and timeouts in
   const unordered = await prepareAndSign({ ...base(u.client), unordered: true, timeoutTimestamp: until });
   assert.deepEqual(simulated(u), unordered.signed.bodyBytes);
   assert.equal(fromBinary(TxBodySchema, simulated(u)).unordered, true);
+});
+
+test("the simulation carries no fee, whatever the input held beside the members the flow names", async () => {
+  // An object wider than the flow's input passes the type check when it is no literal, as a caller's own record of a
+  // transaction is not. A fee in it would be simulated with: its gas limit, and its legs for the ante to charge.
+  const n = node();
+  const wider = { ...base(n.client), fee: makeFee({ amount: [{ denom: "ausd", amount: 999n }], gasLimit: 7n }) };
+  const prepared = await prepareAndSign(wider);
+  const request = n.requests.find((r) => r.call.startsWith("POST /cosmos/tx/v1beta1/simulate"))!;
+  const fee = fromBinary(AuthInfoSchema, fromBinary(TxRawSchema, fromBase64(JSON.parse(request.body!).tx_bytes)).authInfoBytes).fee!;
+  assert.deepEqual(amounts(fee.amount), []);
+  assert.equal(fee.gasLimit, 0n);
+  assert.equal(toBase64(prepared.signed.txBytes), f.tx_bytes, "and the fee that is signed is the one the flow priced");
 });
 
 test("the fee the flow signs has the fee denomination's leg first, before a tax leg that sorts ahead of it", async () => {
