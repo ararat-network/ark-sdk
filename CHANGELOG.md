@@ -34,6 +34,12 @@ Added:
 
 - `unknownAnyJson` and `anyFromUnknownJson`, and `unknownAny: "keep"` on `fromProtoJson`, which still throws on an
   unknown type by default.
+- `@ararat-network/sdk/core`, a second entry with the main entry's names and no default registry: whatever reads an
+  `Any` takes its registry as an argument, so an app bundles only the types it names. A gateway client over one
+  service bundles 11 generated files, 118 KiB minified, where the main entry bundles all 197, 440 KiB. `WithRegistry` is the required form of
+  `RegistryOption`. The main entry is the core with the registry defaulted, and is otherwise unchanged.
+- `SignTxInput.registry`, the types the amino encoder resolves the messages against. The main entry defaults it; the
+  core entry needs it in amino mode only.
 - `ArkSdkError`, the base of every error the SDK throws on purpose: one `instanceof` tells a refusal the SDK made
   from a bug or the runtime's own failure. Every error class the package exports extends it and keeps its own name.
 - `GatewayClient.registry`, the types the client resolves an `Any` against, readable so that what decodes one of its
@@ -57,8 +63,13 @@ Changed:
 - `searchTxs` and `fetchTx` decode with the client's registry unless one is passed; they used every generated type.
   A client built without a registry is unaffected. One built with a narrower registry now gets a typed event or a
   message response decoded only when that registry holds its type, so pass a registry to keep the old result.
-- `AminoOptions`, `EventDecodeOptions`, and `TxDecodeOptions` are aliases of `RegistryOption`, and `GatewayOptions`,
-  `SearchOptions`, `ToProtoJsonOptions`, and `FromProtoJsonOptions` extend it. Their members are unchanged.
+- `AminoOptions`, `EventDecodeOptions`, and `TxDecodeOptions` are aliases of `RegistryOption`; `GatewayOptions`,
+  `ToProtoJsonOptions`, and `FromProtoJsonOptions` are type aliases too; `SearchOptions` extends `RegistryOption`.
+  Their members are unchanged.
+- The main entry's `QueryClient` and `GatewayClient` extend the core entry's. A `QueryClient`'s `gateway` is the core
+  class, so `client.gateway instanceof GatewayClient` is false for the main entry's `GatewayClient`.
+- `prepareAndSign` and `sendTx` encode an amino document through the client's registry; they used every generated
+  type. A client built without a registry is unaffected.
 - `fetchTx` throws `WrongTransaction` when the node answers with another transaction's hash, as `waitForInclusion`
   does. It used to return that transaction decoded.
 - `prepareAndSign` asks for the tax and the gas price sheet together, and for the chain's account and the signer's

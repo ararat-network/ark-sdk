@@ -4,11 +4,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { vestedCoins } from "../decode/account.js";
+import { QueryClient } from "../defaults.js";
 import { GenesisMismatch, Network } from "../registry/network.js";
 import { amounts, registryFiles } from "../testing/fixtures.js";
 import { json, stubFetch } from "../testing/node.js";
 import { FUTURE_ACCOUNT_URL, registryWithFutureTypes } from "../testing/registry.js";
-import { NetworkMismatch, NodeVersionUnlisted, QueryClient } from "./client.js";
+import { NetworkMismatch, NodeVersionUnlisted } from "./client.js";
 
 test("verifyNetwork checks the chain id, reports the binary against the registry, and can hash the genesis", async () => {
   const network = Network.fromRegistry(registryFiles("arklocal"));

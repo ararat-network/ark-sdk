@@ -6,6 +6,7 @@ import { AnySchema } from "@bufbuild/protobuf/wkt";
 
 import { aminoSignDocBytes } from "../codec/aminojson.js";
 import { fromHex } from "../codec/bytes.js";
+import { signTx } from "../defaults.js";
 import { MsgSendSchema } from "../gen/cosmos/bank/v1beta1/tx_pb.js";
 import { SignMode } from "../gen/cosmos/tx/signing/v1beta1/signing_pb.js";
 import { AuthInfoSchema, TxRawSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
@@ -14,7 +15,7 @@ import { verifyMessage } from "../keys/secp256k1.js";
 import { MULTISIG_PUBLIC_KEY_URL, type Signer, SignerError } from "../keys/signer.js";
 import { fixtureKey } from "../testing/fixtures.js";
 import { makeFee, typed } from "./body.js";
-import { MultisigNeedsAmino, SignerAlteredDocument, signTx, simulationTxBytes } from "./builder.js";
+import { MultisigNeedsAmino, SignerAlteredDocument, simulationTxBytes } from "./builder.js";
 
 const trader = fixtureKey("trader");
 const signer = MemorySigner.fromPrivateKey(fromHex(trader.private_key_hex));

@@ -8,6 +8,7 @@ import { toBinary } from "@bufbuild/protobuf";
 import type { Any } from "@bufbuild/protobuf/wkt";
 
 import { type AminoSignDoc, aminoSignDocBytes, makeAminoSignDoc } from "../codec/aminojson.js";
+import type { RegistryOption } from "../codec/any.js";
 import { bytesEqual } from "../codec/bytes.js";
 import { txHash } from "../codec/hash.js";
 import { type Fee, type SignDoc, SignDocSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
@@ -32,8 +33,12 @@ export class SignerAlteredDocument extends SignerError {
   }
 }
 
-/** The body's members, and who signs it at what account number, sequence, and fee. */
-export interface SignTxInput extends TxBodyInput {
+/**
+ * The body's members, and who signs it at what account number, sequence, and
+ * fee. `registry` is the types the amino encoder resolves the messages
+ * against: amino mode needs it, direct mode does not read it.
+ */
+export interface SignTxInput extends TxBodyInput, RegistryOption {
   signer: Signer;
   address: string;
   /** The signer's account for `address`, when the caller already holds it; the signer is asked for its accounts otherwise. */
@@ -85,7 +90,11 @@ export async function signTx(input: SignTxInput): Promise<SignedTx> {
     if (!bytesEqual(toBinary(SignDocSchema, signed.signDoc), directSignBytes(signDoc))) throw new SignerAlteredDocument();
     signature = signed.signature;
   } else {
-    aminoSignDoc = makeAminoSignDoc({ body, fee: input.fee, chainId: input.chainId, accountNumber: input.accountNumber, sequence: input.sequence });
+    if (!input.registry) throw new SignerError("signing in amino mode needs a registry: the types the amino encoder resolves the messages against");
+    aminoSignDoc = makeAminoSignDoc(
+      { body, fee: input.fee, chainId: input.chainId, accountNumber: input.accountNumber, sequence: input.sequence },
+      { registry: input.registry },
+    );
     const signed = await input.signer.signAmino(input.address, aminoSignDoc);
     if (!bytesEqual(aminoSignDocBytes(signed.signDoc), aminoSignDocBytes(aminoSignDoc))) throw new SignerAlteredDocument();
     signature = signed.signature;

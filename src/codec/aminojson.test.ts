@@ -7,12 +7,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { type DescMessage, fromBinary } from "@bufbuild/protobuf";
+import { aminoEncode } from "../defaults.js";
 import { MsgSetRecognitionPolicySchema } from "../gen/ark/reserve/v1/tx_pb.js";
 import { BaseAccountSchema } from "../gen/cosmos/auth/v1beta1/auth_pb.js";
 import { MsgGrantSchema } from "../gen/cosmos/authz/v1beta1/tx_pb.js";
 import { MsgMultiSendSchema, MsgSendSchema } from "../gen/cosmos/bank/v1beta1/tx_pb.js";
 import { MsgDepositSchema } from "../gen/cosmos/gov/v1/tx_pb.js";
-import { aminoEncode } from "./aminojson.js";
 import { fromBase64 } from "./bytes.js";
 import { marshalGoJson } from "./json.js";
 

@@ -4,12 +4,12 @@ import { test } from "node:test";
 import { fromBinary } from "@bufbuild/protobuf";
 import { AnySchema, timestampFromDate } from "@bufbuild/protobuf/wkt";
 
-import { fromProtoJson } from "../codec/protojson.js";
 import { timestampToAmino } from "../codec/wkt.js";
+import { fromProtoJson, signTx } from "../defaults.js";
 import { TxBodySchema, TxRawSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { MemorySigner } from "../keys/memory_signer.js";
 import { makeFee, packMessages } from "./body.js";
-import { signTx, simulationTxBytes } from "./builder.js";
+import { simulationTxBytes } from "./builder.js";
 
 test("an unordered transaction and its timeout timestamp reach the body, the simulation, and the amino document", async () => {
   const signer = MemorySigner.random();

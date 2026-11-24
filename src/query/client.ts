@@ -65,20 +65,25 @@ export interface NetworkVerification {
 
 type Page = MessageInitShape<typeof PageRequestSchema> | undefined;
 
+/** The network's REST endpoints, in the registry's order; a network that lists none is refused. */
+export function restEndpoints(network: Network): string[] {
+  const urls = network.endpoints.rest.map((e) => e.address);
+  if (urls.length === 0) throw new RegistryError(`network ${network.chainId} lists no REST endpoint`);
+  return urls;
+}
+
 export class QueryClient {
   readonly gateway: GatewayClient;
   readonly #fetch: typeof fetch;
 
-  constructor(restUrl: string | readonly string[], options: GatewayOptions = {}) {
+  constructor(restUrl: string | readonly string[], options: GatewayOptions) {
     this.gateway = new GatewayClient(restUrl, options);
     this.#fetch = options.fetch ?? globalThis.fetch;
   }
 
   /** A client over the network's REST endpoints, in the registry's order, moving on when one cannot answer. */
-  static forNetwork(network: Network, options: GatewayOptions = {}): QueryClient {
-    const urls = network.endpoints.rest.map((e) => e.address);
-    if (urls.length === 0) throw new RegistryError(`network ${network.chainId} lists no REST endpoint`);
-    return new QueryClient(urls, options);
+  static forNetwork(network: Network, options: GatewayOptions): QueryClient {
+    return new QueryClient(restEndpoints(network), options);
   }
 
   /**

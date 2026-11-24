@@ -4,15 +4,14 @@
 // never given a reassuring label.
 import { create, type DescMessage, fromBinary, type Message, type Registry } from "@bufbuild/protobuf";
 import { type Any, AnySchema } from "@bufbuild/protobuf/wkt";
-import { typeNameOf, unknownAnyJson } from "../codec/any.js";
+import { typeNameOf, unknownAnyJson, type WithRegistry } from "../codec/any.js";
 import { txHash } from "../codec/hash.js";
 import { isJsonObject, type JsonValue } from "../codec/json.js";
 import { anyJson, toProtoJson } from "../codec/protojson.js";
-import { registry as defaultRegistry, type RegistryOption } from "../codec/registry.js";
 import type { SignMode } from "../gen/cosmos/tx/signing/v1beta1/signing_pb.js";
 import { type AuthInfo, AuthInfoSchema, type Fee, type Tx, type TxBody, TxBodySchema, TxRawSchema, TxSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 
-export type TxDecodeOptions = RegistryOption;
+export type TxDecodeOptions = WithRegistry;
 
 export interface DecodedMessage {
   typeUrl: string;
@@ -48,8 +47,8 @@ export interface DecodedTx {
   json: JsonValue;
 }
 
-export function decodeMessage(any: Any, options: TxDecodeOptions = {}): DecodedMessage {
-  return decodePacked(any, options.registry ?? defaultRegistry, undefined);
+export function decodeMessage(any: Any, options: TxDecodeOptions): DecodedMessage {
+  return decodePacked(any, options.registry, undefined);
 }
 
 /**
@@ -79,13 +78,13 @@ function renderedMessages(txJson: JsonValue): JsonValue[] {
 }
 
 /** The decoded messages of a transaction a query returned already parsed. */
-export function decodeTxMessages(tx: Tx, options: TxDecodeOptions = {}): DecodedMessage[] {
+export function decodeTxMessages(tx: Tx, options: TxDecodeOptions): DecodedMessage[] {
   return (tx.body?.messages ?? []).map((m) => decodeMessage(m, options));
 }
 
 /** Decodes raw transaction bytes as a node returns them. */
-export function decodeTx(bytes: Uint8Array, options: TxDecodeOptions = {}): DecodedTx {
-  const registry = options.registry ?? defaultRegistry;
+export function decodeTx(bytes: Uint8Array, options: TxDecodeOptions): DecodedTx {
+  const { registry } = options;
   const raw = fromBinary(TxRawSchema, bytes);
   const body = fromBinary(TxBodySchema, raw.bodyBytes);
   const authInfo = fromBinary(AuthInfoSchema, raw.authInfoBytes);

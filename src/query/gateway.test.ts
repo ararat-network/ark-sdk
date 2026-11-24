@@ -5,6 +5,7 @@ import { create, createRegistry } from "@bufbuild/protobuf";
 
 import { packAny } from "../codec/any.js";
 import { registry } from "../codec/registry.js";
+import { GatewayClient, QueryClient } from "../defaults.js";
 import { GrantKind } from "../gen/ark/disbursement/v1/disbursement_pb.js";
 import { Query as DisbursementQuery } from "../gen/ark/disbursement/v1/query_pb.js";
 import { Query as TreasuryQuery } from "../gen/ark/treasury/v1/query_pb.js";
@@ -13,8 +14,7 @@ import { Query as GovQuery } from "../gen/cosmos/gov/v1/query_pb.js";
 import { Service as TxService } from "../gen/cosmos/tx/v1beta1/service_pb.js";
 import { amounts, fixtureKey } from "../testing/fixtures.js";
 import { json, stubFetch } from "../testing/node.js";
-import { QueryClient } from "./client.js";
-import { EndpointsExhausted, GatewayClient, GrpcCode, QueryError, routeFor, TransportError } from "./gateway.js";
+import { EndpointsExhausted, GrpcCode, QueryError, routeFor, TransportError } from "./gateway.js";
 
 const nodeInfo = () => json({ default_node_info: { network: "localark" }, application_version: null });
 const unreachable = () => {

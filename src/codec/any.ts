@@ -4,7 +4,16 @@ import { create, type DescMessage, fromBinary, type Message, type MessageShape, 
 import { type Any, AnySchema } from "@bufbuild/protobuf/wkt";
 import { ArkSdkError } from "../errors.js";
 import type { JsonObject } from "./json.js";
-import { registry as defaultRegistry } from "./registry.js";
+
+/** What every reader of packed messages needs: the types an Any resolves against. */
+export interface WithRegistry {
+  registry: Registry;
+}
+
+/** The same where it may be left out: the main entry defaults it to every generated type, and a client's helpers to the client's own. */
+export interface RegistryOption {
+  registry?: Registry;
+}
 
 export class UnknownTypeError extends ArkSdkError {
   override readonly name: string = "UnknownTypeError";
@@ -56,7 +65,7 @@ export function unknownAnyJson(any: Any): JsonObject | undefined {
 }
 
 /** Unpacks an Any through the registry; undefined when the type is unknown, or was when the Any was read and only its JSON is held. */
-export function unpackAny(any: Any, registry: Registry = defaultRegistry): Unpacked | undefined {
+export function unpackAny(any: Any, registry: Registry): Unpacked | undefined {
   if (heldJson.has(any)) return undefined;
   const schema = registry.getMessage(typeNameOf(any.typeUrl));
   if (!schema) return undefined;

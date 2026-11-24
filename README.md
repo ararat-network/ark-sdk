@@ -123,6 +123,29 @@ not know decodes as unknown, never under a label it did not earn: with its type 
 bytes, and from a gateway answer, which has no bytes for it, with its type URL and the JSON the node rendered, which
 `unknownAnyJson` returns. Such a message holds no bytes, so the builder refuses to put it in a transaction.
 
+## The core entry
+
+The main entry resolves every `Any` against a registry of all the generated types, which is why any message decodes
+and why importing a decoder or a client bundles every generated file. `@ararat-network/sdk/core` exports the same
+names without that registry: whatever reads an `Any` takes the registry as an argument, so an app that names the
+types it uses bundles only those.
+
+```ts
+import { createRegistry } from "@bufbuild/protobuf";
+import { decodeTx, QueryClient } from "@ararat-network/sdk/core";
+import { file_cosmos_bank_v1beta1_tx } from "@ararat-network/sdk/gen/cosmos/bank/v1beta1/tx_pb.js";
+
+const registry = createRegistry(file_cosmos_bank_v1beta1_tx);
+const client = new QueryClient(network.endpoints.rest.map((e) => e.address), { registry });
+const { messages } = decodeTx(txBytes, { registry });
+```
+
+A client's search and account helpers decode with the client's registry, and `prepareAndSign` and `sendTx` encode an
+amino document through it. A message of a type the registry lacks decodes as unknown, as it does everywhere. The main
+entry's `QueryClient` and `GatewayClient` extend the core's, so anything that takes a core client takes either.
+Passing a registry to the main entry changes what is decoded, a newer release's types or fewer, but not the bundle:
+use one entry or the other.
+
 ## The signer
 
 Nothing in the package holds a private key but `MemorySigner`, which exists for tests and development against a
@@ -200,7 +223,6 @@ types CosmJS lags, Ark's own messages are not in any shared library, and Ledger 
 protos carry; the fixtures prove the encoding byte for byte instead. Queries go over the node's gRPC gateway, which
 every node serves and the fee contract names; gRPC-web left the SDK in v0.50 and would need a proxy. pnpm is the
 package manager, TypeScript the only language, `tsx` the test runner's one dependency, Biome the linter and formatter,
-and nothing in the package holds or sees a key. The type registry holds every generated type so any message decodes; a consumer that wants
-other types, a newer release's or fewer, builds its own with `createRegistry` from `@bufbuild/protobuf` and passes it
-to the gateway client, whose search and account helpers then decode with it, and to the decoders. That does not make
-the bundle smaller yet: each reader still imports the whole registry as its default. The tarball ships `src` beside `dist`, so the source maps resolve in a debugger.
+and nothing in the package holds or sees a key. The type registry holds every generated type so any message decodes, and the main entry
+defaults to it; the [core entry](#the-core-entry) takes a registry as an argument for a consumer that wants a smaller
+bundle. The tarball ships `src` beside `dist`, so the source maps resolve in a debugger.

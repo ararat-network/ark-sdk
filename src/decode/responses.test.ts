@@ -5,10 +5,10 @@ import { create, toBinary } from "@bufbuild/protobuf";
 
 import { packAny } from "../codec/any.js";
 import { toHex } from "../codec/bytes.js";
+import { decodeMsgResponses } from "../defaults.js";
 import { MsgSendResponseSchema } from "../gen/cosmos/bank/v1beta1/tx_pb.js";
 import { TxMsgDataSchema } from "../gen/cosmos/base/abci/v1beta1/abci_pb.js";
 import { MsgSubmitProposalResponseSchema } from "../gen/cosmos/gov/v1/tx_pb.js";
-import { decodeMsgResponses } from "./responses.js";
 
 test("message responses decode from the result's hex data", () => {
   const data = create(TxMsgDataSchema, {

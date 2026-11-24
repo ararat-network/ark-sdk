@@ -18,24 +18,23 @@ import {
 import { type ReflectList, type ReflectMap, type ReflectMessage, reflect } from "@bufbuild/protobuf/reflect";
 import { type Any, AnySchema, type Duration, DurationSchema, type Timestamp, TimestampSchema } from "@bufbuild/protobuf/wkt";
 import { ArkSdkError } from "../errors.js";
-import { anyFromUnknownJson, typeNameOf, typeUrlOf, UnknownTypeError, unknownAnyJson } from "./any.js";
+import { anyFromUnknownJson, typeNameOf, typeUrlOf, UnknownTypeError, unknownAnyJson, type WithRegistry } from "./any.js";
 import { fromBase64, toBase64, utf8Decode, utf8Encode } from "./bytes.js";
 import { LegacyDec } from "./dec.js";
 import { isJsonObject, type JsonObject, type JsonValue } from "./json.js";
 import { fieldOptions } from "./options.js";
-import { registry as defaultRegistry, type RegistryOption } from "./registry.js";
 import { durationFromText, durationToProtoJson, GO_ZERO_TIME_SECONDS, timestampFromText, timestampToProtoJson } from "./wkt.js";
 
 export class ProtoJsonError extends ArkSdkError {
   override readonly name: string = "ProtoJsonError";
 }
 
-export interface ToProtoJsonOptions extends RegistryOption {
+export interface ToProtoJsonOptions extends WithRegistry {
   /** What to do with an Any whose type the registry lacks: fail, or emit {"@type", "value": base64}. */
   unknownAny?: "throw" | "raw";
 }
 
-export interface FromProtoJsonOptions extends RegistryOption {
+export interface FromProtoJsonOptions extends WithRegistry {
   /** Skip members no field matches; the default, so a newer chain's extra fields do not break a reader. */
   ignoreUnknownFields?: boolean;
   /**
@@ -63,15 +62,15 @@ const WKT_DURATION = "google.protobuf.Duration";
 const WKT_ANY = "google.protobuf.Any";
 
 /** Renders a message in the chain's JSON dialect. */
-export function toProtoJson<Desc extends DescMessage>(schema: Desc, message: MessageShape<Desc>, options: ToProtoJsonOptions = {}): JsonValue {
-  const ctx: WriteContext = { registry: options.registry ?? defaultRegistry, unknownAny: options.unknownAny ?? "throw" };
+export function toProtoJson<Desc extends DescMessage>(schema: Desc, message: MessageShape<Desc>, options: ToProtoJsonOptions): JsonValue {
+  const ctx: WriteContext = { registry: options.registry, unknownAny: options.unknownAny ?? "throw" };
   return messageToJson(reflect(schema, message), ctx);
 }
 
 /** Reads a message from the chain's JSON dialect. */
-export function fromProtoJson<Desc extends DescMessage>(schema: Desc, json: JsonValue, options: FromProtoJsonOptions = {}): MessageShape<Desc> {
+export function fromProtoJson<Desc extends DescMessage>(schema: Desc, json: JsonValue, options: FromProtoJsonOptions): MessageShape<Desc> {
   const ctx: ReadContext = {
-    registry: options.registry ?? defaultRegistry,
+    registry: options.registry,
     ignoreUnknownFields: options.ignoreUnknownFields ?? true,
     unknownAny: options.unknownAny ?? "throw",
   };

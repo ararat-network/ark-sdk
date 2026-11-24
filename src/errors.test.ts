@@ -6,13 +6,12 @@ import { test } from "node:test";
 import { AnySchema } from "@bufbuild/protobuf/wkt";
 
 import { UnknownTypeError } from "./codec/any.js";
-import { fromProtoJson } from "./codec/protojson.js";
+import { fromProtoJson, GatewayClient, QueryClient } from "./defaults.js";
 import { ArkSdkError, errorMessage } from "./errors.js";
 import { Query as DisbursementQuery } from "./gen/ark/disbursement/v1/query_pb.js";
 import * as sdk from "./index.js";
 import { SignerError } from "./keys/signer.js";
-import { QueryClient } from "./query/client.js";
-import { GatewayClient, routeFor } from "./query/gateway.js";
+import { routeFor } from "./query/gateway.js";
 import { Network, RegistryError } from "./registry/network.js";
 import { registryFiles } from "./testing/fixtures.js";
 import { json, stubFetch } from "./testing/node.js";

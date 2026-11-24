@@ -8,11 +8,10 @@
 // a call that must not be repeated is never re-sent.
 import { create, type DescMethod, getOption, hasOption, type MessageInitShape, type MessageShape, type Registry } from "@bufbuild/protobuf";
 import type { GenService, GenServiceMethods } from "@bufbuild/protobuf/codegenv2";
-
+import type { WithRegistry } from "../codec/any.js";
 import { stripTrailing } from "../codec/bytes.js";
 import { isJsonObject, type JsonObject, type JsonValue } from "../codec/json.js";
 import { fromProtoJson, toProtoJson } from "../codec/protojson.js";
-import { registry as defaultRegistry, type RegistryOption } from "../codec/registry.js";
 import { ArkSdkError, errorMessage } from "../errors.js";
 import { http } from "../gen/google/api/annotations_pb.js";
 
@@ -92,8 +91,8 @@ export function isEndpointFault(err: unknown): boolean {
   return err instanceof TransportError || (err instanceof QueryError && ENDPOINT_FAULT_STATUSES.has(err.httpStatus));
 }
 
-/** `registry` is the types Any fields resolve against in requests and answers; every generated type by default. */
-export interface GatewayOptions extends RegistryOption {
+/** `registry` is the types Any fields resolve against in requests and answers. */
+export interface GatewayOptions extends WithRegistry {
   fetch?: typeof fetch;
   /** Headers sent with every request, for a node behind authentication. */
   headers?: Record<string, string>;
@@ -139,13 +138,13 @@ export class GatewayClient {
   readonly #timeoutMs: number;
   #current = 0;
 
-  constructor(baseUrl: string | readonly string[], options: GatewayOptions = {}) {
+  constructor(baseUrl: string | readonly string[], options: GatewayOptions) {
     const urls = (typeof baseUrl === "string" ? [baseUrl] : [...baseUrl]).map((u) => stripTrailing(u, "/"));
     if (urls.length === 0) throw new ArkSdkError("a gateway client needs at least one endpoint");
     this.baseUrls = urls;
     this.#fetch = options.fetch ?? globalThis.fetch;
     this.#headers = { ...options.headers };
-    this.registry = options.registry ?? defaultRegistry;
+    this.registry = options.registry;
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 

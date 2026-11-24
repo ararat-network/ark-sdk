@@ -6,17 +6,16 @@ import { test } from "node:test";
 
 import { create, createRegistry } from "@bufbuild/protobuf";
 import { AnySchema } from "@bufbuild/protobuf/wkt";
-
+import { aminoEncodeAny, fromProtoJson, toProtoJson, unpackAny } from "../defaults.js";
 import { PricesResponseSchema } from "../gen/ark/pricefeed/v1/pricefeed_pb.js";
 import { MsgSendSchema } from "../gen/cosmos/bank/v1beta1/tx_pb.js";
 import { CommissionRatesSchema } from "../gen/cosmos/staking/v1beta1/staking_pb.js";
 import { TxBodySchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { AccessConfigSchema, AccessType } from "../gen/cosmwasm/wasm/v1/types_pb.js";
-import { aminoEncodeAny } from "./aminojson.js";
-import { UnknownTypeError, unknownAnyJson, unpackAny, unpackAnyAs } from "./any.js";
+import { UnknownTypeError, unknownAnyJson, unpackAnyAs } from "./any.js";
 import { utf8Encode } from "./bytes.js";
 import { LegacyDec } from "./dec.js";
-import { fromProtoJson, ProtoJsonError, toProtoJson } from "./protojson.js";
+import { ProtoJsonError } from "./protojson.js";
 
 test("map fields render as objects and read back", () => {
   const message = create(PricesResponseSchema, { prices: { ausd: utf8Encode("1.5"), anoah: utf8Encode("2") } });

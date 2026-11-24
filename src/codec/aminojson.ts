@@ -10,7 +10,7 @@ import type { Any, Duration, Timestamp } from "@bufbuild/protobuf/wkt";
 import { ArkSdkError } from "../errors.js";
 import { CoinSchema } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import type { Fee, TxBody } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
-import { typeNameOf, typeUrlOf, UnknownTypeError, unknownAnyJson } from "./any.js";
+import { typeNameOf, typeUrlOf, UnknownTypeError, unknownAnyJson, type WithRegistry } from "./any.js";
 import { toBase64, utf8Decode } from "./bytes.js";
 import { LegacyDec } from "./dec.js";
 import { compareUtf8, type JsonObject, type JsonValue, marshalGoJsonBytes, sortKeys } from "./json.js";
@@ -24,7 +24,6 @@ import {
   SCALAR_DEC,
   SCALAR_INT,
 } from "./options.js";
-import { registry as defaultRegistry, type RegistryOption } from "./registry.js";
 import { durationToAmino, timestampToAmino } from "./wkt.js";
 
 export interface AminoCoin {
@@ -55,7 +54,7 @@ export class AminoError extends ArkSdkError {
   override readonly name: string = "AminoError";
 }
 
-export type AminoOptions = RegistryOption;
+export type AminoOptions = WithRegistry;
 
 export interface AminoSignDocInput {
   body: TxBody;
@@ -66,12 +65,12 @@ export interface AminoSignDocInput {
 }
 
 /** The amino sign document of a transaction, as the chain's handler builds it. */
-export function makeAminoSignDoc(input: AminoSignDocInput, options: AminoOptions = {}): AminoSignDoc {
+export function makeAminoSignDoc(input: AminoSignDocInput, options: AminoOptions): AminoSignDoc {
   const { body, fee } = input;
   if (body.extensionOptions.length > 0 || body.nonCriticalExtensionOptions.length > 0) {
     throw new AminoError("SIGN_MODE_LEGACY_AMINO_JSON does not support protobuf extension options");
   }
-  const ctx = { registry: options.registry ?? defaultRegistry };
+  const ctx: Context = { registry: options.registry };
   const doc: AminoSignDoc = {
     account_number: input.accountNumber.toString(),
     chain_id: input.chainId,
@@ -97,15 +96,15 @@ export function aminoSignDocBytes(doc: AminoSignDoc): Uint8Array {
 }
 
 /** Encodes a message; wrapped as {"type", "value"} when the message has an amino name. */
-export function aminoEncode<Desc extends DescMessage>(schema: Desc, message: MessageShape<Desc>, options: AminoOptions = {}): JsonValue {
+export function aminoEncode<Desc extends DescMessage>(schema: Desc, message: MessageShape<Desc>, options: AminoOptions): JsonValue {
   const name = messageOptions(schema).aminoName;
-  const value = marshalMessage(reflect(schema, message), { registry: options.registry ?? defaultRegistry });
+  const value = marshalMessage(reflect(schema, message), { registry: options.registry });
   return name === undefined ? value : { type: name, value };
 }
 
 /** Encodes a packed message as {"type", "value"}, the type its amino name or else its type URL. */
-export function aminoEncodeAny(any: Any, options: AminoOptions = {}): JsonValue {
-  return marshalAny(any, { registry: options.registry ?? defaultRegistry });
+export function aminoEncodeAny(any: Any, options: AminoOptions): JsonValue {
+  return marshalAny(any, { registry: options.registry });
 }
 
 interface Context {

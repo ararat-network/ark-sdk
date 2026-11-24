@@ -1,7 +1,7 @@
+import { QueryClient } from "../defaults.js";
 // A stand-in for a node's gateway in tests: a fetch that records each request
 // and answers from the test's own function, and a client over a scripted node.
 // Test-only; excluded from the build.
-import { QueryClient } from "../query/client.js";
 
 export interface SeenRequest {
   url: string;

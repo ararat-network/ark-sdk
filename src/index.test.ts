@@ -3,7 +3,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { create } from "@bufbuild/protobuf";
+import { AnySchema } from "@bufbuild/protobuf/wkt";
+
 import * as options from "./codec/options.js";
+import { TxResponseSchema } from "./gen/cosmos/base/abci/v1beta1/abci_pb.js";
+import { TxBodySchema, TxSchema } from "./gen/cosmos/tx/v1beta1/tx_pb.js";
 import * as sdk from "./index.js";
 
 const exported: Record<string, unknown> = sdk;
@@ -47,4 +52,32 @@ test("the names the app's signer imports are exported", () => {
     "verifyMessage",
   ];
   for (const name of needed) assert.ok(name in exported, name);
+});
+
+// Compile-time: the main entry defaults the registry for every name the core entry requires one for. A name the
+// index forgot to take from the defaulting layer would be the core's, and one of these calls would not type-check.
+void (async () => {
+  const any = create(AnySchema);
+  const tx = create(TxSchema);
+  const body = create(TxBodySchema);
+  const fee = sdk.makeFee({ amount: [], gasLimit: 1n });
+  sdk.unpackAny(any);
+  sdk.makeAminoSignDoc({ body, fee, chainId: "c", accountNumber: 0n, sequence: 0n });
+  sdk.aminoEncode(TxBodySchema, body);
+  sdk.aminoEncodeAny(any);
+  sdk.toProtoJson(TxSchema, tx);
+  sdk.fromProtoJson(TxSchema, {});
+  sdk.decodeAccount(any);
+  sdk.decodeMsgResponses("");
+  sdk.decodeMessage(any);
+  sdk.decodeTxMessages(tx);
+  sdk.decodeTx(new Uint8Array());
+  sdk.decodeEvent({ type: "t", attributes: [] });
+  sdk.decodeEvents([]);
+  sdk.foundTx(create(TxResponseSchema), undefined);
+  const signer = sdk.MemorySigner.random();
+  await sdk.signTx({ signer, address: signer.address, chainId: "c", accountNumber: 0n, sequence: 0n, messages: [], fee });
+  new sdk.GatewayClient("http://node");
+  new sdk.QueryClient("http://node");
+  sdk.QueryClient.forNetwork(sdk.Network.fromRegistry({} as sdk.RegistryFiles));
 });

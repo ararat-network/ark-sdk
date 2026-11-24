@@ -3,7 +3,7 @@
 // one that does not answers with an error the caller sees as it is.
 import type { Registry } from "@bufbuild/protobuf";
 
-import type { RegistryOption } from "../codec/registry.js";
+import type { RegistryOption } from "../codec/any.js";
 import { type DecodedEvent, decodeEvents } from "../decode/events.js";
 import { decodeMsgResponses } from "../decode/responses.js";
 import { classifyResult, type Outcome } from "../decode/result.js";
@@ -51,8 +51,8 @@ export const txQuery = {
   and: (...conditions: string[]): string => conditions.join(" AND "),
 };
 
-/** Builds the decoded view of one committed transaction; with no registry given, every generated type. */
-export function foundTx(response: TxResponse, tx: Tx | undefined, registry?: Registry): FoundTx {
+/** Builds the decoded view of one committed transaction. */
+export function foundTx(response: TxResponse, tx: Tx | undefined, registry: Registry): FoundTx {
   const options = { registry };
   return {
     hash: response.txhash,

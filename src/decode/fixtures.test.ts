@@ -8,12 +8,12 @@ import { AnySchema } from "@bufbuild/protobuf/wkt";
 
 import { fromBase64 } from "../codec/bytes.js";
 import type { JsonObject } from "../codec/json.js";
+import { decodeEvent, decodeEvents, decodeMessage, decodeTx } from "../defaults.js";
 import { SignMode } from "../gen/cosmos/tx/signing/v1beta1/signing_pb.js";
 import { type Fixture, fixtures } from "../testing/fixtures.js";
 import { expectedTxJson } from "../testing/gaps.js";
-import { decodeEvent, decodeEvents, eventsByMessage } from "./events.js";
+import { eventsByMessage } from "./events.js";
 import { classifyResult, describeOutcome } from "./result.js";
-import { decodeMessage, decodeTx } from "./tx.js";
 
 const all = fixtures();
 

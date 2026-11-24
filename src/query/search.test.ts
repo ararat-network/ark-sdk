@@ -3,10 +3,10 @@ import { test } from "node:test";
 
 import type { JsonValue } from "../codec/json.js";
 import { registry } from "../codec/registry.js";
+import { QueryClient } from "../defaults.js";
 import { fixture } from "../testing/fixtures.js";
 import { json, stubFetch } from "../testing/node.js";
 import { FUTURE_MSG_URL, registryWithFutureTypes } from "../testing/registry.js";
-import { QueryClient } from "./client.js";
 import { fetchTx, lookUpTx, searchTxs, txQuery, WrongTransaction } from "./search.js";
 
 const f = fixture("multi_message");

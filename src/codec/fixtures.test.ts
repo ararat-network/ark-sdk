@@ -5,14 +5,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
-
+import { fromProtoJson, makeAminoSignDoc, toProtoJson } from "../defaults.js";
 import { AuthInfoSchema, TxBodySchema, TxRawSchema, TxSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { fixtures } from "../testing/fixtures.js";
 import { expectedTxJson } from "../testing/gaps.js";
-import { aminoSignDocBytes, makeAminoSignDoc } from "./aminojson.js";
+import { aminoSignDocBytes } from "./aminojson.js";
 import { fromBase64, toBase64, utf8Decode } from "./bytes.js";
 import { materialise } from "./gogo.js";
-import { fromProtoJson, toProtoJson } from "./protojson.js";
 
 for (const f of fixtures()) {
   if (!f.tx_bytes) continue;

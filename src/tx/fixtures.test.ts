@@ -8,13 +8,12 @@ import { test } from "node:test";
 import { fromBinary } from "@bufbuild/protobuf";
 
 import { fromHex, toBase64 } from "../codec/bytes.js";
-import { fromProtoJson } from "../codec/protojson.js";
+import { fromProtoJson, signTx } from "../defaults.js";
 import { GasPriceSchema } from "../gen/ark/treasury/v1/treasury_pb.js";
 import { SignDocSchema, TxBodySchema, TxSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { MemorySigner } from "../keys/memory_signer.js";
 import { amounts, fixtureKey, fixtures } from "../testing/fixtures.js";
 import { makeFee } from "./body.js";
-import { signTx } from "./builder.js";
 import { quoteFee } from "./fee.js";
 import { directSignBytes } from "./signdoc.js";
 

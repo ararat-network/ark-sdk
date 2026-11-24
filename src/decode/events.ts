@@ -3,10 +3,9 @@
 // `mode` attribute whose value is a bare word, which must go before decoding;
 // `msg_index` names the message an event belongs to and is not a field.
 import type { DescMessage, Message } from "@bufbuild/protobuf";
-
+import type { WithRegistry } from "../codec/any.js";
 import type { JsonObject, JsonValue } from "../codec/json.js";
 import { fromProtoJson, toProtoJson } from "../codec/protojson.js";
-import { registry as defaultRegistry, type RegistryOption } from "../codec/registry.js";
 
 export interface EventAttribute {
   key: string;
@@ -35,11 +34,11 @@ export interface DecodedEvent {
   mode: string | undefined;
 }
 
-export type EventDecodeOptions = RegistryOption;
+export type EventDecodeOptions = WithRegistry;
 
 /** Decodes one event; an event that is not a typed proto event keeps its attributes and has no `typed`. */
-export function decodeEvent(event: ChainEvent, options: EventDecodeOptions = {}): DecodedEvent {
-  const registry = options.registry ?? defaultRegistry;
+export function decodeEvent(event: ChainEvent, options: EventDecodeOptions): DecodedEvent {
+  const { registry } = options;
   const mode = event.attributes.find((a) => a.key === "mode")?.value;
   const msgIndexText = event.attributes.find((a) => a.key === "msg_index")?.value;
   const msgIndex = msgIndexText !== undefined && /^\d+$/.test(msgIndexText) ? Number(msgIndexText) : undefined;
@@ -64,7 +63,7 @@ export function decodeEvent(event: ChainEvent, options: EventDecodeOptions = {})
   }
 }
 
-export function decodeEvents(events: readonly ChainEvent[], options: EventDecodeOptions = {}): DecodedEvent[] {
+export function decodeEvents(events: readonly ChainEvent[], options: EventDecodeOptions): DecodedEvent[] {
   return events.map((e) => decodeEvent(e, options));
 }
 

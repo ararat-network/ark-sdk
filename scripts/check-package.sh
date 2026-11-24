@@ -2,8 +2,8 @@
 # Proves the built package publishes and resolves: publint on the manifest,
 # arethetypeswrong on the tarball's types under each resolution mode, then an
 # install of the tarball, with the protobuf runtime beside it as the README
-# says, into an empty project that imports the root, a generated module, and
-# the runtime, and runs the codec. Run after pnpm build.
+# says, into an empty project that imports the root, the core entry, a
+# generated module, and the runtime, and runs the codec. Run after pnpm build.
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -34,10 +34,12 @@ npm install --silent --no-audit --no-fund "$tarball" "@bufbuild/protobuf@$runtim
 cat > check.mjs <<'JS'
 import { create, toBinary } from "@bufbuild/protobuf";
 import { LegacyDec, decodeTx, packMessages, typed } from "@ararat-network/sdk";
+import { decodeTx as coreDecodeTx, LegacyDec as CoreLegacyDec } from "@ararat-network/sdk/core";
 import { MsgSendSchema } from "@ararat-network/sdk/gen/cosmos/bank/v1beta1/tx_pb.js";
 if (LegacyDec.fromString("1.5").toWire() !== "1500000000000000000") throw new Error("LegacyDec");
 if (MsgSendSchema.typeName !== "cosmos.bank.v1beta1.MsgSend") throw new Error("generated module");
 if (typeof decodeTx !== "function") throw new Error("decodeTx");
+if (typeof coreDecodeTx !== "function" || coreDecodeTx === decodeTx || CoreLegacyDec !== LegacyDec) throw new Error("core entry");
 const send = create(MsgSendSchema, { fromAddress: "a", toAddress: "b", amount: [{ denom: "ausd", amount: "1" }] });
 const [packed] = packMessages([typed(MsgSendSchema, send)]);
 if (packed.typeUrl !== "/cosmos.bank.v1beta1.MsgSend" || toBinary(MsgSendSchema, send).length === 0) throw new Error("runtime beside the SDK");

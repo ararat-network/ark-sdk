@@ -123,6 +123,8 @@ export async function prepareAndSign(input: PrepareInput): Promise<Prepared> {
     sequence,
     fee: feeFromQuote(quote, { payer: input.payer, granter: input.granter }),
     mode: input.mode,
+    // The types the client was given are the ones this flow knows; amino mode encodes the messages through them.
+    registry: client.gateway.registry,
   });
   return { signed, quote, tax: tax.tax, taxBase: tax.taxBase, simulatedGas, gasLimit, accountNumber: account.accountNumber, sequence };
 }
