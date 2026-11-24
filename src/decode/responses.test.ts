@@ -25,6 +25,7 @@ test("message responses decode from the result's hex data", () => {
   );
   assert.equal((responses[1]!.message as unknown as { proposalId: bigint }).proposalId, 7n);
   assert.deepEqual(responses[1]?.json, { "@type": "/cosmos.gov.v1.MsgSubmitProposalResponse", proposal_id: "7" });
-  assert.deepEqual(decodeMsgResponses(""), []);
-  assert.deepEqual(decodeMsgResponses(new Uint8Array()), []);
+  // The length, not the list: a decoded response carries its schema, which prints as over a million lines, and a failed assert.deepEqual diffs both sides.
+  assert.equal(decodeMsgResponses("").length, 0);
+  assert.equal(decodeMsgResponses(new Uint8Array()).length, 0);
 });

@@ -79,9 +79,10 @@ test("a call encodes the request, reads the dialect back, and carries the height
 });
 
 test("the client exposes the registry it resolves types against: every generated type, or the one it was given", () => {
-  assert.equal(new GatewayClient("http://node").registry, registry);
+  // Compared with ===: a registry prints as over a million lines, and a failed assert.equal diffs both sides.
+  assert.ok(new GatewayClient("http://node").registry === registry);
   const own = createRegistry();
-  assert.equal(new QueryClient("http://node", { registry: own }).gateway.registry, own);
+  assert.ok(new QueryClient("http://node", { registry: own }).gateway.registry === own);
 });
 
 test("computeTax posts the packed messages as proto JSON", async () => {

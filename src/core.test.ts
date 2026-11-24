@@ -40,14 +40,17 @@ test("the core entry exports every name the main entry does, but for the full re
       .filter((name) => name !== "registry")
       .sort(),
   );
-  assert.equal(main.registry, registry);
+  // Compared with === here and below: a registry prints as over a million lines, and a failed assert.equal diffs both sides.
+  assert.ok(main.registry === registry);
 });
 
 test("a core reader given the full registry answers as the main entry's does", () => {
   const f = fixture("multi_message");
   const bytes = fromBase64(f.tx_bytes!);
   assert.deepEqual(core.decodeTx(bytes, { registry }).json, main.decodeTx(bytes).json);
-  assert.deepEqual(core.decodeEvents(f.events!, { registry }), main.decodeEvents(f.events!));
+  // Each event's schema is compared by name, for the same reason.
+  const named = (events: ReturnType<typeof core.decodeEvents>) => events.map((e) => ({ ...e, schema: e.schema?.typeName }));
+  assert.deepEqual(named(core.decodeEvents(f.events!, { registry })), named(main.decodeEvents(f.events!)));
   const send = create(MsgSendSchema, { fromAddress: "ark1a", toAddress: "ark1b", amount: [{ denom: "ausd", amount: "1" }] });
   assert.deepEqual(core.toProtoJson(MsgSendSchema, send, { registry }), main.toProtoJson(MsgSendSchema, send));
 });
@@ -66,12 +69,12 @@ test("a core client takes its registry, and the main entry's is the same client 
   const own = createRegistry();
   const { fetch } = stubFetch(() => json({ default_node_info: { network: "localark" }, application_version: null }));
   const client = new core.QueryClient("http://node", { fetch, registry: own });
-  assert.equal(client.gateway.registry, own);
+  assert.ok(client.gateway.registry === own);
   assert.equal((await client.node.info()).defaultNodeInfo?.network, "localark");
 
   const defaulted = new main.QueryClient("http://node", { fetch });
   assert.ok(defaulted instanceof core.QueryClient, "what takes a core client takes the main entry's");
-  assert.equal(defaulted.gateway.registry, registry);
+  assert.ok(defaulted.gateway.registry === registry);
   assert.ok(new main.GatewayClient("http://node") instanceof core.GatewayClient);
 });
 

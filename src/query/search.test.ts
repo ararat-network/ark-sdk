@@ -82,7 +82,8 @@ test("a message of a type the registry lacks is one unknown message, not a faile
   );
   const unknown = item.messages[2]!;
   assert.equal(unknown.message, undefined);
-  assert.equal(unknown.schema, undefined);
+  // Compared with ===: a schema prints as over a million lines, and a failed assert.equal diffs both sides.
+  assert.ok(unknown.schema === undefined);
   assert.deepEqual(unknown.json, future, "the node's own JSON is what is shown for it");
 });
 
@@ -138,7 +139,8 @@ test("a known message around one the registry lacks is unknown with the node's J
 
 test("fetchTx returns undefined for a pending hash and the decoded transaction otherwise", async () => {
   const notFound = stub(() => json({ code: 5, message: "tx not found", details: [] }, 404));
-  assert.equal(await fetchTx(notFound.client, f.tx_hash!), undefined);
+  // A found transaction carries its messages' schemas, so this too is compared with ===.
+  assert.ok((await fetchTx(notFound.client, f.tx_hash!)) === undefined);
   const ok = stub(() => json({ tx: f.tx, tx_response: found.tx_responses[0] }));
   const item = await fetchTx(ok.client, f.tx_hash!);
   assert.equal(item?.messages.length, 2);

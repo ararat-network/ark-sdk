@@ -77,7 +77,8 @@ test("a known Any that holds an unknown one is kept whole, at any depth, never a
   assert.equal(outer.value.length, 0, "bytes here would name the inner type and carry none of its content");
   assert.deepEqual(unknownAnyJson(outer), exec);
   assert.deepEqual(toProtoJson(AnySchema, outer), exec, "the node's JSON, the inner message's members included");
-  assert.equal(unpackAny(outer), undefined);
+  // Compared with === here and below: an unpacked Any carries its schema, which prints as over a million lines, and a failed assert.equal diffs both sides.
+  assert.ok(unpackAny(outer) === undefined);
   const decoded = decodeMessage(outer);
   assert.equal(decoded.known, false);
   assert.deepEqual(decoded.json, exec);
@@ -99,7 +100,7 @@ test("an Any held as JSON is never decoded from its empty bytes, even by a regis
   const send = { "@type": "/cosmos.bank.v1beta1.MsgSend", from_address: "ark1a", to_address: "ark1b", amount: [] };
   const held = fromProtoJson(AnySchema, send, { registry: createRegistry(), unknownAny: "keep" });
   assert.deepEqual(unknownAnyJson(held), send);
-  assert.equal(unpackAny(held), undefined, "empty bytes would decode as an empty MsgSend");
+  assert.ok(unpackAny(held) === undefined, "empty bytes would decode as an empty MsgSend");
   assert.throws(() => unpackAnyAs(held, MsgSendSchema), UnknownTypeError);
   assert.throws(() => aminoEncodeAny(held), UnknownTypeError);
   assert.deepEqual(toProtoJson(AnySchema, held), send, "the JSON it arrived as, not an empty message's");
