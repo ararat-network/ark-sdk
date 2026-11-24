@@ -12,7 +12,7 @@ import { fromProtoJson } from "../codec/protojson.js";
 import { GasPriceSchema } from "../gen/ark/treasury/v1/treasury_pb.js";
 import { SignDocSchema, TxBodySchema, TxSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { MemorySigner } from "../keys/memory_signer.js";
-import { fixtureKey, fixtures } from "../testing/fixtures.js";
+import { amounts, fixtureKey, fixtures } from "../testing/fixtures.js";
 import { makeFee } from "./body.js";
 import { signTx } from "./builder.js";
 import { quoteFee } from "./fee.js";
@@ -28,7 +28,7 @@ for (const f of fixtures()) {
     const signer = MemorySigner.fromPrivateKey(fromHex(key.private_key_hex));
     assert.equal(signer.address, f.signer!.address);
 
-    const body = fromProtoJson(TxBodySchema, (f.tx as { body: never }).body);
+    const body = fromProtoJson(TxBodySchema, f.tx!.body);
     const fee = makeFee({ amount: f.fee!.declared, gasLimit: BigInt(f.fee!.gas_limit) });
     const signed = await signTx({
       signer,
@@ -61,17 +61,9 @@ for (const f of fixtures()) {
     assert.equal(quote.required.amount, f.fee!.required.amount, "required gas leg");
     assert.equal(quote.derivedHeight, BigInt(f.fee!.gas_price.derived_height));
     if (overriddenDeclaration.has(f.name)) {
-      assert.notDeepEqual(
-        quote.declared.map((c) => c.amount + c.denom),
-        f.fee!.declared.map((c) => c.amount + c.denom),
-        "the override differs from the quote",
-      );
+      assert.notDeepEqual(amounts(quote.declared), amounts(f.fee!.declared), "the override differs from the quote");
       return;
     }
-    assert.deepEqual(
-      quote.declared.map((c) => c.amount + c.denom),
-      f.fee!.declared.map((c) => c.amount + c.denom),
-      "declared legs",
-    );
+    assert.deepEqual(amounts(quote.declared), amounts(f.fee!.declared), "declared legs");
   });
 }

@@ -6,8 +6,9 @@ import { fromHex, toBase64 } from "../codec/bytes.js";
 import { fromProtoJson } from "../codec/protojson.js";
 import { AuthInfoSchema, TxBodySchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { MemorySigner } from "../keys/memory_signer.js";
-import { QueryClient } from "../query/client.js";
-import { fixture, fixtureKey } from "../testing/fixtures.js";
+import type { QueryClient } from "../query/client.js";
+import { amounts, fixture, fixtureKey } from "../testing/fixtures.js";
+import { fakeNode, json, txResponse } from "../testing/node.js";
 import { BroadcastRefused } from "./broadcast.js";
 import { FeeError } from "./fee.js";
 import { PrepareError, prepareAndSign, sendTx } from "./prepare.js";
@@ -15,15 +16,13 @@ import { PrepareError, prepareAndSign, sendTx } from "./prepare.js";
 const f = fixture("bank_send_taxed");
 const key = fixtureKey("trader");
 const signer = MemorySigner.fromPrivateKey(fromHex(key.private_key_hex));
-const body = fromProtoJson(TxBodySchema, (f.tx as { body: never }).body);
+const body = fromProtoJson(TxBodySchema, f.tx!.body);
 
 const HASH = f.tx_hash!;
-const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
 
-/** A node answering the flow's requests in order, each a route prefix with its reply. */
+/** A node answering the flow's requests in order, each a route prefix with its reply; any other request takes the next step of its script. */
 function node(sequence = "2") {
-  const calls: string[] = [];
-  const replies: Record<string, () => Response> = {
+  return fakeNode([], {
     "GET /cosmos/auth/v1beta1/account_info/": () => json({ info: { address: signer.address, pub_key: null, account_number: "3", sequence } }),
     "POST /cosmos/tx/v1beta1/simulate": () => json({ gas_info: { gas_wanted: "0", gas_used: "217391" }, result: null }),
     "POST /ark/treasury/v1/compute_tax": () => json({ tax: f.fee!.tax, tax_base: [{ denom: "ausd", amount: "10000000000000000000" }] }),
@@ -32,17 +31,7 @@ function node(sequence = "2") {
         gas_prices: [f.fee!.gas_price, { denom: "anoah", gas_price: "100000000000.000000000000000000", derived_height: "0" }],
         reference_gas_price: { denom: "axdr", gas_price: "100000000000.000000000000000000", derived_height: "0" },
       }),
-  };
-  const extra: ((call: string) => Response)[] = [];
-  const fetchStub = (async (input: string | URL | Request, init?: RequestInit) => {
-    const call = `${init?.method ?? "GET"} ${String(input).replace("http://node", "")}`;
-    calls.push(call);
-    for (const [prefix, reply] of Object.entries(replies)) if (call.startsWith(prefix)) return reply();
-    const next = extra.shift();
-    if (!next) throw new Error(`unexpected request ${call}`);
-    return next(call);
-  }) as typeof fetch;
-  return { client: new QueryClient("http://node", { fetch: fetchStub }), calls, extra, replies };
+  });
 }
 
 const base = (client: QueryClient) => ({
@@ -61,14 +50,8 @@ test("prepareAndSign reproduces a fixture from a node's answers", async () => {
   const prepared = await prepareAndSign(base(client));
   assert.equal(prepared.simulatedGas, 217391n);
   assert.equal(prepared.gasLimit, 250000n, "ceil(217391 × 1.15)");
-  assert.deepEqual(
-    prepared.quote.declared.map((c) => c.amount + c.denom),
-    f.fee!.declared.map((c) => c.amount + c.denom),
-  );
-  assert.deepEqual(
-    prepared.taxBase.map((c) => c.amount + c.denom),
-    ["10000000000000000000ausd"],
-  );
+  assert.deepEqual(amounts(prepared.quote.declared), amounts(f.fee!.declared));
+  assert.deepEqual(amounts(prepared.taxBase), ["10000000000000000000ausd"]);
   assert.equal(toBase64(prepared.signed.txBytes), f.tx_bytes);
   assert.equal(prepared.signed.hash, HASH);
   assert.deepEqual(
@@ -93,8 +76,8 @@ test("a given gas limit or account skips the query for it, and an unlisted fee d
   const tipped = await prepareAndSign({ ...base(client), gasLimit: 250000n, account: { accountNumber: 3n, sequence: 2n }, tip: 5n });
   assert.equal(tipped.quote.tip?.amount, "5");
   assert.deepEqual(
-    fromBinary(AuthInfoSchema, tipped.signed.authInfoBytes).fee?.amount.map((c) => c.amount + c.denom),
-    [...f.fee!.declared.map((c) => c.amount + c.denom), "5anoah"],
+    amounts(fromBinary(AuthInfoSchema, tipped.signed.authInfoBytes).fee!.amount),
+    [...amounts(f.fee!.declared), "5anoah"],
     "the tip is the last leg of the signed fee",
   );
   const missing = node();
@@ -122,41 +105,22 @@ test("an unordered transaction is signed at sequence zero and needs its timeout 
   assert.equal(n.calls.filter((c) => c.includes("account_info")).length, 2, "the refusal comes before any request");
 });
 
-const broadcastOk = () =>
-  json({ tx_response: { txhash: HASH, code: 0, codespace: "", raw_log: "", height: "0", gas_wanted: "0", gas_used: "0", events: [], logs: [] } });
+const broadcastOk = () => json({ tx_response: txResponse({ txhash: HASH }) });
 const mismatch = () =>
   json({
-    tx_response: {
+    tx_response: txResponse({
       txhash: HASH,
       code: 32,
       codespace: "sdk",
       raw_log: "account sequence mismatch, expected 3, got 2: incorrect account sequence",
-      height: "0",
-      gas_wanted: "0",
-      gas_used: "0",
-      events: [],
-      logs: [],
-    },
+    }),
   });
 /** The block's result under the hash the lookup asked for, as an honest node answers. */
-const included = (call: string) =>
-  json({
-    tx_response: {
-      txhash: call.split("/").pop(),
-      code: 0,
-      codespace: "",
-      raw_log: "",
-      height: "7",
-      gas_wanted: "250000",
-      gas_used: "98227",
-      events: [],
-      logs: [],
-    },
-  });
+const included = (call: string) => json({ tx_response: txResponse({ txhash: call.split("/").pop(), height: "7", gas_wanted: "250000", gas_used: "98227" }) });
 
 test("sendTx broadcasts and confirms, and signs again at the sequence the chain names after a mismatch", async () => {
   const n = node();
-  n.extra.push(broadcastOk, included);
+  n.script.push(broadcastOk, included);
   const sent = await sendTx(base(n.client), { sleep: async () => {} });
   assert.equal(sent.response.height, 7n);
   assert.equal(sent.broadcast.hash, HASH);
@@ -164,7 +128,7 @@ test("sendTx broadcasts and confirms, and signs again at the sequence the chain 
   // A timeout height of zero is the body's no timeout: the wait polls on
   // instead of reading the chain as past it.
   const untimed = node();
-  untimed.extra.push(broadcastOk, () => json({ code: 5, message: "tx not found", details: [] }, 404), included);
+  untimed.script.push(broadcastOk, () => json({ code: 5, message: "tx not found", details: [] }, 404), included);
   const landed = await sendTx({ ...base(untimed.client), timeoutHeight: 0n }, { sleep: async () => {} });
   assert.equal(landed.response.height, 7n);
   assert.ok(!untimed.calls.some((c) => c.includes("blocks/latest")));
@@ -172,7 +136,7 @@ test("sendTx broadcasts and confirms, and signs again at the sequence the chain 
   // CheckTx names the sequence; the committed account still shows the old one
   // while the earlier transaction is pending, so the log is what is used.
   const r = node();
-  r.extra.push(mismatch, broadcastOk, included);
+  r.script.push(mismatch, broadcastOk, included);
   const retried = await sendTx(base(r.client), { sleep: async () => {} });
   assert.equal(retried.sequence, 3n, "the second attempt signs with the sequence the chain expects");
   assert.equal(r.calls.filter((c) => c.includes("account_info")).length, 2, "the account is read again for its number only");
@@ -187,16 +151,16 @@ test("sendTx broadcasts and confirms, and signs again at the sequence the chain 
           500,
         )
       : json({ gas_info: { gas_wanted: "0", gas_used: "217391" }, result: null });
-  s.extra.push(broadcastOk, included);
+  s.script.push(broadcastOk, included);
   const resimulated = await sendTx(base(s.client), { sleep: async () => {} });
   assert.equal(resimulated.sequence, 3n);
   assert.equal(simulations, 2);
 
   const once = node();
-  once.extra.push(mismatch);
+  once.script.push(mismatch);
   await assert.rejects(sendTx(base(once.client), { retryOnSequenceMismatch: false }), BroadcastRefused);
   const given = node();
-  given.extra.push(mismatch);
+  given.script.push(mismatch);
   await assert.rejects(
     sendTx({ ...base(given.client), account: { accountNumber: 3n, sequence: 2n } }),
     BroadcastRefused,

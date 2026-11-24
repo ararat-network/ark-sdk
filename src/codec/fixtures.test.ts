@@ -26,7 +26,7 @@ for (const f of fixtures()) {
 
     assert.deepEqual(toProtoJson(TxSchema, tx), expectedTxJson(f.name, f.tx));
 
-    const rebuilt = fromProtoJson(TxSchema, f.tx as never);
+    const rebuilt = fromProtoJson(TxSchema, f.tx!);
     assert.equal(toBase64(toBinary(TxBodySchema, materialise(TxBodySchema, rebuilt.body!))), f.sign_mode_direct!.body_bytes, "body bytes from JSON");
     assert.equal(
       toBase64(toBinary(AuthInfoSchema, materialise(AuthInfoSchema, rebuilt.authInfo!))),

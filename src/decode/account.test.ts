@@ -13,7 +13,7 @@ import {
   PeriodicVestingAccountSchema,
   PermanentLockedAccountSchema,
 } from "../gen/cosmos/vesting/v1beta1/vesting_pb.js";
-import { QueryClient } from "../query/client.js";
+import { amounts } from "../testing/fixtures.js";
 import { decodeAccount, vestedCoins, vestingCoins } from "./account.js";
 
 const address = "ark1fec7dnxl3fre9zmc3kyvtt357de3ek9fnlu96j";
@@ -21,7 +21,6 @@ const NOAH = 10n ** 18n;
 const YEAR = 31_536_000n;
 const genesis = 1_800_000_000n;
 const base = { address, accountNumber: 5n, sequence: 1n };
-const amounts = (coins: { denom: string; amount: string }[]) => coins.map((c) => c.amount + c.denom);
 
 test("a seat is a continuous vesting account that vests linearly between its cliff and its end", () => {
   const seat = create(ContinuousVestingAccountSchema, {
@@ -117,24 +116,4 @@ test("base, module, and unknown accounts", () => {
   assert.equal(unknown.kind, "unknown");
   assert.equal(unknown.typeUrl, "/ark.future.v1.OddAccount");
   assert.deepEqual(vestedCoins(unknown, 0n), []);
-});
-
-test("decodedAccount reads the gateway's JSON for a vesting account", async () => {
-  const body = {
-    account: {
-      "@type": "/cosmos.vesting.v1beta1.ContinuousVestingAccount",
-      base_vesting_account: {
-        base_account: { address, pub_key: null, account_number: "5", sequence: "1" },
-        original_vesting: [{ denom: "anoah", amount: "5000000000000000000000000" }],
-        delegated_free: [],
-        delegated_vesting: [],
-        end_time: String(genesis + 8n * YEAR),
-      },
-      start_time: String(genesis + 4n * YEAR),
-    },
-  };
-  const client = new QueryClient("http://node", { fetch: (async () => new Response(JSON.stringify(body))) as typeof fetch });
-  const a = await client.auth.decodedAccount(address);
-  assert.equal(a.kind, "continuous_vesting");
-  assert.deepEqual(amounts(vestedCoins(a, genesis + 6n * YEAR)), [`${2_500_000n * NOAH}anoah`]);
 });

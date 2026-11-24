@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { txHash } from "../codec/hash.js";
-import { QueryClient } from "../query/client.js";
 import { QueryError } from "../query/gateway.js";
+import { fakeNode, json, txResponse } from "../testing/node.js";
 import {
   BroadcastRefused,
   BroadcastUnknown,
@@ -17,27 +17,12 @@ import {
 /** The hash of the one-byte transaction the tests broadcast, which an honest node echoes. */
 const HASH = txHash(new Uint8Array([1]));
 
-function node(script: ((url: string, body: string | undefined) => Response)[]): { client: QueryClient; calls: string[] } {
-  const calls: string[] = [];
-  const fetchStub = (async (input: string | URL | Request, init?: RequestInit) => {
-    const url = String(input);
-    calls.push(`${init?.method ?? "GET"} ${url.replace("http://node", "")}`);
-    const step = script.shift();
-    if (!step) throw new Error(`unexpected request ${url}`);
-    return step(url, init?.body as string | undefined);
-  }) as typeof fetch;
-  return { client: new QueryClient("http://node", { fetch: fetchStub }), calls };
-}
-
-const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
-const broadcastOk = () =>
-  json({ tx_response: { txhash: HASH, code: 0, codespace: "", raw_log: "", height: "0", gas_wanted: "0", gas_used: "0", events: [], logs: [] } });
+const broadcastOk = () => json({ tx_response: txResponse({ txhash: HASH }) });
 const notFound = () => json({ code: 5, message: "tx not found", details: [] }, 404);
-const included = () =>
-  json({ tx_response: { txhash: HASH, code: 0, codespace: "", raw_log: "", height: "7", gas_wanted: "250000", gas_used: "98227", events: [], logs: [] } });
+const included = () => json({ tx_response: txResponse({ txhash: HASH, height: "7", gas_wanted: "250000", gas_used: "98227" }) });
 
 test("broadcastSync returns CheckTx's verdict with the hash", async () => {
-  const { client, calls } = node([broadcastOk]);
+  const { client, calls } = fakeNode([broadcastOk]);
   const result = await broadcastSync(client, new Uint8Array([1]));
   assert.deepEqual(result, { hash: HASH, code: 0, codespace: "", rawLog: "", accepted: true, alreadyInMempool: false });
   assert.deepEqual(calls, ["POST /cosmos/tx/v1beta1/txs"]);
@@ -45,12 +30,11 @@ test("broadcastSync returns CheckTx's verdict with the hash", async () => {
 
 test("the hash is the bytes' own, and an answer for another transaction is refused", async () => {
   const OTHER = "AA".repeat(32);
-  const other = (height: string) => () =>
-    json({ tx_response: { txhash: OTHER, code: 0, codespace: "", raw_log: "", height, gas_wanted: "0", gas_used: "0", events: [], logs: [] } });
-  const echoed = node([other("0")]);
+  const other = (height: string) => () => json({ tx_response: txResponse({ txhash: OTHER, height }) });
+  const echoed = fakeNode([other("0")]);
   assert.equal((await broadcastSync(echoed.client, new Uint8Array([1]))).hash, HASH, "the node's echo does not replace the hash");
 
-  const redirected = node([other("0"), other("9")]);
+  const redirected = fakeNode([other("0"), other("9")]);
   await assert.rejects(broadcastAndConfirm(redirected.client, new Uint8Array([1]), { sleep: async () => {} }), (err: unknown) => {
     assert.ok(err instanceof WrongTransaction);
     assert.equal(err.hash, HASH);
@@ -59,26 +43,13 @@ test("the hash is the bytes' own, and an answer for another transaction is refus
   });
   assert.equal(redirected.calls[1], `GET /cosmos/tx/v1beta1/txs/${HASH}`, "the transaction's own hash is what is polled");
 
-  const lower = node([included]);
+  const lower = fakeNode([included]);
   assert.equal((await waitForInclusion(lower.client, HASH.toLowerCase(), { sleep: async () => {} })).height, 7n, "case is not a difference");
 });
 
 test("a node that already holds the transaction reports an acceptance", async () => {
-  const cached = () =>
-    json({
-      tx_response: {
-        txhash: HASH,
-        code: 19,
-        codespace: "sdk",
-        raw_log: "tx already in mempool",
-        height: "0",
-        gas_wanted: "0",
-        gas_used: "0",
-        events: [],
-        logs: [],
-      },
-    });
-  const { client } = node([cached, notFound, included]);
+  const cached = () => json({ tx_response: txResponse({ txhash: HASH, code: 19, codespace: "sdk", raw_log: "tx already in mempool" }) });
+  const { client } = fakeNode([cached, notFound, included]);
   const confirmed = await broadcastAndConfirm(client, new Uint8Array([1]), { sleep: async () => {} });
   assert.equal(confirmed.broadcast.accepted, true);
   assert.equal(confirmed.broadcast.alreadyInMempool, true);
@@ -88,7 +59,7 @@ test("a node that already holds the transaction reports an acceptance", async ()
 
 test("a broadcast whose answer never arrives, or carries no verdict, is an unknown outcome with the hash", async () => {
   const bytes = new Uint8Array([1, 2, 3]);
-  const lost = node([
+  const lost = fakeNode([
     () => {
       throw new TypeError("fetch failed");
     },
@@ -100,9 +71,9 @@ test("a broadcast whose answer never arrives, or carries no verdict, is an unkno
     return true;
   });
   assert.equal(lost.calls.length, 1);
-  const silent = node([() => json({ tx_response: null })]);
+  const silent = fakeNode([() => json({ tx_response: null })]);
   await assert.rejects(broadcastSync(silent.client, bytes), (err: unknown) => err instanceof BroadcastUnknown && err.hash === txHash(bytes));
-  const refusedByGateway = node([() => json({ code: 3, message: "tx parse error", details: [] }, 400)]);
+  const refusedByGateway = fakeNode([() => json({ code: 3, message: "tx parse error", details: [] }, 400)]);
   await assert.rejects(
     broadcastSync(refusedByGateway.client, bytes),
     (err: unknown) => err instanceof QueryError && err.httpStatus === 400,
@@ -110,7 +81,7 @@ test("a broadcast whose answer never arrives, or carries no verdict, is an unkno
   );
   // A gateway answering in the node's place has lost the node's answer, not refused the transaction.
   for (const status of [502, 503, 504]) {
-    const proxied = node([() => new Response("<html>upstream timed out</html>", { status })]);
+    const proxied = fakeNode([() => new Response("<html>upstream timed out</html>", { status })]);
     await assert.rejects(broadcastSync(proxied.client, bytes), (err: unknown) => {
       assert.ok(err instanceof BroadcastUnknown, `${status} is an unknown outcome`);
       assert.equal(err.hash, txHash(bytes));
@@ -119,7 +90,7 @@ test("a broadcast whose answer never arrives, or carries no verdict, is an unkno
     });
     assert.equal(proxied.calls.length, 1, "and it is still sent once");
   }
-  const limited = node([() => json({ code: 8, message: "rate limited", details: [] }, 429)]);
+  const limited = fakeNode([() => json({ code: 8, message: "rate limited", details: [] }, 429)]);
   await assert.rejects(
     broadcastSync(limited.client, bytes),
     (err: unknown) => err instanceof QueryError && err.httpStatus === 429,
@@ -129,7 +100,7 @@ test("a broadcast whose answer never arrives, or carries no verdict, is an unkno
 
 test("polling rides out an endpoint fault, names the last one at the deadline, and stops on the caller's error", async () => {
   const unavailable = () => json({ code: 14, message: "unavailable", details: [] }, 503);
-  const flaky = node([
+  const flaky = fakeNode([
     () => {
       throw new TypeError("fetch failed");
     },
@@ -141,7 +112,7 @@ test("polling rides out an endpoint fault, names the last one at the deadline, a
   assert.equal(response.height, 7n);
   assert.equal(flaky.calls.length, 4);
 
-  const down = node([unavailable, unavailable, unavailable]);
+  const down = fakeNode([unavailable, unavailable, unavailable]);
   let clock = 0;
   await assert.rejects(
     waitForInclusion(down.client, HASH, {
@@ -155,7 +126,7 @@ test("polling rides out an endpoint fault, names the last one at the deadline, a
     (err: unknown) => err instanceof InclusionTimeout && err.cause instanceof QueryError && err.cause.httpStatus === 503,
   );
 
-  const badHash = node([() => json({ code: 3, message: "invalid hash", details: [] }, 400)]);
+  const badHash = fakeNode([() => json({ code: 3, message: "invalid hash", details: [] }, 400)]);
   await assert.rejects(
     waitForInclusion(badHash.client, "nothex", { sleep: async () => {} }),
     (err: unknown) => err instanceof QueryError && err.httpStatus === 400,
@@ -164,33 +135,33 @@ test("polling rides out an endpoint fault, names the last one at the deadline, a
 
 test("past the timeout height the wait ends with one last look, and before it polling goes on", async () => {
   const latest = (height: string) => () => json({ block_id: null, block: null, sdk_block: { header: { height } } });
-  const expired = node([notFound, latest("11"), notFound]);
+  const expired = fakeNode([notFound, latest("11"), notFound]);
   await assert.rejects(
     waitForInclusion(expired.client, HASH, { timeoutHeight: 10n, sleep: async () => {} }),
     (err: unknown) => err instanceof TransactionExpired && err.timeoutHeight === 10n && err.height === 11n,
   );
   assert.equal(expired.calls.length, 3, "the last look is one more request, not a wait");
 
-  const carried = node([notFound, latest("11"), included]);
+  const carried = fakeNode([notFound, latest("11"), included]);
   const response = await waitForInclusion(carried.client, HASH, { timeoutHeight: 10n, sleep: async () => {} });
   assert.equal(response.height, 7n, "a block at the height carried it between the poll and the read");
 
-  const early = node([notFound, latest("9"), notFound, latest("10"), included]);
+  const early = fakeNode([notFound, latest("9"), notFound, latest("10"), included]);
   const slept: number[] = [];
   assert.equal((await waitForInclusion(early.client, HASH, { timeoutHeight: 10n, pollMs: 50, sleep: async (ms) => void slept.push(ms) })).height, 7n);
   assert.deepEqual(slept, [50, 50], "at or below the height the wait continues");
 
-  const plain = node([notFound, included]);
+  const plain = fakeNode([notFound, included]);
   await waitForInclusion(plain.client, HASH, { sleep: async () => {} });
   assert.ok(!plain.calls.some((c) => c.includes("blocks/latest")), "without a timeout height no block is read");
 
-  const zero = node([notFound, included]);
+  const zero = fakeNode([notFound, included]);
   assert.equal((await waitForInclusion(zero.client, HASH, { timeoutHeight: 0n, sleep: async () => {} })).height, 7n);
   assert.ok(!zero.calls.some((c) => c.includes("blocks/latest")), "height zero is the body's no timeout, not a height the chain is past");
 });
 
 test("an aborted signal ends the wait at once", async () => {
-  const { client } = node([notFound]);
+  const { client } = fakeNode([notFound]);
   const controller = new AbortController();
   controller.abort();
   const started = Date.now();
@@ -202,7 +173,7 @@ test("an aborted signal ends the wait at once", async () => {
 });
 
 test("waitForInclusion polls through NotFound until the block", async () => {
-  const { client, calls } = node([notFound, notFound, included]);
+  const { client, calls } = fakeNode([notFound, notFound, included]);
   const slept: number[] = [];
   const response = await waitForInclusion(client, HASH, { pollMs: 250, sleep: async (ms) => void slept.push(ms) });
   assert.equal(response.height, 7n);
@@ -213,7 +184,7 @@ test("waitForInclusion polls through NotFound until the block", async () => {
 });
 
 test("waitForInclusion gives up after the timeout and names the hash", async () => {
-  const { client } = node([notFound, notFound, notFound, notFound]);
+  const { client } = fakeNode([notFound, notFound, notFound, notFound]);
   let clock = 0;
   await assert.rejects(
     waitForInclusion(client, HASH, {
@@ -229,21 +200,8 @@ test("waitForInclusion gives up after the timeout and names the hash", async () 
 });
 
 test("broadcastAndConfirm fails on a CheckTx refusal and otherwise returns the block result", async () => {
-  const refused = node([
-    () =>
-      json({
-        tx_response: {
-          txhash: HASH,
-          code: 13,
-          codespace: "sdk",
-          raw_log: "fee 1anoah does not cover transfer tax 2ausd",
-          height: "0",
-          gas_wanted: "0",
-          gas_used: "0",
-          events: [],
-          logs: [],
-        },
-      }),
+  const refused = fakeNode([
+    () => json({ tx_response: txResponse({ txhash: HASH, code: 13, codespace: "sdk", raw_log: "fee 1anoah does not cover transfer tax 2ausd" }) }),
   ]);
   await assert.rejects(broadcastAndConfirm(refused.client, new Uint8Array([1])), (err: unknown) => {
     assert.ok(err instanceof BroadcastRefused);
@@ -252,7 +210,7 @@ test("broadcastAndConfirm fails on a CheckTx refusal and otherwise returns the b
     assert.match(err.result.rawLog, /transfer tax/);
     return true;
   });
-  const ok = node([broadcastOk, notFound, included]);
+  const ok = fakeNode([broadcastOk, notFound, included]);
   const confirmed = await broadcastAndConfirm(ok.client, new Uint8Array([1]), { sleep: async () => {} });
   assert.equal(confirmed.broadcast.accepted, true);
   assert.equal(confirmed.response.height, 7n);

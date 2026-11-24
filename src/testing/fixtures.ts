@@ -1,6 +1,9 @@
 // Readers for the test data the SDK is checked against: ark's decoding
-// fixtures. Test-only; excluded from the build.
+// fixtures and the registry's files. Test-only; excluded from the build.
 import { readdirSync, readFileSync } from "node:fs";
+
+import type { JsonObject } from "../codec/json.js";
+import type { ArkJson, AssetListJson, ChainJson, RegistryFiles } from "../registry/types.js";
 
 const root = new URL("../../testdata/", import.meta.url);
 
@@ -22,6 +25,9 @@ export interface FixtureEvent {
   attributes: { key: string; value: string; index: boolean }[];
   typed?: unknown;
 }
+
+/** A transaction as the chain's JSON renders it. */
+export type FixtureTx = { body: JsonObject; auth_info: JsonObject; signatures: string[] };
 
 export interface Fixture {
   name: string;
@@ -45,7 +51,7 @@ export interface Fixture {
   signature?: string;
   tx_bytes?: string;
   tx_hash?: string;
-  tx?: unknown;
+  tx?: FixtureTx;
   result?: { code: number; codespace: string; log: string; gas_wanted: string; gas_used: string };
   events?: FixtureEvent[];
   block_events?: FixtureEvent[];
@@ -76,4 +82,18 @@ export function fixtures(): Fixture[] {
 
 export function fixture(name: string): Fixture {
   return readJson<Fixture>(`decoding/${name}.json`);
+}
+
+/** The three registry files of one network under testdata/registry, parsed. */
+export function registryFiles(name: string): RegistryFiles {
+  return {
+    chain: readJson<ChainJson>(`registry/${name}/chain.json`),
+    assets: readJson<AssetListJson>(`registry/${name}/assetlist.json`),
+    ark: readJson<ArkJson>(`registry/${name}/ark.json`),
+  };
+}
+
+/** Coins as the chain's coin text, in the order given, so two lists compare in one assertion. */
+export function amounts(coins: readonly { denom: string; amount: string }[]): string[] {
+  return coins.map((c) => c.amount + c.denom);
 }

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
+import { LegacyDec } from "../codec/dec.js";
 import { Network } from "../registry/network.js";
-import type { ArkJson, AssetListJson, ChainJson } from "../registry/types.js";
+import { registryFiles } from "../testing/fixtures.js";
 import { shortenAddress } from "./address.js";
 import {
   AmountError,
@@ -19,8 +19,7 @@ import {
   toDisplayUnits,
 } from "./amount.js";
 
-const read = <T>(file: string): T => JSON.parse(readFileSync(new URL(`../../testdata/registry/arklocal/${file}`, import.meta.url), "utf8")) as T;
-const network = Network.fromRegistry({ chain: read<ChainJson>("chain.json"), assets: read<AssetListJson>("assetlist.json"), ark: read<ArkJson>("ark.json") });
+const network = Network.fromRegistry(registryFiles("arklocal"));
 const usd = network.asset("ausd")!;
 
 test("base and display units convert exactly both ways", () => {
@@ -95,14 +94,9 @@ test("coin lists, decimal coins, and their display", () => {
     "truncated at 18 places of the display unit",
   );
   assert.equal(
-    formatDecCoin({ denom: "ausd", amount: LegacyDecWire("2500000000000000000.5") }, network, { locale: "en-GB", maximumFractionDigits: 6 }),
+    formatDecCoin({ denom: "ausd", amount: LegacyDec.fromString("2500000000000000000.5").toWire() }, network, { locale: "en-GB", maximumFractionDigits: 6 }),
     "2.5 arkUSD",
   );
   assert.equal(formatDecCoin({ denom: "ausd-venue", amount: "1500000000000000000" }, network), "1.500000000000000000ausd-venue");
   assert.throws(() => parseDecCoin("1.5"), AmountError);
 });
-
-function LegacyDecWire(decimal: string): string {
-  const [whole, frac = ""] = decimal.split(".");
-  return `${whole}${frac.padEnd(18, "0")}`;
-}

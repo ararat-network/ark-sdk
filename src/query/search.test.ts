@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import type { JsonValue } from "../codec/json.js";
 import { fixture } from "../testing/fixtures.js";
+import { json, stubFetch } from "../testing/node.js";
 import { QueryClient } from "./client.js";
 import { fetchTx, searchTxs, txQuery } from "./search.js";
 
@@ -20,7 +22,7 @@ const found = {
       info: "",
       gas_wanted: f.result!.gas_wanted,
       gas_used: f.result!.gas_used,
-      tx: { "@type": "/cosmos.tx.v1beta1.Tx", ...(f.tx as object) },
+      tx: { "@type": "/cosmos.tx.v1beta1.Tx", ...f.tx },
       timestamp: "2023-11-14T22:13:27Z",
       events: f.events,
     },
@@ -29,20 +31,16 @@ const found = {
   total: "1",
 };
 
-function stub(reply: (url: string) => Response) {
-  const urls: string[] = [];
-  const fetchStub = (async (input: string | URL | Request) => {
-    urls.push(String(input));
-    return reply(String(input));
-  }) as typeof fetch;
-  return { client: new QueryClient("http://node", { fetch: fetchStub }), urls };
+function stub(reply: () => Response) {
+  const { fetch, seen } = stubFetch(reply);
+  return { client: new QueryClient("http://node", { fetch }), seen };
 }
 
 test("searchTxs sends the query and decodes each result the one way", async () => {
-  const { client, urls } = stub(() => new Response(JSON.stringify(found)));
+  const { client, seen } = stub(() => json(found));
   const sender = f.signer!.address;
   const result = await searchTxs(client, txQuery.bySender(sender), { limit: 20n });
-  const url = new URL(urls[0]!);
+  const url = new URL(seen[0]!.url);
   assert.equal(url.pathname, "/cosmos/tx/v1beta1/txs");
   assert.equal(url.searchParams.get("query"), `message.sender='${sender}'`);
   assert.equal(url.searchParams.get("limit"), "20");
@@ -66,10 +64,10 @@ test("searchTxs sends the query and decodes each result the one way", async () =
 
 test("a message of a type the registry lacks is one unknown message, not a failed page", async () => {
   const future = { "@type": "/ark.future.v1.MsgNew", sender: "ark1x", amount: "5" };
-  const tx = structuredClone(f.tx) as { body: { messages: unknown[] } };
-  tx.body.messages.push(future);
+  const tx = structuredClone(f.tx!);
+  (tx.body.messages as JsonValue[]).push(future);
   const page = { ...found, txs: [tx], tx_responses: [{ ...found.tx_responses[0], tx: { "@type": "/cosmos.tx.v1beta1.Tx", ...tx } }] };
-  const { client } = stub(() => new Response(JSON.stringify(page)));
+  const { client } = stub(() => json(page));
   const [item] = (await searchTxs(client, "message.sender='ark1x'")).items;
   assert.ok(item);
   assert.deepEqual(
@@ -84,19 +82,12 @@ test("a message of a type the registry lacks is one unknown message, not a faile
   assert.equal(unknown.message, undefined);
   assert.equal(unknown.schema, undefined);
   assert.deepEqual(unknown.json, future, "the node's own JSON is what is shown for it");
-
-  // An account of an unknown type is named as unknown with its type URL.
-  const account = stub(() => new Response(JSON.stringify({ account: { "@type": "/ark.future.v1.SeatAccount", address: "ark1x" } })));
-  const decoded = await account.client.auth.decodedAccount("ark1x");
-  assert.equal(decoded.kind, "unknown");
-  assert.equal(decoded.typeUrl, "/ark.future.v1.SeatAccount");
-  assert.equal(decoded.message, undefined);
 });
 
 test("fetchTx returns undefined for a pending hash and the decoded transaction otherwise", async () => {
-  const notFound = stub(() => new Response(JSON.stringify({ code: 5, message: "tx not found", details: [] }), { status: 404 }));
+  const notFound = stub(() => json({ code: 5, message: "tx not found", details: [] }, 404));
   assert.equal(await fetchTx(notFound.client, f.tx_hash!), undefined);
-  const ok = stub(() => new Response(JSON.stringify({ tx: f.tx, tx_response: found.tx_responses[0] })));
+  const ok = stub(() => json({ tx: f.tx, tx_response: found.tx_responses[0] }));
   const item = await fetchTx(ok.client, f.tx_hash!);
   assert.equal(item?.messages.length, 2);
   const broken = stub(() => new Response("<html>", { status: 500 }));

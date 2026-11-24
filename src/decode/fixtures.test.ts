@@ -22,14 +22,14 @@ for (const f of all) {
   test(`${f.name}: decodeTx names every message and renders the chain's JSON`, () => {
     const decoded = decodeTx(fromBase64(f.tx_bytes!));
     assert.equal(decoded.hash, f.tx_hash);
-    const messages = ((f.tx as JsonObject).body as JsonObject).messages as JsonObject[];
+    const messages = f.tx!.body.messages as JsonObject[];
     assert.deepEqual(
       decoded.messages.map((m) => m.typeUrl),
       messages.map((m) => m["@type"]),
     );
     assert.ok(decoded.messages.every((m) => m.known && m.message !== undefined && m.schema !== undefined));
     assert.deepEqual(decoded.json, expectedTxJson(f.name, f.tx));
-    assert.equal(decoded.memo, ((f.tx as JsonObject).body as JsonObject).memo);
+    assert.equal(decoded.memo, f.tx!.body.memo);
     assert.equal(decoded.signers.length, 1);
     assert.equal(decoded.signers[0]?.sequence, BigInt(f.signer!.sequence));
     assert.equal(decoded.signers[0]?.mode, SignMode.DIRECT);

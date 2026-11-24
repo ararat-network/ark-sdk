@@ -5,6 +5,7 @@ import { create } from "@bufbuild/protobuf";
 import { coin } from "../codec/coins.js";
 import { LegacyDec } from "../codec/dec.js";
 import { GasPriceSchema } from "../gen/ark/treasury/v1/treasury_pb.js";
+import { amounts } from "../testing/fixtures.js";
 import { adjustGas, affordableFeeDenoms, arkdPolicy, FeeError, liftLeg, quoteFee, requiredGasFee } from "./fee.js";
 
 const price = (denom: string, decimal: string, derivedHeight = 2n) =>
@@ -27,10 +28,7 @@ test("with a stable gas leg, tax plus the gas leg are each lifted and there is n
     headroom: arkdPolicy.headroom,
   });
   // ausd: ceil((5e16 tax + 18234865061998542 gas) × 1.1); aeur: ceil(1000 × 1.1).
-  assert.deepEqual(
-    q.declared.map((c) => c.amount + c.denom),
-    ["1100aeur", "75058351568198397ausd"],
-  );
+  assert.deepEqual(amounts(q.declared), ["1100aeur", "75058351568198397ausd"]);
   assert.equal(q.tip, undefined);
   assert.equal(q.derivedHeight, 2n);
 });
@@ -43,7 +41,7 @@ test("with a NOAH gas leg, the tax legs are exact and the lift is the whole tip"
     headroom: arkdPolicy.headroom,
   });
   assert.deepEqual(
-    q.declared.map((c) => c.amount + c.denom),
+    amounts(q.declared),
     ["26250000000000000anoah", "50000000000000000ausd"],
     "a lifted tax leg would pay the base fee itself and leave all of the NOAH leg as tip",
   );
@@ -51,20 +49,13 @@ test("with a NOAH gas leg, the tax legs are exact and the lift is the whole tip"
   assert.equal(q.tip?.amount, "1250000000000000", "the margin, charged whole");
   assert.equal(q.derivedHeight, 0n);
   const untaxed = quoteFee({ tax: [], gasPrice: price("anoah", "100000000000"), gasLimit: 250000n, headroom: arkdPolicy.headroom });
-  assert.deepEqual(
-    untaxed.declared.map((c) => c.amount + c.denom),
-    ["26250000000000000anoah"],
-  );
+  assert.deepEqual(amounts(untaxed.declared), ["26250000000000000anoah"]);
   assert.equal(untaxed.tip?.amount, "1250000000000000");
 });
 
 test("a tip is its own NOAH leg, last, beside a stable gas leg, and part of the NOAH leg when NOAH pays", () => {
   const stable = quoteFee({ tax: [coin("ausd", "10")], gasPrice: price("ausd", "1"), gasLimit: 10n, headroom: { stable: "1.1", noah: "1" }, tip: 7n });
-  assert.deepEqual(
-    stable.declared.map((c) => c.amount + c.denom),
-    ["22ausd", "7anoah"],
-    "the stable leg pays the base fee from its lift; the tip is whole",
-  );
+  assert.deepEqual(amounts(stable.declared), ["22ausd", "7anoah"], "the stable leg pays the base fee from its lift; the tip is whole");
   assert.equal(stable.tip?.amount, "7");
   const ordered = quoteFee({
     tax: [coin("aeur", "10"), coin("ausd", "10")],
@@ -80,11 +71,7 @@ test("a tip is its own NOAH leg, last, beside a stable gas leg, and part of the 
     "the paying leg first, the tip after every leg that can pay",
   );
   const noah = quoteFee({ tax: [coin("ausd", "10")], gasPrice: price("anoah", "1"), gasLimit: 100n, headroom: { stable: "1.1", noah: "1.05" }, tip: 7n });
-  assert.deepEqual(
-    noah.declared.map((c) => c.amount + c.denom),
-    ["112anoah", "10ausd"],
-    "ceil(100 × 1.05) plus the tip, beside the exact tax",
-  );
+  assert.deepEqual(amounts(noah.declared), ["112anoah", "10ausd"], "ceil(100 × 1.05) plus the tip, beside the exact tax");
   assert.equal(noah.tip?.amount, "12", "the margin and the tip, both charged whole");
   const none = quoteFee({ tax: [coin("ausd", "10")], gasPrice: price("ausd", "1"), gasLimit: 10n, headroom: { stable: "1", noah: "1" }, tip: 0n });
   assert.deepEqual(
