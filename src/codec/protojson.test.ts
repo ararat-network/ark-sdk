@@ -7,8 +7,12 @@ import { test } from "node:test";
 import { create, createRegistry, fromBinary } from "@bufbuild/protobuf";
 import { AnySchema } from "@bufbuild/protobuf/wkt";
 import { aminoEncodeAny, decodeMessage, fromProtoJson, toProtoJson, unpackAny } from "../defaults.js";
+import { ArkSdkError } from "../errors.js";
 import { PricesResponseSchema } from "../gen/ark/pricefeed/v1/pricefeed_pb.js";
+import { BaseAccountSchema } from "../gen/cosmos/auth/v1beta1/auth_pb.js";
 import { MsgSendSchema } from "../gen/cosmos/bank/v1beta1/tx_pb.js";
+import { TxResponseSchema } from "../gen/cosmos/base/abci/v1beta1/abci_pb.js";
+import { ProposalSchema, ProposalStatus } from "../gen/cosmos/gov/v1/gov_pb.js";
 import { CommissionRatesSchema } from "../gen/cosmos/staking/v1beta1/staking_pb.js";
 import { TxBodySchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { AccessConfigSchema, AccessType } from "../gen/cosmwasm/wasm/v1/types_pb.js";
@@ -16,7 +20,7 @@ import { UnknownTypeError, unknownAnyJson, unpackAnyAs } from "./any.js";
 import { fromHex, utf8Encode } from "./bytes.js";
 import { CoinError } from "./coins.js";
 import { LegacyDec } from "./dec.js";
-import { ProtoJsonError } from "./protojson.js";
+import { ProtoJsonError, unknownEnumNames } from "./protojson.js";
 
 test("map fields render as objects and read back", () => {
   const message = create(PricesResponseSchema, { prices: { ausd: utf8Encode("1.5"), anoah: utf8Encode("2") } });
@@ -143,4 +147,55 @@ test('a non-nullable Dec that never reached the wire renders as gogo\'s "0", a s
     max_rate: "0",
     max_change_rate: "0",
   });
+});
+
+test("an enum name the schema lacks is refused by default and kept on request, the field at zero and the name beside it", () => {
+  const proposal = { id: "2", status: "PROPOSAL_STATUS_VETOED_BY_COUNCIL", title: "t" };
+  assert.throws(() => fromProtoJson(ProposalSchema, proposal), ProtoJsonError, "a message built from JSON must not carry another value than was written");
+  const read = fromProtoJson(ProposalSchema, proposal, { unknownEnum: "keep" });
+  assert.equal(read.id, 2n);
+  assert.equal(read.status, ProposalStatus.UNSPECIFIED);
+  assert.deepEqual(unknownEnumNames(read), { status: "PROPOSAL_STATUS_VETOED_BY_COUNCIL" });
+  assert.equal(unknownEnumNames(fromProtoJson(ProposalSchema, { id: "1", status: "PROPOSAL_STATUS_PASSED" }, { unknownEnum: "keep" })), undefined);
+  assert.equal(fromProtoJson(ProposalSchema, { status: 9 }).status, 9, "a number is the value, known by name or not");
+
+  // Inside an Any the bytes would carry the zero value, so the Any is kept as the node's JSON, as one of an unknown type is.
+  const vote = { "@type": "/cosmos.gov.v1.MsgVote", proposal_id: "7", voter: "ark1v", option: "VOTE_OPTION_DEFER", metadata: "" };
+  assert.throws(() => fromProtoJson(AnySchema, vote, { unknownAny: "keep" }), ProtoJsonError);
+  const held = fromProtoJson(AnySchema, vote, { unknownAny: "keep", unknownEnum: "keep" });
+  assert.equal(held.value.length, 0);
+  assert.deepEqual(unknownAnyJson(held), vote);
+  assert.equal(decodeMessage(held).known, false);
+  // The same vote with an option the schema knows carries its bytes.
+  const known = fromProtoJson(AnySchema, { ...vote, option: "VOTE_OPTION_YES" }, { unknownAny: "keep", unknownEnum: "keep" });
+  assert.ok(known.value.length > 0);
+});
+
+test("a scalar that is not what its field holds is refused by name, with the SDK's error and never the runtime's", () => {
+  const info = (member: Record<string, unknown>) => () => fromProtoJson(BaseAccountSchema, { address: "ark1x", ...member });
+  for (const [what, member] of [
+    ["text for an integer", { account_number: "tall" }],
+    ["an empty string for an integer", { account_number: "" }],
+    ["a fraction for an integer", { account_number: 1.5 }],
+    ["a hex literal for an integer", { account_number: "0x10" }],
+    ["a negative for an unsigned integer", { sequence: "-1" }],
+    ["more than 64 bits", { sequence: "18446744073709551616" }],
+    ["a boolean for an integer", { sequence: true }],
+  ] as const) {
+    assert.throws(
+      info(member),
+      (err: unknown) => err instanceof ProtoJsonError && /cosmos\.auth\.v1beta1\.BaseAccount\.(account_number|sequence)/.test(err.message),
+      what,
+    );
+  }
+  assert.equal(fromProtoJson(BaseAccountSchema, { account_number: "7", sequence: 3 }).accountNumber, 7n);
+  // 32 bits, and base64.
+  assert.throws(() => fromProtoJson(TxResponseSchema, { code: "abc" }), ProtoJsonError);
+  assert.throws(() => fromProtoJson(TxResponseSchema, { code: 4294967296 }), ProtoJsonError);
+  assert.equal(fromProtoJson(TxResponseSchema, { code: "13" }).code, 13);
+  assert.throws(
+    () => fromProtoJson(AnySchema, { "@type": "/cosmos.crypto.secp256k1.PubKey", key: "AAAAA" }),
+    (err: unknown) => err instanceof ProtoJsonError && /PubKey\.key/.test(err.message),
+  );
+  assert.throws(() => fromHex("zz"), ArkSdkError);
 });

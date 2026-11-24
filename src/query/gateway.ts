@@ -11,7 +11,7 @@ import type { GenService, GenServiceMethods } from "@bufbuild/protobuf/codegenv2
 import type { WithRegistry } from "../codec/any.js";
 import { stripTrailing } from "../codec/bytes.js";
 import { isJsonObject, type JsonObject, type JsonValue } from "../codec/json.js";
-import { fromProtoJson, toProtoJson } from "../codec/protojson.js";
+import { fromProtoJson, ProtoJsonError, toProtoJson } from "../codec/protojson.js";
 import { ArkSdkError, errorMessage } from "../errors.js";
 import { http } from "../gen/google/api/annotations_pb.js";
 
@@ -112,6 +112,15 @@ export interface CallOptions {
 
 export const DEFAULT_TIMEOUT_MS = 15_000;
 
+/** The longest a timer runs; setTimeout fires at once for more. */
+const MAX_TIMER_MS = 2 ** 31 - 1;
+
+/** A request timeout: a positive number of milliseconds. Infinity is accepted, and waits as long as a timer can. */
+function checkTimeout(ms: number): number {
+  if (!(ms > 0)) throw new ArkSdkError(`a request timeout is a positive number of milliseconds: ${ms}`);
+  return ms;
+}
+
 export interface GatewayResult<T> {
   value: T;
   /** The block height the node answered at, from its response header; undefined when it sent none. */
@@ -142,10 +151,13 @@ export class GatewayClient {
     const urls = (typeof baseUrl === "string" ? [baseUrl] : [...baseUrl]).map((u) => stripTrailing(u, "/"));
     if (urls.length === 0) throw new ArkSdkError("a gateway client needs at least one endpoint");
     this.baseUrls = urls;
+    // The types say a registry is given. A caller the types do not reach is told so here, not by the first Any.
+    if (!options?.registry)
+      throw new ArkSdkError("a gateway client needs a registry, the types its Any fields resolve against; the main entry's client defaults it");
     this.#fetch = options.fetch ?? globalThis.fetch;
     this.#headers = { ...options.headers };
     this.registry = options.registry;
-    this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.#timeoutMs = checkTimeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   }
 
   /** The endpoint a call tries first: the one that answered the last call that had to move on, or the first. */
@@ -205,8 +217,13 @@ export class GatewayClient {
     // the event loop alive on every runtime, and the deadline must fire even
     // when the request is the only thing pending.
     const controller = new AbortController();
-    const timeoutMs = options.timeoutMs ?? this.#timeoutMs;
-    const timer = setTimeout(() => controller.abort(new DOMException(`request timed out after ${timeoutMs} ms`, "TimeoutError")), timeoutMs);
+    const timeoutMs = options.timeoutMs === undefined ? this.#timeoutMs : checkTimeout(options.timeoutMs);
+    // A timer cannot run longer than 2^31 − 1 ms, about 25 days, and one asked to fires at once: a longer timeout,
+    // Infinity among them, is held to that.
+    const timer = setTimeout(
+      () => controller.abort(new DOMException(`request timed out after ${timeoutMs} ms`, "TimeoutError")),
+      Math.min(timeoutMs, MAX_TIMER_MS),
+    );
     const forwardAbort = () => controller.abort(options.signal?.reason);
     options.signal?.addEventListener("abort", forwardAbort, { once: true });
     if (options.signal?.aborted) forwardAbort();
@@ -236,8 +253,17 @@ export class GatewayClient {
     if (!response.ok) throw gatewayError(json, response.status, url);
     const heightHeader = response.headers.get("grpc-metadata-x-cosmos-block-height");
     const height = heightHeader !== null && /^\d+$/.test(heightHeader) ? BigInt(heightHeader) : undefined;
-    // A type the registry lacks is kept as unknown, with the node's JSON, so one new message does not fail a whole answer.
-    return { value: fromProtoJson(desc.output, json, { registry: this.registry, unknownAny: "keep" }) as T, height };
+    // A type or an enum name the registry lacks is kept as unknown, with the node's JSON, so one new message or one
+    // new value does not fail a whole answer. An answer that does not fit its type is refused as such, by an SDK
+    // error, whatever the reader threw.
+    let value: T;
+    try {
+      value = fromProtoJson(desc.output, json, { registry: this.registry, unknownAny: "keep", unknownEnum: "keep" }) as T;
+    } catch (err) {
+      if (err instanceof ArkSdkError) throw err;
+      throw new ProtoJsonError(`${url}: the answer does not fit ${desc.output.typeName}: ${errorMessage(err)}`, { cause: err });
+    }
+    return { value, height };
   }
 }
 

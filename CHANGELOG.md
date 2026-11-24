@@ -41,6 +41,21 @@ Fixed:
   `coinsToString`, `LegacyDec.fromWire`, the vesting and fee arithmetic, and the JSON view now give the chain's
   number, and refuse text the chain refuses; `fromProtoJson` reads an `Int`'s JSON text the same way. The amino
   document still carries a string `Int`'s text as it is, as the chain's does.
+- `paginate` and `collectAll` walk a route that pages by offset to its end. They stopped when an answer carried no
+  next key, and such a route never carries one: `collectAll` over `tx.byBlock` returned the first 100 transactions
+  of a larger block, with no error. A page with no next key whose total says more exist is followed by offset.
+- A gateway answer carrying an enum value under a name the SDK's types lack no longer fails the whole call: one
+  proposal with a status newer than the SDK failed `gov.proposals` for the list. The field holds its zero value,
+  the new `unknownEnumNames` returns the name it arrived as, and an `Any` around it is kept as the node's JSON.
+- A gateway answer that does not fit its type is refused with `ProtoJsonError`. A mistyped integer surfaced as the
+  runtime's `SyntaxError` or `RangeError`, and bad base64 as the base64 library's own error. `fromProtoJson` names
+  the field and checks an integer's range; `fromBase64` and `fromHex` throw `ArkSdkError`, as do `marshalGoJson`
+  for a number that is not finite and, as `DecError`, `LegacyDec.fromInt` for a fraction.
+- A request timeout above 2^31 − 1 ms, `Infinity` included, waits; a timer that long fires at once, so the request
+  timed out after a millisecond. Such a timeout is held to the longest a timer runs, about 25 days, and one that
+  is not positive is refused.
+- A `GatewayClient` or `QueryClient` built without a registry, by a caller the types do not reach, is refused at
+  once with `ArkSdkError`; it was a `TypeError`, or none until the first `Any`.
 - `loadNetwork` takes a registry directory's name and a git ref, and refuses anything else before requesting a
   file. Both went into the URL as given, so a name or a ref holding `..` read another repository's files:
   `loadNetwork("../../../other/repo/main/arktestnet")` built a network, chain ID and endpoints included, from them,
@@ -93,6 +108,8 @@ Added:
 - `FeeDenomChoiceInput.reference`, the sheet's reference row: given it, `affordableFeeDenoms` offers the reference
   denomination where arkd ranks it, after NOAH and before the rest of the sheet. Its comment claimed arkd's order
   while the reference, arkd's first choice for a send of it, was never offered.
+- `unknownEnumNames`, and `unknownEnum: "keep"` on `fromProtoJson`, which still throws on an unknown enum name by
+  default.
 - `InclusionUnknown`, thrown by `sendTx` and `broadcastAndConfirm` when the wait for a block fails after the mempool
   accepted the transaction: it carries the hash, the mempool's verdict, and what the wait met as the cause.
 - `InclusionOptions.expiryGraceMs` and `DEFAULT_EXPIRY_GRACE_MS`, how long a transaction stays unfound past its

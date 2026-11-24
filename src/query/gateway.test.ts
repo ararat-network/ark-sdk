@@ -4,17 +4,23 @@ import { test } from "node:test";
 import { create, createRegistry } from "@bufbuild/protobuf";
 
 import { packAny } from "../codec/any.js";
+import { ProtoJsonError, unknownEnumNames } from "../codec/protojson.js";
 import { registry } from "../codec/registry.js";
 import { GatewayClient, QueryClient } from "../defaults.js";
+import { ArkSdkError } from "../errors.js";
 import { GrantKind } from "../gen/ark/disbursement/v1/disbursement_pb.js";
 import { Query as DisbursementQuery } from "../gen/ark/disbursement/v1/query_pb.js";
 import { Query as TreasuryQuery } from "../gen/ark/treasury/v1/query_pb.js";
 import { MsgSendSchema } from "../gen/cosmos/bank/v1beta1/tx_pb.js";
+import { Service as NodeService } from "../gen/cosmos/base/tendermint/v1beta1/query_pb.js";
+import { ProposalStatus } from "../gen/cosmos/gov/v1/gov_pb.js";
 import { Query as GovQuery } from "../gen/cosmos/gov/v1/query_pb.js";
 import { Service as TxService } from "../gen/cosmos/tx/v1beta1/service_pb.js";
 import { amounts, fixtureKey } from "../testing/fixtures.js";
 import { json, stubFetch } from "../testing/node.js";
-import { EndpointsExhausted, GrpcCode, QueryError, routeFor, TransportError } from "./gateway.js";
+import { QueryClient as CoreQueryClient } from "./client.js";
+import { GatewayClient as CoreGatewayClient, EndpointsExhausted, GrpcCode, QueryError, routeFor, TransportError } from "./gateway.js";
+import { collectAll } from "./pagination.js";
 
 const nodeInfo = () => json({ default_node_info: { network: "localark" }, application_version: null });
 const unreachable = () => {
@@ -279,4 +285,112 @@ test("a request that hangs past the timeout counts the endpoint as unreachable",
   await pair.gateway.call(TreasuryQuery, "params", {}, { timeoutMs: 5_000 });
   assert.equal(seen.length, 3);
   assert.ok(seen[2]!.url.startsWith("http://fast"), "the client stays on the endpoint that answered");
+});
+
+test("an answer with an enum name newer than the SDK is read, the value kept beside the message it came on", async () => {
+  const answer = {
+    proposals: [
+      { id: "1", status: "PROPOSAL_STATUS_PASSED" },
+      { id: "2", status: "PROPOSAL_STATUS_VETOED_BY_COUNCIL" },
+    ],
+    pagination: null,
+  };
+  const { proposals } = await new QueryClient("http://node", { fetch: stubFetch(() => json(answer)).fetch }).gov.proposals({});
+  assert.deepEqual(
+    proposals.map((p) => [p.id, p.status]),
+    [
+      [1n, ProposalStatus.PASSED],
+      [2n, ProposalStatus.UNSPECIFIED],
+    ],
+    "one new value does not fail the list",
+  );
+  assert.deepEqual(unknownEnumNames(proposals[1]!), { status: "PROPOSAL_STATUS_VETOED_BY_COUNCIL" });
+});
+
+test("an answer that does not fit its type is refused by an SDK error, whatever the reader threw", async () => {
+  for (const body of [
+    { tx_response: { height: "tall" } },
+    { tx_response: { code: "abc" } },
+    { tx_response: { height: 1.5 } },
+    { tx: { signatures: ["AAAAA"] } },
+    [],
+  ]) {
+    const client = new QueryClient("http://node", { fetch: stubFetch(() => json(body)).fetch });
+    await assert.rejects(client.tx.getTx("AB"), (err: unknown) => err instanceof ProtoJsonError, JSON.stringify(body));
+  }
+});
+
+test("whatever the reader throws on an answer, the caller is given an SDK error with it as the cause", async () => {
+  // An exec inside an exec, thousands deep: valid JSON that the reader cannot descend, where the runtime's own
+  // error for a spent stack would otherwise come through.
+  const depth = 20_000;
+  const open = '{"@type":"/cosmos.authz.v1beta1.MsgExec","grantee":"ark1g","msgs":[';
+  const body = `{"tx":{"body":{"messages":[${open.repeat(depth)}${"]}".repeat(depth)}]}},"tx_response":null}`;
+  const client = new QueryClient("http://node", { fetch: stubFetch(() => new Response(body)).fetch });
+  await assert.rejects(client.tx.getTx("AB"), (err: unknown) => {
+    assert.ok(err instanceof ProtoJsonError, `an SDK error, not ${(err as Error).name}`);
+    assert.match(err.message, /does not fit cosmos\.tx\.v1beta1\.GetTxResponse/);
+    assert.ok(err.cause instanceof RangeError, "what the reader threw is kept");
+    return true;
+  });
+});
+
+test("a client is told at once that it has no registry, and a timeout is positive and may be longer than a timer runs", async () => {
+  // A caller the types do not reach: plain JavaScript on the core entry.
+  const untyped = CoreGatewayClient as unknown as new (url: string, options?: object) => unknown;
+  assert.throws(
+    () => new untyped("http://node", {}),
+    (err: unknown) => err instanceof ArkSdkError && /needs a registry/.test(err.message),
+  );
+  assert.throws(() => new untyped("http://node"), ArkSdkError);
+  assert.throws(() => new (CoreQueryClient as unknown as new (url: string) => unknown)("http://node"), ArkSdkError);
+
+  for (const timeoutMs of [0, -1, Number.NaN]) {
+    assert.throws(() => new QueryClient("http://node", { timeoutMs }), ArkSdkError, String(timeoutMs));
+    await assert.rejects(new GatewayClient("http://node").call(TreasuryQuery, "params", {}, { timeoutMs }), ArkSdkError);
+  }
+  // A timer cannot run longer than 2^31 − 1 ms and fires at once when asked to: these used to time out after a millisecond.
+  // An answer 30 ms away, from a fetch that gives up when its signal aborts, as a real one does.
+  const slow = () =>
+    stubFetch(
+      ({ signal }) =>
+        new Promise<Response>((resolve, reject) => {
+          const answer = setTimeout(() => resolve(nodeInfo()), 30);
+          signal?.addEventListener("abort", () => {
+            clearTimeout(answer);
+            reject(signal.reason);
+          });
+        }),
+    ).fetch;
+  for (const timeoutMs of [Number.POSITIVE_INFINITY, 2 ** 31, 2 ** 40]) {
+    const info = await new QueryClient("http://node", { fetch: slow(), timeoutMs }).node.info();
+    assert.equal(info.defaultNodeInfo?.network, "localark", `a timeout of ${timeoutMs} ms waits for the answer`);
+  }
+  assert.equal(
+    (await new QueryClient("http://node", { fetch: slow() }).gateway.call(NodeService, "getNodeInfo", {}, { timeoutMs: Number.POSITIVE_INFINITY })).value
+      .defaultNodeInfo?.network,
+    "localark",
+  );
+});
+
+test("a block's transactions are walked to the last, though the route pages by offset and gives no next key", async () => {
+  // The node's handler slices by offset and limit and reports the total: 250 transactions, 100 to a page.
+  const { fetch, seen } = stubFetch(({ url }) => {
+    const query = new URL(url).searchParams;
+    const start = Number(query.get("pagination.offset") ?? "0");
+    const size = Number(query.get("pagination.limit") ?? "100");
+    const txs = Array.from({ length: Math.max(0, Math.min(size, 250 - start)) }, (_, i) => ({ body: { memo: String(start + i) } }));
+    return json({ txs, block_id: null, block: null, pagination: { next_key: null, total: "250" } });
+  });
+  const client = new QueryClient("http://node", { fetch });
+  const txs = await collectAll(
+    (pagination) => client.tx.byBlock(7n, pagination),
+    (page) => page.txs,
+  );
+  assert.equal(txs.length, 250);
+  assert.deepEqual([txs[0]?.body?.memo, txs[249]?.body?.memo], ["0", "249"]);
+  assert.deepEqual(
+    seen.map((s) => s.call.split("?")[1]),
+    ["pagination.limit=100", "pagination.offset=100&pagination.limit=100", "pagination.offset=200&pagination.limit=100"],
+  );
 });

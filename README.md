@@ -151,7 +151,9 @@ not. For the same reason `coin` and the builder refuse amount text the chain wou
 included, where they could have signed one number for the chain to execute another. And a message type the registry does
 not know decodes as unknown, never under a label it did not earn: with its type URL and bytes from a transaction's
 bytes, and from a gateway answer, which has no bytes for it, with its type URL and the JSON the node rendered, which
-`unknownAnyJson` returns. A known message that carries one, an authz exec around it or an account whose key type is
+`unknownAnyJson` returns. An enum value named by a name the SDK's types lack is read the same way from a gateway
+answer: the field holds its zero value and `unknownEnumNames` returns the name it arrived as, so one new status does
+not fail a list. A known message that carries one, an authz exec around it or an account whose key type is
 missing, is kept the same way, whole. Such a message holds no bytes, so the builder refuses to put it in a
 transaction, alone or inside a message built around it.
 

@@ -45,7 +45,7 @@ export {
   marshalGoJsonBytes,
   sortKeys,
 } from "./codec/json.js";
-export { type FromProtoJsonOptions, fromProtoJson, ProtoJsonError, type ToProtoJsonOptions, toProtoJson } from "./codec/protojson.js";
+export { type FromProtoJsonOptions, fromProtoJson, ProtoJsonError, type ToProtoJsonOptions, toProtoJson, unknownEnumNames } from "./codec/protojson.js";
 export {
   durationFromText,
   durationToAmino,

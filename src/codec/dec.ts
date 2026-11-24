@@ -48,6 +48,7 @@ export class LegacyDec {
   }
 
   static fromInt(n: bigint | number): LegacyDec {
+    if (typeof n === "number" && !Number.isInteger(n)) throw new DecError(`not an integer: ${n}`);
     return new LegacyDec(BigInt(n) * UNIT);
   }
 

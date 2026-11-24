@@ -94,3 +94,8 @@ test("the range is Go's: up to 2^256 × 10^18 − 1 in scaled units, either sign
   assert.throws(() => LegacyDec.fromScaled(top + 1n), DecError);
   assert.throws(() => LegacyDec.fromScaled(-top - 1n), DecError);
 });
+
+test("fromInt takes an integer and refuses a fraction as a decimal's error", () => {
+  assert.equal(LegacyDec.fromInt(3).toWire(), "3000000000000000000");
+  assert.throws(() => LegacyDec.fromInt(1.5), DecError);
+});

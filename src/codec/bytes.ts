@@ -1,13 +1,18 @@
 // Byte helpers shared across the SDK; standard base64 with padding, as the
 // chain's JSON uses, and lowercase hex.
 import { base64, hex } from "@scure/base";
+import { ArkSdkError, errorMessage } from "../errors.js";
 
 export function toBase64(bytes: Uint8Array): string {
   return base64.encode(bytes);
 }
 
 export function fromBase64(s: string): Uint8Array {
-  return base64.decode(s);
+  try {
+    return base64.decode(s);
+  } catch (err) {
+    throw new ArkSdkError(`not base64: ${errorMessage(err)}`, { cause: err });
+  }
 }
 
 export function toHex(bytes: Uint8Array): string {
@@ -15,7 +20,11 @@ export function toHex(bytes: Uint8Array): string {
 }
 
 export function fromHex(s: string): Uint8Array {
-  return hex.decode(s.toLowerCase());
+  try {
+    return hex.decode(s.toLowerCase());
+  } catch (err) {
+    throw new ArkSdkError(`not hex: ${errorMessage(err)}`, { cause: err });
+  }
 }
 
 export function utf8Encode(s: string): Uint8Array {

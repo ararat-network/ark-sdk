@@ -3,6 +3,8 @@
 // compared byte for byte with the chain's, so the serialiser has to match Go,
 // not JSON.stringify.
 
+import { ArkSdkError } from "../errors.js";
+
 export type JsonValue = string | number | boolean | null | JsonValue[] | JsonObject;
 export interface JsonObject {
   [key: string]: JsonValue;
@@ -129,6 +131,6 @@ export function goJsonString(s: string): string {
  * rewrites strconv's e-07 as e-7.
  */
 export function goJsonNumber(n: number): string {
-  if (!Number.isFinite(n)) throw new RangeError(`json: unsupported value ${n}`);
+  if (!Number.isFinite(n)) throw new ArkSdkError(`json: unsupported value ${n}`);
   return String(n);
 }

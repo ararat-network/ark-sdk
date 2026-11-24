@@ -78,7 +78,7 @@ export class QueryClient {
 
   constructor(restUrl: string | readonly string[], options: GatewayOptions) {
     this.gateway = new GatewayClient(restUrl, options);
-    this.#fetch = options.fetch ?? globalThis.fetch;
+    this.#fetch = options?.fetch ?? globalThis.fetch;
   }
 
   /** A client over the network's REST endpoints, in the registry's order, moving on when one cannot answer. */

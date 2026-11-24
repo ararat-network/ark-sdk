@@ -17,7 +17,7 @@ import {
 } from "@bufbuild/protobuf";
 import { type ReflectList, type ReflectMap, type ReflectMessage, reflect } from "@bufbuild/protobuf/reflect";
 import { type Any, AnySchema, type Duration, DurationSchema, type Timestamp, TimestampSchema } from "@bufbuild/protobuf/wkt";
-import { ArkSdkError } from "../errors.js";
+import { ArkSdkError, errorMessage } from "../errors.js";
 import { anyFromUnknownJson, typeNameOf, typeUrlOf, UnknownTypeError, unknownAnyJson, type WithRegistry } from "./any.js";
 import { fromBase64, toBase64, utf8Decode, utf8Encode } from "./bytes.js";
 import { intFromWire } from "./coins.js";
@@ -45,6 +45,26 @@ export interface FromProtoJsonOptions extends WithRegistry {
    * at any depth, is kept the same way, whole: its bytes would carry the inner message's type with none of its content.
    */
   unknownAny?: "throw" | "keep";
+  /**
+   * What to do with an enum value given by a name the schema lacks, as a newer chain sends. `throw`, the default,
+   * fails: a message built from JSON must not carry another value than was written. `keep` is for reading what a node
+   * returned: the field is left at its zero value, the name it arrived as is held beside the message for
+   * `unknownEnumNames`, and an Any around it is kept as its JSON, since its bytes would carry the zero value.
+   */
+  unknownEnum?: "throw" | "keep";
+}
+
+// The enum names a message was read with that its schema lacks, by field name: the JSON each such field arrived as.
+// Held beside the message, by identity, as the JSON of an unknown Any is.
+const heldEnumNames = new WeakMap<object, Record<string, JsonValue>>();
+
+/**
+ * The enum names a message read from a node carried that the schema does not know, by the field's proto name: for
+ * each, the JSON the field arrived as. The fields themselves hold the zero value. Undefined for a message that
+ * carried none.
+ */
+export function unknownEnumNames(message: object): Readonly<Record<string, JsonValue>> | undefined {
+  return heldEnumNames.get(message);
 }
 
 interface WriteContext {
@@ -56,7 +76,11 @@ interface ReadContext {
   registry: Registry;
   ignoreUnknownFields: boolean;
   unknownAny: "throw" | "keep";
-  /** How many Anys this read has kept as JSON so far: what tells an Any being read that one inside it was. */
+  unknownEnum: "throw" | "keep";
+  /**
+   * How many things this read has kept as JSON so far, an unknown Any or an enum name: what tells an Any being read
+   * that something inside it could not be turned into bytes.
+   */
   kept: number;
 }
 
@@ -76,6 +100,7 @@ export function fromProtoJson<Desc extends DescMessage>(schema: Desc, json: Json
     registry: options.registry,
     ignoreUnknownFields: options.ignoreUnknownFields ?? true,
     unknownAny: options.unknownAny ?? "throw",
+    unknownEnum: options.unknownEnum ?? "throw",
     kept: 0,
   };
   return messageFromJson(schema, json, ctx).message as MessageShape<Desc>;
@@ -206,7 +231,11 @@ function scalarFieldToJson(r: ReflectMessage, f: DescField & { fieldKind: "scala
   }
   if (o.isInlineJson) {
     if (!set) return null;
-    return JSON.parse(utf8Decode(v as Uint8Array)) as JsonValue;
+    try {
+      return JSON.parse(utf8Decode(v as Uint8Array)) as JsonValue;
+    } catch (err) {
+      throw new ProtoJsonError(`${f.parent.typeName}.${f.name}: its bytes are not JSON: ${errorMessage(err)}`, { cause: err });
+    }
   }
   return scalarToJson(f.scalar, v, f.longAsString);
 }
@@ -317,7 +346,7 @@ function setFieldFromJson(r: ReflectMessage, f: DescField, json: JsonValue, ctx:
             list.add(messageFromJson(f.message, item, ctx));
             break;
           case "enum":
-            list.add(enumFromJson(f.enum, item));
+            list.add(enumFromJson(r, f, f.enum, item, json, ctx) ?? 0);
             break;
           case "scalar":
             list.add(scalarFromJson(f.scalar, item, f.longAsString, f));
@@ -335,7 +364,7 @@ function setFieldFromJson(r: ReflectMessage, f: DescField, json: JsonValue, ctx:
             map.set(key, messageFromJson(f.message, item, ctx));
             break;
           case "enum":
-            map.set(key, enumFromJson(f.enum, item));
+            map.set(key, enumFromJson(r, f, f.enum, item, json, ctx) ?? 0);
             break;
           case "scalar":
             map.set(key, scalarFromJson(f.scalar, item, false, f));
@@ -346,23 +375,62 @@ function setFieldFromJson(r: ReflectMessage, f: DescField, json: JsonValue, ctx:
     case "message":
       r.set(f, messageFromJson(f.message, json, ctx));
       return;
-    case "enum":
-      r.set(f, enumFromJson(f.enum, json));
+    case "enum": {
+      const value = enumFromJson(r, f, f.enum, json, json, ctx);
+      if (value !== undefined) r.set(f, value);
       return;
+    }
     case "scalar":
       r.set(f, scalarFromJson(f.scalar, json, f.longAsString, f));
   }
 }
 
-function enumFromJson(e: DescEnum, json: JsonValue): number {
-  if (typeof json === "number") return json;
+/**
+ * An enum value from its name or its number. A name the schema lacks is refused, or, when the read keeps what it
+ * cannot place, answered with undefined after the field's JSON is held beside the message.
+ */
+function enumFromJson(r: ReflectMessage, f: DescField, e: DescEnum, json: JsonValue, fieldJson: JsonValue, ctx: ReadContext): number | undefined {
+  if (typeof json === "number" && Number.isInteger(json)) return json;
   if (typeof json === "string") {
     const value = e.values.find((v) => v.name === json);
     if (value) return value.number;
     const custom = Object.entries(CUSTOM_ENUM_NAMES[e.typeName] ?? {}).find(([, name]) => name === json);
     if (custom) return Number(custom[0]);
+    if (ctx.unknownEnum === "keep") {
+      heldEnumNames.set(r.message, { ...heldEnumNames.get(r.message), [f.name]: fieldJson });
+      ctx.kept++;
+      return undefined;
+    }
   }
   throw new ProtoJsonError(`${e.typeName}: unknown value ${JSON.stringify(json)}`);
+}
+
+/** An integer from JSON: a number that is one, or its decimal digits as text. Anything else is refused by name, never passed to BigInt to throw the runtime's error. */
+function integerFromJson(json: JsonValue, where: string, min: bigint, max: bigint): bigint {
+  let value: bigint | undefined;
+  if (typeof json === "number" && Number.isInteger(json)) value = BigInt(json);
+  else if (typeof json === "string" && /^-?\d+$/.test(json)) value = BigInt(json);
+  if (value === undefined) throw new ProtoJsonError(`${where}: expected an integer, got ${JSON.stringify(json)}`);
+  if (value < min || value > max) throw new ProtoJsonError(`${where}: ${value} is out of range`);
+  return value;
+}
+
+/** The range of an integer scalar type. */
+function integerRange(type: ScalarType): [bigint, bigint] {
+  switch (type) {
+    case ScalarType.UINT64:
+    case ScalarType.FIXED64:
+      return [0n, 2n ** 64n - 1n];
+    case ScalarType.INT64:
+    case ScalarType.SINT64:
+    case ScalarType.SFIXED64:
+      return [-(2n ** 63n), 2n ** 63n - 1n];
+    case ScalarType.UINT32:
+    case ScalarType.FIXED32:
+      return [0n, 2n ** 32n - 1n];
+    default:
+      return [-(2n ** 31n), 2n ** 31n - 1n];
+  }
 }
 
 function mapKeyFromJson(type: ScalarType, key: string): unknown {
@@ -376,9 +444,9 @@ function mapKeyFromJson(type: ScalarType, key: string): unknown {
     case ScalarType.SFIXED64:
     case ScalarType.UINT64:
     case ScalarType.FIXED64:
-      return BigInt(key);
+      return integerFromJson(key, "map key", ...integerRange(type));
     default:
-      return Number(key);
+      return Number(integerFromJson(key, "map key", ...integerRange(type)));
   }
 }
 
@@ -407,14 +475,17 @@ function scalarFromJson(type: ScalarType, json: JsonValue, longAsString: boolean
       return json;
     case ScalarType.BYTES:
       if (typeof json !== "string") throw new ProtoJsonError(`${where}: expected base64`);
-      return fromBase64(json);
+      try {
+        return fromBase64(json);
+      } catch (err) {
+        throw new ProtoJsonError(`${where}: ${errorMessage(err)}`, { cause: err });
+      }
     case ScalarType.INT64:
     case ScalarType.SINT64:
     case ScalarType.SFIXED64:
     case ScalarType.UINT64:
     case ScalarType.FIXED64: {
-      if (typeof json !== "string" && typeof json !== "number") throw new ProtoJsonError(`${where}: expected an integer`);
-      const big = BigInt(json);
+      const big = integerFromJson(json, where, ...integerRange(type));
       return longAsString ? big.toString() : big;
     }
     case ScalarType.FLOAT:
@@ -422,10 +493,11 @@ function scalarFromJson(type: ScalarType, json: JsonValue, longAsString: boolean
       if (json === "NaN") return Number.NaN;
       if (json === "Infinity") return Number.POSITIVE_INFINITY;
       if (json === "-Infinity") return Number.NEGATIVE_INFINITY;
-      if (typeof json !== "number" && typeof json !== "string") throw new ProtoJsonError(`${where}: expected a number`);
+      if (typeof json === "number") return json;
+      if (typeof json !== "string" || json.trim() === "" || Number.isNaN(Number(json)))
+        throw new ProtoJsonError(`${where}: expected a number, got ${JSON.stringify(json)}`);
       return Number(json);
     default:
-      if (typeof json !== "number" && typeof json !== "string") throw new ProtoJsonError(`${where}: expected an integer`);
-      return Number(json);
+      return Number(integerFromJson(json, where, ...integerRange(type)));
   }
 }
