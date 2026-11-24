@@ -1,6 +1,6 @@
 {
   "name": "@ararat-network/sdk",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "TypeScript SDK for Ark and the client contracts it implements",
   "license": "Apache-2.0",
   "repository": {

@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
+
+The fixes from two correctness reviews, and a client for each service. Code written against 0.2 may need changes: see
+Changed and Removed below, and the order of a fee's legs first among them, since it changes the bytes that are signed.
 
 Fixed:
 
