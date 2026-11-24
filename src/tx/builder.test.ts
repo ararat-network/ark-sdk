@@ -6,15 +6,16 @@ import { AnySchema } from "@bufbuild/protobuf/wkt";
 
 import { aminoSignDocBytes } from "../codec/aminojson.js";
 import { fromHex } from "../codec/bytes.js";
+import { signTx } from "../defaults.js";
 import { MsgSendSchema } from "../gen/cosmos/bank/v1beta1/tx_pb.js";
 import { SignMode } from "../gen/cosmos/tx/signing/v1beta1/signing_pb.js";
 import { AuthInfoSchema, TxRawSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { MemorySigner } from "../keys/memory_signer.js";
 import { verifyMessage } from "../keys/secp256k1.js";
-import { MULTISIG_PUBLIC_KEY_URL, type Signer } from "../keys/signer.js";
+import { MULTISIG_PUBLIC_KEY_URL, type Signer, SignerError } from "../keys/signer.js";
 import { fixtureKey } from "../testing/fixtures.js";
 import { makeFee, typed } from "./body.js";
-import { MultisigNeedsAmino, SignerAlteredDocument, signTx, simulationTxBytes } from "./builder.js";
+import { MultisigNeedsAmino, SignerAlteredDocument, simulationTxBytes } from "./builder.js";
 
 const trader = fixtureKey("trader");
 const signer = MemorySigner.fromPrivateKey(fromHex(trader.private_key_hex));
@@ -67,6 +68,18 @@ test("a signer that alters the document stops the build", async () => {
   await assert.rejects(signTx({ ...base, signer: altering }), SignerAlteredDocument);
   await assert.rejects(signTx({ ...base, signer: altering, mode: "amino" }), SignerAlteredDocument);
   await assert.rejects(signTx({ ...base, address: "ark1nobody" }), /no account/);
+});
+
+test("a signer account that is handed in is used without asking the signer, and must be the signing address's", async () => {
+  const [account] = await signer.accounts();
+  const silent: Signer = {
+    accounts: () => Promise.reject(new Error("the signer was asked for its accounts")),
+    signDirect: (address, doc) => signer.signDirect(address, doc),
+    signAmino: (address, doc) => signer.signAmino(address, doc),
+  };
+  const signed = await signTx({ ...base, signer: silent, signerAccount: account! });
+  assert.deepEqual(signed.txBytes, (await signTx(base)).txBytes, "the same transaction as when the signer is asked");
+  await assert.rejects(signTx({ ...base, signer: silent, signerAccount: { ...account!, address: "ark1other" } }), SignerError);
 });
 
 test("a simulation transaction carries the body, signer info, and an empty signature", async () => {

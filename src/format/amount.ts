@@ -5,45 +5,40 @@
 import { create } from "@bufbuild/protobuf";
 
 import { stripTrailing } from "../codec/bytes.js";
-import { coin } from "../codec/coins.js";
+import { type CoinInput, coin, intFromWire } from "../codec/coins.js";
 import { LegacyDec } from "../codec/dec.js";
+import { decimalParts, fixedPointText, INTEGER_TEXT, scaleDecimal } from "../codec/fixed.js";
+import { ArkSdkError } from "../errors.js";
 import { type Coin, type DecCoin, DecCoinSchema } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import type { Asset, Network } from "../registry/network.js";
 
-export class AmountError extends Error {
+export class AmountError extends ArkSdkError {
   override readonly name: string = "AmountError";
 }
 
-const INTEGER = /^-?\d+$/;
-const DECIMAL = /^(-?)(\d+)(?:\.(\d+))?$/;
-
 /** Base units to an exact decimal in display units, trailing zeros dropped. */
 export function toDisplayUnits(base: bigint | string, exponent: number): string {
-  if (typeof base === "string" && !INTEGER.test(base)) throw new AmountError(`not an integer amount: ${base}`);
+  if (typeof base === "string" && !INTEGER_TEXT.test(base)) throw new AmountError(`not an integer amount: ${base}`);
   const value = BigInt(base);
   if (exponent === 0) return value.toString();
-  const negative = value < 0n;
-  const digits = (negative ? -value : value).toString().padStart(exponent + 1, "0");
-  const point = digits.length - exponent;
-  const fraction = stripTrailing(digits.slice(point), "0");
-  return (negative ? "-" : "") + digits.slice(0, point) + (fraction === "" ? "" : `.${fraction}`);
+  // The zeros go first, and stop at the point; the point goes only when nothing is left after it.
+  return stripTrailing(stripTrailing(fixedPointText(value, exponent), "0"), ".");
 }
 
 /** A decimal in display units to base units; refuses more places than the exponent allows. */
 export function fromDisplayUnits(text: string, exponent: number): bigint {
-  const m = DECIMAL.exec(text.trim());
-  if (!m) throw new AmountError(`not a decimal amount: ${text}`);
-  const fraction = m[3] ?? "";
-  if (fraction.length > exponent) throw new AmountError(`${text} has more than ${exponent} decimal places`);
-  const scaled = BigInt(m[2] as string) * 10n ** BigInt(exponent) + BigInt(fraction.padEnd(exponent, "0") || "0");
-  return m[1] === "-" ? -scaled : scaled;
+  const parts = decimalParts(text.trim());
+  if (!parts) throw new AmountError(`not a decimal amount: ${text}`);
+  if (parts.fraction.length > exponent) throw new AmountError(`${text} has more than ${exponent} decimal places`);
+  return scaleDecimal(parts, exponent);
 }
 
 export interface FormatOptions {
   /** BCP 47 tag; the runtime's default locale when omitted. */
   locale?: string;
-  /** Most fractional digits shown; 6 by default, the exponent at most. */
+  /** Most fractional digits shown; 6 by default, 20 at most, and never fewer than the least asked for. */
   maximumFractionDigits?: number;
+  /** Fewest fractional digits shown, padded with zeros; none by default, 20 at most. */
   minimumFractionDigits?: number;
   /** Rounding of the dropped places; down by default. */
   roundingMode?: "trunc" | "halfExpand" | "ceil" | "floor";
@@ -57,25 +52,30 @@ export function formatAssetAmount(base: bigint | string, asset: Asset, options: 
 }
 
 function formatDecimal(decimal: string, asset: Asset, options: FormatOptions): string {
+  const minimum = Math.min(options.minimumFractionDigits ?? 0, 20);
   const formatter = new Intl.NumberFormat(options.locale, {
-    minimumFractionDigits: options.minimumFractionDigits ?? 0,
-    maximumFractionDigits: Math.min(options.maximumFractionDigits ?? 6, 20),
+    minimumFractionDigits: minimum,
+    // The formatter refuses a most below the least: asking for more places than the default most raises the most.
+    maximumFractionDigits: Math.max(minimum, Math.min(options.maximumFractionDigits ?? 6, 20)),
     roundingMode: options.roundingMode ?? "trunc",
   });
-  const number = formatter.format(decimal as unknown as number);
+  // A numeric string is formatted exactly, where a number would round it to a float first.
+  const number = formatter.format(decimal as `${number}`);
   return options.symbol === false ? number : `${number} ${asset.symbol}`;
 }
 
 /** Formats a coin through the network's asset list; an unlisted denomination is shown as the chain's coin text, in base units. */
-export function formatCoin(c: { denom: string; amount: string | bigint }, network: Network, options: FormatOptions = {}): string {
+export function formatCoin(c: CoinInput, network: Network, options: FormatOptions = {}): string {
   const asset = network.asset(c.denom);
-  if (!asset) return `${c.amount.toString()}${c.denom}`;
-  return formatAssetAmount(c.amount, asset, options);
+  // A coin's text is read as the chain reads it, which is not always its decimal value.
+  const amount = typeof c.amount === "string" ? intFromWire(c.amount) : c.amount;
+  if (!asset) return `${amount}${c.denom}`;
+  return formatAssetAmount(amount, asset, options);
 }
 
-const COIN = /^(\d+)([a-zA-Z][a-zA-Z0-9/:._-]{2,127})$/;
+const COIN = /^(0|[1-9]\d*)([a-zA-Z][a-zA-Z0-9/:._-]{2,127})$/;
 
-/** Parses the chain's coin text, such as "1000000000000000000ausd". */
+/** Parses the chain's coin text, such as "1000000000000000000ausd"; the amount as the chain writes it, with no leading zero. */
 export function parseCoin(text: string): Coin {
   const m = COIN.exec(text.trim());
   if (!m) throw new AmountError(`not a coin: ${text}`);
@@ -89,10 +89,10 @@ export function parseCoins(text: string): Coin[] {
 }
 
 /** The chain's text for a coin list: amounts and denominations in denomination order, comma-separated. */
-export function coinsToString(coins: readonly { denom: string; amount: string | bigint }[]): string {
+export function coinsToString(coins: readonly CoinInput[]): string {
   return [...coins]
     .sort((a, b) => (a.denom < b.denom ? -1 : a.denom > b.denom ? 1 : 0))
-    .map((c) => `${c.amount.toString()}${c.denom}`)
+    .map((c) => `${typeof c.amount === "string" ? intFromWire(c.amount) : c.amount}${c.denom}`)
     .join(",");
 }
 

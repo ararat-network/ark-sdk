@@ -41,7 +41,7 @@ function wallet(privateKeyHex: string, address: string): OfflineSignerLike {
 
 test("an OfflineSigner signs direct and amino through the Signer interface", async () => {
   const f = fixture("bank_send_taxed");
-  const key = fixtureKey(f.signer!.key);
+  const key = fixtureKey(f.signer.key);
   const w = wallet(key.private_key_hex, key.address);
   const signer = fromOfflineSigner(w);
 
@@ -50,12 +50,12 @@ test("an OfflineSigner signs direct and amino through the Signer interface", asy
   assert.equal(accounts[0]?.address, key.address);
   assert.equal(accounts[0]?.publicKey.typeUrl, SECP256K1_PUBLIC_KEY_URL);
 
-  const signDoc = fromBinary(SignDocSchema, fromBase64(f.sign_mode_direct!.sign_doc));
+  const signDoc = fromBinary(SignDocSchema, fromBase64(f.sign_mode_direct.sign_doc));
   const direct = await signer.signDirect(key.address, signDoc);
   assert.equal(toBase64(direct.signature), f.signature, "the fixture's signature through the wallet");
   assert.equal(direct.signDoc.accountNumber, signDoc.accountNumber, "a string account number comes back as bigint");
 
-  const doc = JSON.parse(f.sign_mode_amino!.sign_bytes) as AminoSignDoc;
+  const doc = JSON.parse(f.sign_mode_amino.sign_bytes) as AminoSignDoc;
   const amino = await signer.signAmino(key.address, doc);
   assert.equal(toBase64(amino.signature), toBase64(signMessage(aminoSignDocBytes(doc), fromHex(key.private_key_hex))));
 
@@ -64,7 +64,7 @@ test("an OfflineSigner signs direct and amino through the Signer interface", asy
 
 test("a wallet that returns a sign document without an account number is refused with the reason", async () => {
   const f = fixture("bank_send_taxed");
-  const key = fixtureKey(f.signer!.key);
+  const key = fixtureKey(f.signer.key);
   const w = wallet(key.private_key_hex, key.address);
   const dropping: OfflineSignerLike = {
     getAccounts: w.getAccounts,
@@ -73,10 +73,22 @@ test("a wallet that returns a sign document without an account number is refused
       return { signed: { ...signed, accountNumber: null }, signature };
     },
   };
-  const signDoc = fromBinary(SignDocSchema, fromBase64(f.sign_mode_direct!.sign_doc));
+  const signDoc = fromBinary(SignDocSchema, fromBase64(f.sign_mode_direct.sign_doc));
   await assert.rejects(
     fromOfflineSigner(dropping).signDirect(key.address, signDoc),
     (err: unknown) => err instanceof SignerError && /account number/.test(err.message),
+  );
+  // One that is not an integer is refused the same way, where BigInt threw a SyntaxError.
+  const garbling: OfflineSignerLike = {
+    getAccounts: w.getAccounts,
+    signDirect: async (address, doc) => {
+      const { signed, signature } = await w.signDirect!(address, doc);
+      return { signed: { ...signed, accountNumber: "seven" }, signature };
+    },
+  };
+  await assert.rejects(
+    fromOfflineSigner(garbling).signDirect(key.address, signDoc),
+    (err: unknown) => err instanceof SignerError && /account number is not an integer: seven/.test(err.message),
   );
 });
 
@@ -85,7 +97,7 @@ test("a wallet without a mode is refused with the reason", async () => {
   const w = wallet(key.private_key_hex, key.address);
   const aminoOnly: OfflineSignerLike = { getAccounts: w.getAccounts, signAmino: w.signAmino };
   const signer = fromOfflineSigner(aminoOnly);
-  const signDoc = fromBinary(SignDocSchema, fromBase64(fixture("bank_send_taxed").sign_mode_direct!.sign_doc));
+  const signDoc = fromBinary(SignDocSchema, fromBase64(fixture("bank_send_taxed").sign_mode_direct.sign_doc));
   await assert.rejects(signer.signDirect(key.address, signDoc), (err: unknown) => err instanceof SignerError && /amino only/.test(err.message));
   const directOnly = fromOfflineSigner({ getAccounts: w.getAccounts, signDirect: w.signDirect });
   await assert.rejects(

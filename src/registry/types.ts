@@ -1,7 +1,10 @@
 // The members of the network registry's files that the SDK reads. chain.json
 // and assetlist.json follow the community chain-registry schema; ark.json
 // holds what that schema has no field for. Fields the SDK never reads are
-// left out, so a registry change cannot break a client that ignores it.
+// left out, so a registry change cannot break a client that ignores it. These
+// are what parse.ts's parsers return, each member checked, and no member is
+// declared here that no parser returns: a network is built from a parsed
+// file, never from JSON typed as one.
 
 export interface Endpoint {
   address: string;
@@ -18,10 +21,8 @@ export interface ChainJson {
   chain_id: string;
   pretty_name?: string;
   network_type?: string;
-  status?: string;
   bech32_prefix: string;
   slip44: number;
-  fees?: { fee_tokens?: { denom: string; fixed_min_gas_price?: number }[] };
   staking?: { staking_tokens?: { denom: string }[] };
   codebase?: {
     recommended_version?: string;
@@ -70,7 +71,6 @@ export interface ArkJson {
   feeds: string[];
   fee_denoms: string[];
   fee_contract: string;
-  logo_URIs?: { png?: string; svg?: string };
   indexer?: Endpoint[];
 }
 

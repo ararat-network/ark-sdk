@@ -2,21 +2,19 @@
 // (denominations, prefix, coin type, genesis identity) and the hand-kept half
 // (endpoints) arrive in the same files; the SDK reads both here and nowhere
 // else, so an app never carries its own copy. The files are checked member
-// by member before anything is read from them, the prefix and coin type are
-// held to the SDK's own, and an endpoint is accepted over https, or http on
-// the loopback: the registry is fetched from a branch by default, and a
-// change there must fail loudly here, never reach a signer as a TypeError or
-// an address as a different chain's.
+// by member, in parse.ts, before anything is read from them, the prefix and
+// coin type are held to the SDK's own, and an endpoint is accepted over
+// https, or http on the loopback: the registry is fetched from a branch by
+// default, and a change there must fail loudly here, never reach a signer as
+// a TypeError or an address as a different chain's.
 import { sha256 } from "@noble/hashes/sha2.js";
 
 import { toHex } from "../codec/bytes.js";
-import { DEFAULT_PREFIX } from "../keys/address.js";
+import { errorMessage } from "../errors.js";
+import { DEFAULT_PREFIX, validatorPrefix } from "../keys/address.js";
 import { ARK_COIN_TYPE } from "../keys/hd.js";
-import type { ArkFeatures, AssetJson, DenomUnit, Endpoint, Explorer, RegistryFiles } from "./types.js";
-
-export class RegistryError extends Error {
-  override readonly name: string = "RegistryError";
-}
+import { parseArk, parseAssets, parseChain, RegistryError } from "./parse.js";
+import type { ArkFeatures, AssetJson, DenomUnit, Endpoint, Explorer } from "./types.js";
 
 /** Thrown when a genesis file is not the one the registry names for the network. */
 export class GenesisMismatch extends RegistryError {
@@ -28,6 +26,11 @@ export class GenesisMismatch extends RegistryError {
   ) {
     super(`genesis for ${chainId}: expected sha256 ${expected}, got ${actual}`);
   }
+}
+
+/** Whether a unit answers to a name: its denomination, or one of its aliases. */
+function answersTo(unit: DenomUnit, name: string): boolean {
+  return unit.denom === name || (unit.aliases?.includes(name) ?? false);
 }
 
 /** One asset of the network: its base denomination and the units it is shown in. */
@@ -52,6 +55,18 @@ export class Asset {
     if (!this.units.some((u) => u.denom === this.display)) {
       throw new RegistryError(`asset ${json.base}: display unit ${json.display} is not among its units`);
     }
+    // A name, a unit's denomination or one of its aliases, belongs to one unit. Two units answering to one name
+    // would give an amount the exponent of whichever is listed first: the display unit's could be another's.
+    const owner = new Map<string, DenomUnit>();
+    for (const unit of this.units) {
+      for (const name of [unit.denom, ...(unit.aliases ?? [])]) {
+        const other = owner.get(name);
+        if (other && other !== unit) {
+          throw new RegistryError(`asset ${json.base}: ${name} names two units, at exponents ${other.exponent} and ${unit.exponent}`);
+        }
+        owner.set(name, unit);
+      }
+    }
   }
 
   /** The exponent of the display unit: how many base units make one. */
@@ -60,7 +75,7 @@ export class Asset {
   }
 
   unit(denom: string): DenomUnit {
-    const unit = this.units.find((u) => u.denom === denom || u.aliases?.includes(denom));
+    const unit = this.units.find((u) => answersTo(u, denom));
     if (!unit) throw new RegistryError(`asset ${this.base}: no unit ${denom}`);
     return unit;
   }
@@ -98,9 +113,11 @@ export class Network {
   /** Every asset by base denomination. */
   readonly assets: ReadonlyMap<string, Asset>;
 
-  private constructor(files: RegistryFiles) {
-    checkFiles(files);
-    const { chain, assets, ark } = files;
+  private constructor(files: { chain: unknown; assets: unknown; ark: unknown }) {
+    // Each file is parsed into the members the SDK reads, checked one by one: nothing below reads the files themselves.
+    const chain = parseChain(files.chain);
+    const assets = parseAssets(files.assets);
+    const ark = parseArk(files.ark);
     if (ark.chain_id !== chain.chain_id) throw new RegistryError(`chain.json names ${chain.chain_id}, ark.json ${ark.chain_id}`);
     if (assets.chain_name !== chain.chain_name) throw new RegistryError(`chain.json names ${chain.chain_name}, assetlist.json ${assets.chain_name}`);
     if (ark.bech32_prefix !== chain.bech32_prefix) throw new RegistryError(`chain.json prefix ${chain.bech32_prefix}, ark.json ${ark.bech32_prefix}`);
@@ -116,12 +133,12 @@ export class Network {
     }
     const staking = chain.staking?.staking_tokens?.[0]?.denom;
     if (!staking) throw new RegistryError(`chain.json names no staking token`);
-    for (const [kind, list] of [
-      ["rest", chain.apis?.rest],
-      ["rpc", chain.apis?.rpc],
-      ["indexer", ark.indexer],
+    for (const [where, list] of [
+      ["chain.json rest endpoint", chain.apis?.rest],
+      ["chain.json rpc endpoint", chain.apis?.rpc],
+      ["ark.json indexer endpoint", ark.indexer],
     ] as const) {
-      for (const e of list ?? []) checkEndpointUrl(e.address, `chain.json ${kind} endpoint`);
+      for (const e of list ?? []) checkEndpointUrl(e.address, where);
     }
     if (chain.codebase?.genesis?.genesis_url !== undefined) checkEndpointUrl(chain.codebase.genesis.genesis_url, "chain.json genesis_url");
 
@@ -136,7 +153,7 @@ export class Network {
     this.compatibleVersions = [...(chain.codebase?.compatible_versions ?? [])];
     this.genesisUrl = chain.codebase?.genesis?.genesis_url;
     this.genesisSha256 = ark.genesis_sha256;
-    this.features = { ...ark.features };
+    this.features = ark.features;
     this.referenceDenom = ark.reference_denom;
     this.feeds = [...ark.feeds];
     this.feeDenoms = [...ark.fee_denoms];
@@ -157,8 +174,12 @@ export class Network {
     this.assets = byBase;
   }
 
-  /** Builds a network from the three parsed registry files, checking they agree. */
-  static fromRegistry(files: RegistryFiles): Network {
+  /**
+   * Builds a network from the three registry files as they were read from JSON,
+   * checking each member the SDK reads and that the files agree. `RegistryFiles`
+   * is their shape; nothing is taken on trust from a value typed as it.
+   */
+  static fromRegistry(files: { chain: unknown; assets: unknown; ark: unknown }): Network {
     return new Network(files);
   }
 
@@ -170,14 +191,14 @@ export class Network {
   /** The asset whose base, display, or alias unit is `denom`. */
   assetByUnit(denom: string): Asset | undefined {
     for (const a of this.assets.values()) {
-      if (a.units.some((u) => u.denom === denom || u.aliases?.includes(denom))) return a;
+      if (a.units.some((u) => answersTo(u, denom))) return a;
     }
     return undefined;
   }
 
   /** The address prefix for a validator operator. */
   get validatorPrefix(): string {
-    return `${this.bech32Prefix}valoper`;
+    return validatorPrefix(this.bech32Prefix);
   }
 
   /** The first REST endpoint, which a client reaches the gateway through. */
@@ -207,9 +228,42 @@ export const REGISTRY_REPOSITORY = "ararat-network/ark-registry";
 /** The ref the registry is read at unless one is given: the branch its endpoints are kept on. */
 export const DEFAULT_REGISTRY_REF = "main";
 
+/** A registry directory's name, as the chain registry names chains: lowercase letters and digits, single hyphens or underscores between them. */
+const NETWORK_NAME = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/;
+
+/** One part of a git ref between slashes: letters, digits, dots, hyphens, and underscores, not led by a dot. */
+const REF_PART = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
+
+/**
+ * Refuses a ref that is not a branch, tag, or commit name. The ref becomes
+ * part of the registry's URL, and one holding "..", an empty part, or a
+ * character a URL reads as structure would name another repository's files.
+ */
+function checkRef(ref: string): void {
+  const named = ref.split("/").every((part) => REF_PART.test(part) && !part.includes("..") && !part.endsWith("."));
+  if (!named) throw new RegistryError(`registry ref ${JSON.stringify(ref)} is not a branch, tag, or commit name`);
+}
+
 /** Where the published registry's files are read from, at a git ref: a branch, a tag, or a commit, which pins it. */
 export function registrySource(ref = DEFAULT_REGISTRY_REF): string {
+  checkRef(ref);
   return `https://raw.githubusercontent.com/${REGISTRY_REPOSITORY}/${ref}`;
+}
+
+/**
+ * A registry file or the genesis it names, fetched: a request that fails or is answered with an error status is a
+ * RegistryError, the failure kept as its cause. Called unbound: a browser's fetch refuses any receiver but its
+ * window. Internal: not exported from the core entry.
+ */
+export async function fetchOk(fetchFn: typeof fetch, url: string): Promise<Response> {
+  let response: Response;
+  try {
+    response = await fetchFn(url);
+  } catch (err) {
+    throw new RegistryError(`${url}: ${errorMessage(err)}`, { cause: err });
+  }
+  if (!response.ok) throw new RegistryError(`${url}: ${response.status} ${response.statusText}`);
+  return response;
 }
 
 export interface LoadOptions {
@@ -220,163 +274,47 @@ export interface LoadOptions {
   fetch?: typeof fetch;
 }
 
-/** Fetches the three files for a network, checks them, and builds it. */
+/**
+ * Fetches the three files for a network, checks them, and builds it. The name
+ * is a registry directory's and nothing else: it and the ref become part of
+ * the URL, and a caller may have taken either from a link or a setting. The
+ * network the files describe must be the one asked for.
+ */
 export async function loadNetwork(name: string, options: LoadOptions = {}): Promise<Network> {
+  if (!NETWORK_NAME.test(name)) {
+    throw new RegistryError(
+      `network name ${JSON.stringify(name)} is not a registry directory's: lowercase letters and digits, hyphens or underscores between them`,
+    );
+  }
   const source = options.source ?? registrySource(options.ref);
   const fetchFn = options.fetch ?? globalThis.fetch;
   const read = async (file: string): Promise<unknown> => {
     const url = `${source}/${name}/${file}`;
-    const response = await fetchFn(url);
-    if (!response.ok) throw new RegistryError(`${url}: ${response.status} ${response.statusText}`);
+    const response = await fetchOk(fetchFn, url);
     try {
       return await response.json();
     } catch (err) {
-      throw new RegistryError(`${url}: not JSON: ${err instanceof Error ? err.message : String(err)}`);
+      throw new RegistryError(`${url}: not JSON: ${errorMessage(err)}`, { cause: err });
     }
   };
   const [chain, assets, ark] = await Promise.all([read("chain.json"), read("assetlist.json"), read("ark.json")]);
-  return Network.fromRegistry({ chain, assets, ark } as RegistryFiles);
+  const network = Network.fromRegistry({ chain, assets, ark });
+  // A directory is named for the chain it describes. Files for another chain, well formed, would hand a caller
+  // who asked for the testnet another network's chain ID and endpoints.
+  if (network.name !== name) throw new RegistryError(`${source}/${name} describes the network ${network.name}, not ${name}`);
+  return network;
 }
 
-// The checks below read the files as the unknown JSON they are, so a member
-// the SDK relies on that is missing or mistyped is refused by name.
+/** An IPv4 address in 127.0.0.0/8. URL writes every IPv4 host as four decimal octets, so nothing else is one. */
+const LOOPBACK_IPV4 = /^127(?:\.\d{1,3}){3}$/;
 
-type JsonObject = Record<string, unknown>;
-
-function object(value: unknown, where: string): JsonObject {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new RegistryError(`${where} is not an object`);
-  return value as JsonObject;
-}
-
-function member(o: JsonObject, key: string, where: string): unknown {
-  if (!(key in o)) throw new RegistryError(`${where}: ${key} is missing`);
-  return o[key];
-}
-
-function text(o: JsonObject, key: string, where: string): string {
-  const v = member(o, key, where);
-  if (typeof v !== "string" || v === "") throw new RegistryError(`${where}: ${key} must be a non-empty string`);
-  return v;
-}
-
-function optionalText(o: JsonObject, key: string, where: string): string | undefined {
-  return o[key] === undefined ? undefined : text(o, key, where);
-}
-
-function wholeNumber(o: JsonObject, key: string, where: string): number {
-  const v = member(o, key, where);
-  if (typeof v !== "number" || !Number.isInteger(v) || v < 0) throw new RegistryError(`${where}: ${key} must be a whole number`);
-  return v;
-}
-
-function flag(o: JsonObject, key: string, where: string): boolean {
-  const v = member(o, key, where);
-  if (typeof v !== "boolean") throw new RegistryError(`${where}: ${key} must be true or false`);
-  return v;
-}
-
-function list(o: JsonObject, key: string, where: string): unknown[] {
-  const v = member(o, key, where);
-  if (!Array.isArray(v)) throw new RegistryError(`${where}: ${key} must be a list`);
-  return v;
-}
-
-function optionalList(o: JsonObject, key: string, where: string): unknown[] | undefined {
-  return o[key] === undefined ? undefined : list(o, key, where);
-}
-
-function texts(o: JsonObject, key: string, where: string): string[] {
-  const v = list(o, key, where);
-  if (!v.every((x) => typeof x === "string" && x !== "")) throw new RegistryError(`${where}: ${key} must be a list of non-empty strings`);
-  return v as string[];
-}
-
-function endpoints(o: JsonObject, key: string, where: string): void {
-  for (const [i, e] of (optionalList(o, key, where) ?? []).entries()) {
-    const entry = object(e, `${where}: ${key}[${i}]`);
-    text(entry, "address", `${where}: ${key}[${i}]`);
-    optionalText(entry, "provider", `${where}: ${key}[${i}]`);
-  }
-}
-
-function checkChain(value: unknown): void {
-  const where = "chain.json";
-  const chain = object(value, where);
-  text(chain, "chain_name", where);
-  text(chain, "chain_id", where);
-  optionalText(chain, "pretty_name", where);
-  optionalText(chain, "network_type", where);
-  text(chain, "bech32_prefix", where);
-  wholeNumber(chain, "slip44", where);
-  if (chain.staking !== undefined) {
-    const staking = object(chain.staking, `${where}: staking`);
-    for (const [i, t] of (optionalList(staking, "staking_tokens", `${where}: staking`) ?? []).entries()) {
-      text(object(t, `${where}: staking_tokens[${i}]`), "denom", `${where}: staking_tokens[${i}]`);
-    }
-  }
-  if (chain.codebase !== undefined) {
-    const codebase = object(chain.codebase, `${where}: codebase`);
-    optionalText(codebase, "recommended_version", `${where}: codebase`);
-    if (codebase.compatible_versions !== undefined) texts(codebase, "compatible_versions", `${where}: codebase`);
-    if (codebase.genesis !== undefined) optionalText(object(codebase.genesis, `${where}: codebase.genesis`), "genesis_url", `${where}: codebase.genesis`);
-  }
-  if (chain.apis !== undefined) {
-    const apis = object(chain.apis, `${where}: apis`);
-    for (const kind of ["rpc", "rest", "grpc"]) endpoints(apis, kind, `${where}: apis`);
-  }
-  for (const [i, e] of (optionalList(chain, "explorers", where) ?? []).entries()) {
-    const explorer = object(e, `${where}: explorers[${i}]`);
-    optionalText(explorer, "kind", `${where}: explorers[${i}]`);
-    optionalText(explorer, "url", `${where}: explorers[${i}]`);
-  }
-}
-
-function checkAssets(value: unknown): void {
-  const where = "assetlist.json";
-  const assets = object(value, where);
-  text(assets, "chain_name", where);
-  for (const [i, a] of list(assets, "assets", where).entries()) {
-    const at = `${where}: assets[${i}]`;
-    const asset = object(a, at);
-    for (const key of ["base", "display", "symbol", "name"]) text(asset, key, at);
-    optionalText(asset, "description", at);
-    const units = list(asset, "denom_units", at);
-    if (units.length === 0) throw new RegistryError(`${at}: denom_units is empty`);
-    for (const [j, u] of units.entries()) {
-      const unit = object(u, `${at}.denom_units[${j}]`);
-      text(unit, "denom", `${at}.denom_units[${j}]`);
-      wholeNumber(unit, "exponent", `${at}.denom_units[${j}]`);
-      if (unit.aliases !== undefined) texts(unit, "aliases", `${at}.denom_units[${j}]`);
-    }
-  }
-}
-
-function checkArk(value: unknown): void {
-  const where = "ark.json";
-  const ark = object(value, where);
-  text(ark, "chain_id", where);
-  text(ark, "ark_version", where);
-  optionalText(ark, "genesis_sha256", where);
-  text(ark, "bech32_prefix", where);
-  wholeNumber(ark, "slip44", where);
-  const features = object(member(ark, "features", where), `${where}: features`);
-  for (const key of ["cosmwasm", "vote_extensions", "conversion_open"]) flag(features, key, `${where}: features`);
-  text(ark, "reference_denom", where);
-  texts(ark, "feeds", where);
-  texts(ark, "fee_denoms", where);
-  text(ark, "fee_contract", where);
-  endpoints(ark, "indexer", where);
-}
-
-function checkFiles(files: RegistryFiles): void {
-  checkChain(files.chain);
-  checkAssets(files.assets);
-  checkArk(files.ark);
-}
-
-/** Whether a host is the machine itself, where http is as private as https. */
+/**
+ * Whether a host is the machine itself, where http is as private as https.
+ * The 127 block is matched as an address, never as a prefix: a name such as
+ * 127.example.org is someone else's host.
+ */
 function isLoopback(hostname: string): boolean {
-  return hostname === "localhost" || hostname.endsWith(".localhost") || hostname.startsWith("127.") || hostname === "[::1]";
+  return hostname === "localhost" || hostname.endsWith(".localhost") || LOOPBACK_IPV4.test(hostname) || hostname === "[::1]";
 }
 
 /** An endpoint the SDK will send requests to: https, or http on the loopback. */

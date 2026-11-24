@@ -1,0 +1,166 @@
+// The core entry is the main entry without the full registry: the same
+// names, each taking its registry as an argument, and no module beneath it
+// importing every generated type.
+import assert from "node:assert/strict";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { test } from "node:test";
+
+import { create, createRegistry } from "@bufbuild/protobuf";
+import { AnySchema } from "@bufbuild/protobuf/wkt";
+
+import { fromBase64, fromHex } from "./codec/bytes.js";
+import { registry } from "./codec/registry.js";
+import * as core from "./core.js";
+import { MsgSendSchema } from "./gen/cosmos/bank/v1beta1/tx_pb.js";
+import { TxResponseSchema } from "./gen/cosmos/base/abci/v1beta1/abci_pb.js";
+import { TxBodySchema, TxSchema } from "./gen/cosmos/tx/v1beta1/tx_pb.js";
+import * as main from "./index.js";
+import { MemorySigner } from "./keys/memory_signer.js";
+import { SignerError } from "./keys/signer.js";
+import { fixture, fixtureKey } from "./testing/fixtures.js";
+import { json, stubFetch } from "./testing/node.js";
+
+test("only the defaulting layer imports the full registry", () => {
+  const root = new URL(".", import.meta.url).pathname;
+  const walk = (dir: string): string[] =>
+    readdirSync(dir).flatMap((name) => {
+      const path = `${dir}${name}`;
+      if (statSync(path).isDirectory()) return name === "gen" || name === "testing" ? [] : walk(`${path}/`);
+      return path.endsWith(".ts") && !path.endsWith(".test.ts") ? [path] : [];
+    });
+  const importing = walk(root)
+    .filter((path) => /from "[^"]*\/(registry|files)\.js"/.test(readFileSync(path, "utf8")))
+    .map((path) => path.slice(root.length))
+    .sort();
+  // The registry itself reads the generated file list; nothing else under the core entry may reach either.
+  assert.deepEqual(importing, ["codec/registry.ts", "defaults.ts"]);
+  // Nor may it reach them through the defaulting layer, which only the main entry imports.
+  const defaulting = walk(root)
+    .filter((path) => /from "[^"]*\/defaults\.js"/.test(readFileSync(path, "utf8")))
+    .map((path) => path.slice(root.length));
+  assert.deepEqual(defaulting, ["index.ts"]);
+});
+
+test("a core reader given the full registry answers as the main entry's does", () => {
+  const f = fixture("multi_message");
+  const bytes = fromBase64(f.tx_bytes);
+  assert.deepEqual(core.decodeTx(bytes, { registry }).json, main.decodeTx(bytes).json);
+  // Each event's schema is compared by name, for the same reason.
+  const named = (events: ReturnType<typeof core.decodeEvents>) => events.map((e) => ({ ...e, schema: e.schema?.typeName }));
+  assert.deepEqual(named(core.decodeEvents(f.events!, { registry })), named(main.decodeEvents(f.events!)));
+  const send = create(MsgSendSchema, { fromAddress: "ark1a", toAddress: "ark1b", amount: [{ denom: "ausd", amount: "1" }] });
+  assert.deepEqual(core.toProtoJson(MsgSendSchema, send, { registry }), main.toProtoJson(MsgSendSchema, send));
+});
+
+test("a core reader resolves an Any against the registry it is given and no other", () => {
+  const bytes = fromBase64(fixture("bank_send_taxed").tx_bytes);
+  // A registry that knows only MsgSend: the message decodes, and a registry that knows nothing names it unknown.
+  const [known] = core.decodeTx(bytes, { registry: createRegistry(MsgSendSchema) }).messages;
+  assert.equal(known?.known, true);
+  const [unknown] = core.decodeTx(bytes, { registry: createRegistry() }).messages;
+  assert.equal(unknown?.known, false);
+  assert.equal(unknown?.typeUrl, "/cosmos.bank.v1beta1.MsgSend");
+});
+
+test("a core client takes its registry, and the main entry's is the same client with the registry defaulted", async () => {
+  const own = createRegistry();
+  const { fetch } = stubFetch(() => json({ default_node_info: { network: "localark" }, application_version: null }));
+  const client = new core.QueryClient("http://node", { fetch, registry: own });
+  assert.ok(client.gateway.registry === own);
+  assert.equal((await client.node.info()).defaultNodeInfo?.network, "localark");
+
+  const defaulted = new main.QueryClient("http://node", { fetch });
+  assert.ok(defaulted instanceof core.QueryClient, "what takes a core client takes the main entry's");
+  // Compared with ===: a registry prints as over a million lines, and a failed assert.equal diffs both sides.
+  assert.ok(defaulted.gateway.registry === registry);
+  assert.ok(main.registry === registry, "the registry the main entry exports is the one it defaults to");
+  assert.ok(new main.GatewayClient("http://node") instanceof core.GatewayClient);
+});
+
+test("a flow takes the services it reads, each a client over one gateway, in place of the whole query client", async () => {
+  // What a caller of the core entry builds to keep its bundle to the services it calls: a search reads the
+  // transaction service alone, and decodes with the gateway's registry.
+  const f = fixture("bank_send_taxed");
+  const tx_response = { txhash: f.tx_hash, height: "7", tx: { "@type": "/cosmos.tx.v1beta1.Tx", ...f.tx }, events: [] };
+  const { fetch, seen } = stubFetch(() => json({ tx: f.tx, tx_response }));
+  const gateway = new core.GatewayClient("http://node", { fetch, registry: createRegistry(MsgSendSchema) });
+  const client = { gateway, tx: core.txClient(gateway) };
+  const found = await core.fetchTx(client, f.tx_hash);
+  assert.equal(found?.messages[0]?.known, true);
+  assert.equal(seen[0]?.call, `GET /cosmos/tx/v1beta1/txs/${f.tx_hash}`);
+  assert.equal((await core.waitForInclusion({ ...client, node: core.nodeClient(gateway) }, f.tx_hash)).height, 7n);
+
+  // The query client is those clients over its own gateway, so either is what a flow is handed.
+  const whole = new core.QueryClient("http://node", { fetch, registry: createRegistry(MsgSendSchema) });
+  assert.equal((await core.fetchTx(whole, f.tx_hash))?.hash, f.tx_hash);
+  assert.deepEqual(Object.keys(whole.tx), Object.keys(client.tx));
+});
+
+test("core signTx needs a registry for amino mode only", async () => {
+  const signer = MemorySigner.fromPrivateKey(fromHex(fixtureKey("trader").private_key_hex));
+  const send = core.typed(MsgSendSchema, create(MsgSendSchema, { fromAddress: signer.address, toAddress: signer.address }));
+  const input = {
+    signer,
+    address: signer.address,
+    chainId: "localark",
+    accountNumber: 1n,
+    sequence: 0n,
+    messages: [send],
+    fee: core.makeFee({ amount: [], gasLimit: 1n }),
+  };
+  assert.equal((await core.signTx(input)).mode, "direct", "direct mode reads no registry");
+  await assert.rejects(core.signTx({ ...input, mode: "amino" }), (err: unknown) => err instanceof SignerError && /needs a registry/.test(err.message));
+  const amino = await core.signTx({ ...input, mode: "amino", registry: createRegistry(MsgSendSchema) });
+  assert.equal(amino.aminoSignDoc?.msgs[0]?.type, "cosmos-sdk/MsgSend");
+  assert.equal((await main.signTx({ ...input, mode: "amino" })).aminoSignDoc?.msgs[0]?.type, "cosmos-sdk/MsgSend", "the main entry defaults it");
+});
+
+// Compile-time: the core entry takes its registry as an argument, so leaving it out does not type-check.
+void (() => {
+  const bytes = new Uint8Array();
+  // @ts-expect-error the registry is required
+  core.decodeTx(bytes);
+  // @ts-expect-error the registry is required
+  core.toProtoJson(MsgSendSchema, create(MsgSendSchema));
+  // @ts-expect-error the registry is required
+  new core.QueryClient("http://node");
+  // @ts-expect-error the registry is required
+  new core.GatewayClient("http://node", {});
+});
+
+test("a core reader called without a registry says so by name, to a caller the types do not reach", () => {
+  // Plain JavaScript on the core entry: the types require the registry, and nothing else stopped the call before the
+  // runtime's own error did, at whatever line first read it.
+  const untyped = core as unknown as Record<string, (...args: unknown[]) => unknown>;
+  const any = create(AnySchema, { typeUrl: "/cosmos.bank.v1beta1.MsgSend" });
+  const calls: [string, () => unknown][] = [
+    ["decodeTx", () => untyped.decodeTx!(fromBase64(fixture("bank_send_taxed").tx_bytes))],
+    ["decodeTx", () => untyped.decodeTx!(new Uint8Array(), {})],
+    ["decodeMessage", () => untyped.decodeMessage!(any)],
+    ["decodeTxMessages", () => untyped.decodeTxMessages!(create(TxSchema))],
+    ["decodeEvent", () => untyped.decodeEvent!({ type: "t", attributes: [] })],
+    ["decodeEvent", () => untyped.decodeEvents!([{ type: "t", attributes: [] }])],
+    ["decodeAccount", () => untyped.decodeAccount!(any)],
+    ["decodeMsgResponses", () => untyped.decodeMsgResponses!("")],
+    ["unpackAny", () => untyped.unpackAny!(any)],
+    ["toProtoJson", () => untyped.toProtoJson!(MsgSendSchema, create(MsgSendSchema))],
+    ["fromProtoJson", () => untyped.fromProtoJson!(MsgSendSchema, {})],
+    [
+      "makeAminoSignDoc",
+      () =>
+        untyped.makeAminoSignDoc!({
+          body: create(TxBodySchema),
+          fee: core.makeFee({ amount: [], gasLimit: 1n }),
+          chainId: "c",
+          accountNumber: 0n,
+          sequence: 0n,
+        }),
+    ],
+    ["aminoEncode", () => untyped.aminoEncode!(MsgSendSchema, create(MsgSendSchema))],
+    ["aminoEncodeAny", () => untyped.aminoEncodeAny!(any)],
+    ["foundTx", () => untyped.foundTx!(create(TxResponseSchema), undefined)],
+  ];
+  for (const [reader, call] of calls) {
+    assert.throws(call, (err: unknown) => err instanceof core.ArkSdkError && err.message.startsWith(`${reader} needs a registry`), reader);
+  }
+});

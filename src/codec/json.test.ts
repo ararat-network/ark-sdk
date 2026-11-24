@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { ArkSdkError } from "../errors.js";
 import { compareUtf8, goJsonNumber, goJsonString, marshalGoJson, sortKeys } from "./json.js";
 
 test("marshalGoJson sorts keys at every level and stays compact", () => {
@@ -39,7 +40,8 @@ test("goJsonNumber formats as Go's encoding/json does", () => {
     [123456789012345680000, "123456789012345680000"],
   ];
   for (const [input, want] of cases) assert.equal(goJsonNumber(input), want);
-  assert.throws(() => goJsonNumber(Number.NaN), RangeError);
+  assert.throws(() => goJsonNumber(Number.NaN), ArkSdkError);
+  assert.throws(() => goJsonNumber(Number.POSITIVE_INFINITY), ArkSdkError);
 });
 
 test("compareUtf8 orders by code point, not UTF-16 unit", () => {

@@ -25,6 +25,15 @@ test("wire and decimal text round trip", () => {
   assert.throws(() => LegacyDec.fromWire("1.5"), DecError);
 });
 
+test("the wire form is read as the chain reads it, the base taken from the text", () => {
+  // Go's LegacyDec.Unmarshal over each text, run at the chain's math version: a leading zero is octal.
+  assert.equal(LegacyDec.fromWire("0100000000000000000").toString(), "0.002251799813685248");
+  assert.equal(LegacyDec.fromWire("0x10").toString(), "0.000000000000000016");
+  assert.equal(LegacyDec.fromWire("+5").toWire(), "5");
+  assert.equal(LegacyDec.fromWire("1_000").toWire(), "1000");
+  for (const wire of ["08", "1.5", "abc", "1e3", " 1", "-"]) assert.throws(() => LegacyDec.fromWire(wire), DecError, JSON.stringify(wire));
+});
+
 test("fee arithmetic matches the fixtures' figures", () => {
   // bank_send_taxed: ceil(gas_price × 250000) and ceil(leg × 1.1).
   const price = LegacyDec.fromWire("72939460247994164800000000000");
@@ -84,4 +93,13 @@ test("the range is Go's: up to 2^256 × 10^18 − 1 in scaled units, either sign
   assert.equal(LegacyDec.fromScaled(2n ** 315n).scaled, 2n ** 315n, "316 bits is inside the range, not past it");
   assert.throws(() => LegacyDec.fromScaled(top + 1n), DecError);
   assert.throws(() => LegacyDec.fromScaled(-top - 1n), DecError);
+});
+
+test("fromInt takes an integer and refuses a fraction as a decimal's error", () => {
+  assert.equal(LegacyDec.fromInt(3).toWire(), "3000000000000000000");
+  assert.throws(() => LegacyDec.fromInt(1.5), DecError);
+  // The integer operands are held to the same: BigInt's RangeError came through for a fraction.
+  assert.throws(() => LegacyDec.one().mulInt(1.5), DecError);
+  assert.throws(() => LegacyDec.one().quoInt(1.5), DecError);
+  assert.equal(LegacyDec.one().mulInt(3).quoInt(2).toString(), "1.500000000000000000");
 });

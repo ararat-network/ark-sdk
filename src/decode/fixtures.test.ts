@@ -7,33 +7,38 @@ import { create } from "@bufbuild/protobuf";
 import { AnySchema } from "@bufbuild/protobuf/wkt";
 
 import { fromBase64 } from "../codec/bytes.js";
-import type { JsonObject } from "../codec/json.js";
+import { decodeEvent, decodeEvents, decodeMessage, decodeTx } from "../defaults.js";
 import { SignMode } from "../gen/cosmos/tx/signing/v1beta1/signing_pb.js";
-import { type Fixture, fixtures } from "../testing/fixtures.js";
+import { type Fixture, fixture, fixtures, txFixtures } from "../testing/fixtures.js";
 import { expectedTxJson } from "../testing/gaps.js";
-import { decodeEvent, decodeEvents, eventsByMessage } from "./events.js";
+import { eventsByMessage } from "./events.js";
 import { classifyResult, describeOutcome } from "./result.js";
-import { decodeMessage, decodeTx } from "./tx.js";
 
 const all = fixtures();
+const txs = txFixtures();
 
-for (const f of all) {
-  if (!f.tx_bytes) continue;
+for (const f of txs) {
   test(`${f.name}: decodeTx names every message and renders the chain's JSON`, () => {
-    const decoded = decodeTx(fromBase64(f.tx_bytes!));
+    const decoded = decodeTx(fromBase64(f.tx_bytes));
     assert.equal(decoded.hash, f.tx_hash);
-    const messages = ((f.tx as JsonObject).body as JsonObject).messages as JsonObject[];
+    const messages = f.tx.body.messages;
     assert.deepEqual(
       decoded.messages.map((m) => m.typeUrl),
       messages.map((m) => m["@type"]),
     );
     assert.ok(decoded.messages.every((m) => m.known && m.message !== undefined && m.schema !== undefined));
-    assert.deepEqual(decoded.json, expectedTxJson(f.name, f.tx));
-    assert.equal(decoded.memo, ((f.tx as JsonObject).body as JsonObject).memo);
+    const expected = expectedTxJson(f.name, f.tx);
+    assert.deepEqual(decoded.json, expected);
+    assert.deepEqual(
+      decoded.messages.map((m) => m.json),
+      expected.body.messages,
+      "each message's JSON is the transaction's own rendering of it",
+    );
+    assert.equal(decoded.memo, f.tx.body.memo);
     assert.equal(decoded.signers.length, 1);
-    assert.equal(decoded.signers[0]?.sequence, BigInt(f.signer!.sequence));
+    assert.equal(decoded.signers[0]?.sequence, BigInt(f.signer.sequence));
     assert.equal(decoded.signers[0]?.mode, SignMode.DIRECT);
-    assert.equal(decoded.fee?.gasLimit, BigInt(f.fee!.gas_limit));
+    assert.equal(decoded.fee?.gasLimit, BigInt(f.fee.gas_limit));
     assert.equal(decoded.signatures.length, 1);
   });
 }
@@ -67,7 +72,7 @@ test("every typed event in every fixture decodes to its pinned form", () => {
 });
 
 test("events group by the message that emitted them", () => {
-  const f = all.find((x) => x.name === "multi_message")!;
+  const f = fixture("multi_message");
   const groups = eventsByMessage(decodeEvents(f.events!));
   assert.ok(groups.has(undefined), "transaction-level events");
   assert.ok(groups.has(0) && groups.has(1), "one group per message");
@@ -76,7 +81,6 @@ test("events group by the message that emitted them", () => {
 });
 
 test("results classify as ok, SDK refusal, execution failure, or module error", () => {
-  const byName = new Map(all.map((f) => [f.name, f]));
   const want: Record<string, string> = {
     bank_send_taxed: "ok",
     refused_fee_short_of_tax: "refused",
@@ -87,17 +91,17 @@ test("results classify as ok, SDK refusal, execution failure, or module error", 
     wasm_migrate_contract_refused: "module_error",
   };
   for (const [name, kind] of Object.entries(want)) {
-    const o = classifyResult(byName.get(name)!.result!);
+    const o = classifyResult(fixture(name).result);
     assert.equal(o.kind, kind, name);
     assert.ok(describeOutcome(o).length > 0);
   }
-  const refused = classifyResult(byName.get("refused_fee_short_of_tax")!.result!);
+  const refused = classifyResult(fixture("refused_fee_short_of_tax").result);
   assert.ok(refused.kind === "refused" && refused.code === 13 && refused.reason === "insufficient fee" && /transfer tax/.test(refused.log));
-  const failed = classifyResult(byName.get("failed_not_registrar")!.result!);
+  const failed = classifyResult(fixture("failed_not_registrar").result);
   assert.ok(failed.kind === "failed" && failed.messageIndex === 0 && /registrar/.test(failed.log));
-  const settle = classifyResult(byName.get("market_settle_refused")!.result!);
+  const settle = classifyResult(fixture("market_settle_refused").result);
   assert.ok(settle.kind === "module_error" && settle.module === "market" && settle.code === 5 && settle.messageIndex === 0);
-  assert.equal(all.filter((f) => f.result && f.result.code === 0).length, all.filter((f) => f.result).length - 6, "six fixtures record a refusal");
+  assert.equal(txs.filter((f) => f.result.code === 0).length, txs.length - 6, "six fixtures record a refusal");
   assert.equal(classifyResult({ code: 111222, codespace: "undefined", rawLog: "panic" }).kind, "panic");
   assert.equal(classifyResult({ code: 1, codespace: "", rawLog: "x" }).kind, "failed");
 });

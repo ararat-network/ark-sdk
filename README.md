@@ -31,7 +31,9 @@ SDK, at the version the SDK pins, since a package manager that keeps dependencie
 the SDK.
 
 A network comes from the registry, read at `main` unless `ref` pins a commit: every member the SDK reads is checked,
-the prefix and coin type must be Ark's, and an endpoint is accepted over https, or http on the loopback. A client
+the prefix and coin type must be Ark's, and an endpoint is accepted over https, or http on the loopback. The name is
+a registry directory's and the ref a branch, tag, or commit, neither anything that could name other files, and the
+network the files describe must be the one asked for. A client
 comes from the network's REST endpoints and checks it reached that chain; the check also reports whether the node's
 binary is a version the registry lists, refuses one that is not on request, and can hash the genesis file the
 registry names against the registry's hash. Given several endpoints, a call that cannot reach one, or finds it
@@ -69,10 +71,12 @@ import {
 
 const send = typed(MsgSendSchema, create(MsgSendSchema, { fromAddress, toAddress, amount: [coin("ausd", 10n ** 18n)] }));
 const [account] = await signer.accounts();
+if (!account) throw new Error("the signer holds no account");
 const { info } = await client.auth.accountInfo(fromAddress);
 if (!info) throw new Error(`no account at ${fromAddress}`);
 
 const simulated = await client.tx.simulate(simulationTxBytes({ messages: [send], publicKey: account.publicKey, sequence: info.sequence }));
+if (!simulated.gasInfo) throw new Error("the simulation returned no gas info");
 const gasLimit = adjustGas(simulated.gasInfo.gasUsed, arkdPolicy.gasAdjustment);
 const { tax } = await client.treasury.computeTax(packMessages([send]));
 const sheet = await client.treasury.gasPrices();
@@ -87,7 +91,9 @@ const outcome = classifyResult(response);
 
 `sendTx` runs those steps in that order on the same messages, with the headroom, gas adjustment, and fee
 denomination still yours, and, when another transaction took the sequence, signs once more at the sequence the
-chain names, whether the mismatch surfaced at simulation or at CheckTx; `prepareAndSign` stops before the broadcast:
+chain names, whether the mismatch surfaced at simulation or at CheckTx. It signs again only while the first
+transaction cannot be in the mempool; once a broadcast is accepted, or its outcome is unknown, nothing is signed
+again whatever the node then answers. `prepareAndSign` stops before the broadcast:
 
 ```ts
 import { arkdPolicy, sendTx } from "@ararat-network/sdk";
@@ -95,16 +101,38 @@ import { arkdPolicy, sendTx } from "@ararat-network/sdk";
 const sent = await sendTx({ client, signer, address: fromAddress, chainId: network.chainId, messages: [send], feeDenom: "ausd", headroom: arkdPolicy.headroom, gasAdjustment: arkdPolicy.gasAdjustment });
 ```
 
+`maxSendable` answers how much of a balance can be sent: the largest amount such that it, the tax the chain computes
+for it, and whatever else comes out of that balance all fit. The tax is asked of the chain for the messages you will
+sign, so a cap or an exemption counts as it will, and it is counted exact: it is a share of the amount. The gas leg
+is kept back, at its ceiling, only when `feeDenom` is the denomination being sent; paid in another, the whole balance
+is the amount and its tax. Nothing is signed or sent, and an amount of zero means nothing fits:
+
+```ts
+import { maxSendable } from "@ararat-network/sdk";
+
+const { amount, tax } = await maxSendable({
+  client, denom: "aeur", spendable: balance, feeDenom: "ausd", gasLimit, headroom: arkdPolicy.headroom,
+  messages: (amount) => [typed(MsgSendSchema, create(MsgSendSchema, { fromAddress, toAddress, amount: [coin("aeur", amount)] }))],
+});
+```
+
 `quote` says what is declared and why: the tax legs, the gas leg at the sheet's price and the height that priced it,
-each leg's lift, and the tip, exact, when NOAH carries the gas. The fee denomination is yours. Beside a stable gas
+each leg's lift, and the tip, exact, when NOAH carries the gas. The fee denomination is yours, and a stable one's leg
+is encoded first: the ante charges the first stable leg, in encoded order, whose slack covers the base fee, and in
+denomination order a lifted tax leg that sorts ahead would pay it, in a denomination you did not choose. `legOrder`
+sets another order, and an empty one gives the denominations', which is what arkd signs. Beside a stable gas
 leg every lift is free; beside a NOAH gas leg the tax legs are declared exact, since the ante takes the base fee from
 a stable leg's slack before it lets NOAH pay and would then charge the whole NOAH leg as tip, so a tax that rises
 before inclusion refuses the transaction for a new quote. `tip`, in NOAH base units, buys priority: its own leg
 beside a stable gas leg, part of the NOAH leg when NOAH carries the gas, and `quote.tip` is what will be charged as
 tip, exact, since NOAH is charged whole. `broadcastAndConfirm` keeps the mempool's verdict and the block's result
-apart: a broadcast whose answer never arrives is an unknown outcome that carries the hash to poll, a node that
-already holds the transaction counts as an acceptance, and polling rides out an unavailable endpoint until the
-deadline. `classifyResult` names an SDK refusal, an execution failure, or a module error with its log.
+apart: a broadcast whose answer never arrives, or arrives and cannot be read, is an unknown outcome that carries the
+hash to poll, a node that already holds the transaction counts as an acceptance, and polling rides out an
+unavailable endpoint until the deadline. A lookup answered for another hash, or for none, is refused. After an
+acceptance every failure carries the hash: the wait's own verdicts, and `InclusionUnknown` around anything else the
+wait met, so that `sendTx`, whose caller holds neither the bytes nor the hash, never leaves one unnamed in the mempool. Past a
+transaction's timeout height the wait says it expired only once it has stayed unfound for a grace period on a node
+that is not catching up, since a node indexes a block's transactions after it reports the block. `classifyResult` names an SDK refusal, an execution failure, or a module error with its log.
 `decodeMsgResponses` reads the responses the messages returned from the result's data. Nothing summarises a tax, a
 tip, a price age, or a pending transaction away.
 
@@ -117,9 +145,66 @@ const { messages, json } = decodeTx(txBytes);
 const events = decodeEvents(response.events);
 ```
 
-Two things to know when reading messages. A `cosmos.Dec` field holds the chain's wire form, the 18-decimal scaled
-integer; `LegacyDec.fromWire` reads it and the JSON view shows the decimal. And a message type the registry does
-not know decodes as unknown, with its type URL and bytes, never under a label it did not earn.
+Three things to know when reading messages. A `cosmos.Dec` field holds the chain's wire form, the 18-decimal scaled
+integer; `LegacyDec.fromWire` reads it and the JSON view shows the decimal. A coin's amount, like any `cosmos.Int`,
+holds the text its sender wrote, and the chain takes the base from that text: `"0100"` is 64 to it, octal, not 100.
+`intFromWire` reads it as the chain does, and so do `sumCoins`, the formatters, and the JSON view; `BigInt` does
+not. For the same reason `coin` and the builder refuse amount text the chain would not write, a leading zero
+included, where they could have signed one number for the chain to execute another. And a message type the registry does
+not know decodes as unknown, never under a label it did not earn: with its type URL and bytes from a transaction's
+bytes, and from a gateway answer, which has no bytes for it, with its type URL and the JSON the node rendered, which
+`unknownAnyJson` returns. An enum value named by a name the SDK's types lack is read the same way from a gateway
+answer: the field holds its zero value and `unknownEnumNames` returns the name it arrived as, so one new status does
+not fail a list. A known message that carries one, an authz exec around it or an account whose key type is
+missing, is kept the same way, whole. Such a message holds no bytes, so the builder refuses to put it in a
+transaction, alone or inside a message built around it.
+
+## The core entry
+
+The main entry resolves every `Any` against a registry of all the generated types, which is why any message decodes
+and why importing a decoder or a client bundles every generated file. `@ararat-network/sdk/core` exports the same
+names without that registry: whatever reads an `Any` takes the registry as an argument, so an app that names the
+types it uses does not bundle the rest.
+
+```ts
+import { createRegistry } from "@bufbuild/protobuf";
+import { decodeTx, QueryClient } from "@ararat-network/sdk/core";
+import { file_cosmos_bank_v1beta1_tx } from "@ararat-network/sdk/gen/cosmos/bank/v1beta1/tx_pb.js";
+import { file_cosmos_crypto_secp256k1_keys } from "@ararat-network/sdk/gen/cosmos/crypto/secp256k1/keys_pb.js";
+
+const registry = createRegistry(file_cosmos_bank_v1beta1_tx, file_cosmos_crypto_secp256k1_keys);
+const client = new QueryClient(network.endpoints.rest.map((e) => e.address), { registry });
+const { messages } = decodeTx(txBytes, { registry });
+```
+
+The registry names every type an `Any` may hold, not the messages alone: a signer's public key is one, and without
+its type the JSON view shows the key as the bytes of an unknown message.
+
+The registry bounds what is decoded. What a client can call is bundled apart from it: `QueryClient` holds a client
+for every service the app reads, and bundles them all, 47 generated files, whatever registry it is given. Each of
+those is exported on its own, over a gateway: `authClient`, `bankClient`, `disbursementClient`, `distributionClient`,
+`govClient`, `marketClient`, `nodeClient`, `oracleClient`, `stakingClient`, `treasuryClient`, and `txClient`. An app
+that builds the ones it calls bundles those services alone, and every flow takes them in place of the whole client,
+each typed by the services it reads: `searchTxs` and `fetchTx` the gateway and `tx`; `maxSendable` the `treasury`;
+`prepareAndSign` the gateway, `auth`, `tx`, and `treasury`; `sendTx`, `waitForInclusion`, and `broadcastAndConfirm`
+the `node` as well, for a timeout height.
+
+```ts
+import { arkdPolicy, authClient, GatewayClient, nodeClient, sendTx, treasuryClient, txClient } from "@ararat-network/sdk/core";
+
+const gateway = new GatewayClient(network.endpoints.rest.map((e) => e.address), { registry });
+const client = { gateway, tx: txClient(gateway), auth: authClient(gateway), treasury: treasuryClient(gateway), node: nodeClient(gateway) };
+const sent = await sendTx({ client, signer, address: fromAddress, chainId: network.chainId, messages: [send], feeDenom: "ausd", headroom: arkdPolicy.headroom, gasAdjustment: arkdPolicy.gasAdjustment });
+```
+
+That send is 207 kB minified where the same through the core's `QueryClient` is 276 and through the main entry's 487,
+and a search through `txClient` alone is 155 where through `QueryClient` it is 254.
+
+A client's search and account helpers decode with the gateway's registry, and `prepareAndSign` and `sendTx` encode an
+amino document through it. A message of a type the registry lacks decodes as unknown, as it does everywhere. The main
+entry's `QueryClient` and `GatewayClient` extend the core's, so anything that takes a core client takes either.
+Passing a registry to the main entry changes what is decoded, a newer release's types or fewer, but not the bundle:
+use one entry or the other.
 
 ## The signer
 
@@ -198,6 +283,6 @@ types CosmJS lags, Ark's own messages are not in any shared library, and Ledger 
 protos carry; the fixtures prove the encoding byte for byte instead. Queries go over the node's gRPC gateway, which
 every node serves and the fee contract names; gRPC-web left the SDK in v0.50 and would need a proxy. pnpm is the
 package manager, TypeScript the only language, `tsx` the test runner's one dependency, Biome the linter and formatter,
-and nothing in the package holds or sees a key. The type registry holds every generated type so any message decodes; a consumer that wants a smaller
-bundle builds its own with `createRegistry` from `@bufbuild/protobuf` and passes it to the gateway client and the
-decoders. The tarball ships `src` beside `dist`, so the source maps resolve in a debugger.
+and nothing in the package holds or sees a key. The type registry holds every generated type so any message decodes, and the main entry
+defaults to it; the [core entry](#the-core-entry) takes a registry as an argument for a consumer that wants a smaller
+bundle. The tarball ships `src` beside `dist`, so the source maps resolve in a debugger.

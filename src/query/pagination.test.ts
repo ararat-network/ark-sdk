@@ -48,3 +48,78 @@ test("paginate stops at the page budget", async () => {
     (err: unknown) => err instanceof PaginationError && err.partial.length === 6,
   );
 });
+
+/** A route that pages by offset, as the chain's GetBlockWithTxs does: a slice by offset and limit, the total, and never a next key. */
+function offsetPages(total: number): { fetch: (p: PageRequestInit) => Promise<Page>; asked: PageRequestInit[] } {
+  const asked: PageRequestInit[] = [];
+  return {
+    asked,
+    fetch: async (p) => {
+      asked.push(p);
+      const start = Number(p.offset ?? 0n);
+      const size = Number(p.limit ?? 100n);
+      const items = Array.from({ length: Math.max(0, Math.min(size, total - start)) }, (_, i) => start + i);
+      return { items, pagination: create(PageResponseSchema, { total: BigInt(total) }) };
+    },
+  };
+}
+
+test("a route that pages by offset is walked to its end by the total it reports", async () => {
+  // 250 transactions in a block, 100 to a page: the first page is not the block.
+  const block = offsetPages(250);
+  const all = await collectAll(block.fetch, (r) => r.items);
+  assert.equal(all.length, 250);
+  assert.deepEqual([all[0], all[100], all[249]], [0, 100, 249]);
+  assert.deepEqual(
+    block.asked.map((p) => [p.limit, p.offset, p.key]),
+    [
+      [100n, undefined, undefined],
+      [100n, 100n, undefined],
+      [100n, 200n, undefined],
+    ],
+  );
+
+  // One page that is all of it asks once.
+  const small = offsetPages(40);
+  assert.equal((await collectAll(small.fetch, (r) => r.items)).length, 40);
+  assert.equal(small.asked.length, 1);
+  // An exact multiple of the page ends without an empty request.
+  const exact = offsetPages(200);
+  assert.equal((await collectAll(exact.fetch, (r) => r.items)).length, 200);
+  assert.equal(exact.asked.length, 2);
+
+  // The budget bounds a walk, and a total the pages never reach is walked no further than the budget.
+  await assert.rejects(
+    collectAll(offsetPages(250).fetch, (r) => r.items, { maxPages: 2 }),
+    (err: unknown) => err instanceof PaginationError && err.partial.length === 200,
+  );
+  const lying = offsetPages(30);
+  const overstated = async (p: PageRequestInit) => ({ ...(await lying.fetch(p)), pagination: create(PageResponseSchema, { total: 10_000n }) });
+  await assert.rejects(
+    collectAll(overstated, (r) => r.items, { maxPages: 5 }),
+    (err: unknown) => err instanceof PaginationError && err.partial.length === 30,
+  );
+});
+
+test("an offset walk moves by position, since a page may hold fewer items than the positions it covers", async () => {
+  // A block on Ark as the node serves it: the first position is data that is no transaction, which the node passes
+  // over and still counts in the total. Positions 0 and 3 of these five hold nothing it can show.
+  const slots = [undefined, "tx1", "tx2", undefined, "tx4"];
+  const asked: PageRequestInit[] = [];
+  const block = async (p: PageRequestInit): Promise<{ items: string[]; pagination: PageResponse }> => {
+    asked.push(p);
+    const start = Number(p.offset ?? 0n);
+    const shown = slots.slice(start, start + Number(p.limit ?? 100n)).filter((tx) => tx !== undefined);
+    return { items: shown, pagination: create(PageResponseSchema, { total: BigInt(slots.length) }) };
+  };
+  for (const limit of [1n, 2n, 3n, 5n, 100n]) {
+    asked.length = 0;
+    const all = await collectAll(block, (r) => r.items, { limit });
+    assert.deepEqual(all, ["tx1", "tx2", "tx4"], `every transaction once, at ${limit} to a page`);
+    assert.deepEqual(
+      asked.map((p) => p.offset ?? 0n),
+      Array.from({ length: Math.ceil(slots.length / Number(limit)) }, (_, i) => BigInt(i) * limit),
+      "each page starts where the last one's positions ended, and none past the total is asked for",
+    );
+  }
+});

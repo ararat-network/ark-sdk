@@ -3,14 +3,23 @@
 // Arithmetic here mirrors the Go type where the fee contract uses it: Mul
 // rounds half to even at the 18th place, Ceil and TruncateInt are exact.
 
+import { ArkSdkError } from "../errors.js";
+import { decimalParts, fixedPointText, goIntegerText, scaleDecimal } from "./fixed.js";
+
 export const DEC_PRECISION = 18;
 const UNIT = 10n ** 18n;
 const HALF_UNIT = UNIT / 2n;
 /** Go's LegacyDec holds |scaled| up to 2^256 × 10^18 − 1, 316 bits. */
 const MAX_SCALED = 2n ** 256n * UNIT - 1n;
 
-export class DecError extends Error {
+export class DecError extends ArkSdkError {
   override readonly name: string = "DecError";
+}
+
+/** An integer operand as a bigint; a number that is not one is the decimal's error, not BigInt's RangeError. */
+function whole(n: bigint | number): bigint {
+  if (typeof n === "number" && !Number.isInteger(n)) throw new DecError(`not an integer: ${n}`);
+  return BigInt(n);
 }
 
 export class LegacyDec {
@@ -26,25 +35,26 @@ export class LegacyDec {
     return new LegacyDec(scaled);
   }
 
-  /** From the wire form, the scaled integer's decimal text; empty reads as zero. */
+  /**
+   * From the wire form, the scaled integer's text, read as the chain reads it; empty reads as zero. The chain takes
+   * the base from the text, so a leading zero makes it octal: text another encoder wrote is not always decimal.
+   */
   static fromWire(wire: string): LegacyDec {
     if (wire === "") return new LegacyDec(0n);
-    if (!/^-?\d+$/.test(wire)) throw new DecError(`not a scaled decimal integer: ${wire}`);
-    return new LegacyDec(BigInt(wire));
+    const scaled = goIntegerText(wire);
+    if (scaled === undefined) throw new DecError(`not a scaled integer as the chain reads one: ${wire}`);
+    return new LegacyDec(scaled);
   }
 
   /** From decimal text such as "0.025" or "-3"; at most 18 fractional digits. */
   static fromString(text: string): LegacyDec {
-    const m = /^(-?)(\d+)(?:\.(\d{1,18}))?$/.exec(text);
-    if (!m) throw new DecError(`not a decimal: ${text}`);
-    const whole = BigInt(m[2] as string);
-    const fraction = BigInt((m[3] ?? "").padEnd(DEC_PRECISION, "0"));
-    const scaled = whole * UNIT + fraction;
-    return new LegacyDec(m[1] === "-" ? -scaled : scaled);
+    const parts = decimalParts(text);
+    if (!parts || parts.fraction.length > DEC_PRECISION) throw new DecError(`not a decimal: ${text}`);
+    return new LegacyDec(scaleDecimal(parts, DEC_PRECISION));
   }
 
   static fromInt(n: bigint | number): LegacyDec {
-    return new LegacyDec(BigInt(n) * UNIT);
+    return new LegacyDec(whole(n) * UNIT);
   }
 
   static zero(): LegacyDec {
@@ -62,10 +72,7 @@ export class LegacyDec {
 
   /** Decimal text with exactly 18 fractional digits, as Go's String(). */
   toString(): string {
-    const negative = this.scaled < 0n;
-    const digits = (negative ? -this.scaled : this.scaled).toString().padStart(DEC_PRECISION + 1, "0");
-    const point = digits.length - DEC_PRECISION;
-    return `${(negative ? "-" : "") + digits.slice(0, point)}.${digits.slice(point)}`;
+    return fixedPointText(this.scaled, DEC_PRECISION);
   }
 
   isZero(): boolean {
@@ -90,7 +97,7 @@ export class LegacyDec {
 
   /** Exact: an integer multiplier adds no places. */
   mulInt(n: bigint | number): LegacyDec {
-    return new LegacyDec(this.scaled * BigInt(n));
+    return new LegacyDec(this.scaled * whole(n));
   }
 
   /** Go's Mul: the product rounded half to even at the 18th place. */
@@ -106,7 +113,7 @@ export class LegacyDec {
 
   /** Go's QuoInt: the value divided by an integer, truncated at the 18th place. */
   quoInt(n: bigint | number): LegacyDec {
-    const d = BigInt(n);
+    const d = whole(n);
     if (d === 0n) throw new DecError("division by zero");
     return new LegacyDec(this.scaled / d);
   }

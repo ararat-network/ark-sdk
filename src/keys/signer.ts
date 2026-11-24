@@ -2,13 +2,22 @@
 // builds every document and never sees a private key; the app's signer
 // package implements this for device keys and the Ledger, and the memory
 // signer for tests.
+import { create } from "@bufbuild/protobuf";
 import type { Any } from "@bufbuild/protobuf/wkt";
 
 import type { AminoSignDoc } from "../codec/aminojson.js";
+import { packAny } from "../codec/any.js";
+import { ArkSdkError } from "../errors.js";
+import { PubKeySchema } from "../gen/cosmos/crypto/secp256k1/keys_pb.js";
 import type { SignDoc } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 
 export const SECP256K1_PUBLIC_KEY_URL = "/cosmos.crypto.secp256k1.PubKey";
 export const MULTISIG_PUBLIC_KEY_URL = "/cosmos.crypto.multisig.LegacyAminoPubKey";
+
+/** Packs a compressed secp256k1 key as the Any a signer info carries; what a signer returns for each of its accounts. */
+export function secp256k1PublicKey(key: Uint8Array): Any {
+  return packAny(PubKeySchema, create(PubKeySchema, { key }));
+}
 
 export interface SignerAccount {
   readonly address: string;
@@ -37,6 +46,13 @@ export interface Signer {
   signAmino(address: string, signDoc: AminoSignDoc): Promise<AminoSignature>;
 }
 
-export class SignerError extends Error {
+export class SignerError extends ArkSdkError {
   override readonly name: string = "SignerError";
+}
+
+/** The signer's account for an address, among those it reported; none is the signer's refusal. Internal: not exported from the core entry. */
+export function signerAccountFor(accounts: readonly SignerAccount[], address: string): SignerAccount {
+  const account = accounts.find((a) => a.address === address);
+  if (!account) throw new SignerError(`signer holds no account ${address}`);
+  return account;
 }

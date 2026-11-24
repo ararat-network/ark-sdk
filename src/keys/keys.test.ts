@@ -17,7 +17,7 @@ import {
   validatorPrefix,
 } from "./address.js";
 import { hdPath, isValidMnemonic, privateKeyFromMnemonic } from "./hd.js";
-import { isCompressedPublicKey, isLowS, publicKeyFromPrivate, randomPrivateKey, signMessage, verifyMessage } from "./secp256k1.js";
+import { isCompressedPublicKey, isLowS, KeyError, publicKeyFromPrivate, randomPrivateKey, signMessage, verifyMessage } from "./secp256k1.js";
 
 test("fixture keys derive their public keys and addresses", () => {
   const keys = fixtureKeys().accounts;
@@ -113,7 +113,13 @@ test("mnemonics derive the keyring's keys at coin type 330", () => {
     assert.equal(publicKeyToAddress(pub), v.address);
   }
   assert.equal(isValidMnemonic("abandon abandon about"), false);
-  assert.throws(() => privateKeyFromMnemonic("abandon abandon about"));
+  assert.throws(() => privateKeyFromMnemonic("abandon abandon about"), KeyError);
+  // A path that is not one is the SDK's refusal with the library's as its cause.
+  const mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+  assert.throws(
+    () => privateKeyFromMnemonic(mnemonic, { path: "44'/330'" }),
+    (err: unknown) => err instanceof KeyError && /no key at "44'\/330'"/.test(err.message) && err.cause instanceof Error,
+  );
 });
 
 test("signatures are RFC 6979 deterministic, low S, and verify", () => {

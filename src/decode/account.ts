@@ -5,10 +5,9 @@
 import type { Message, Registry } from "@bufbuild/protobuf";
 import type { Any } from "@bufbuild/protobuf/wkt";
 
-import { unpackAny } from "../codec/any.js";
-import { coin, sumCoins } from "../codec/coins.js";
+import { requireRegistry, unpackAny } from "../codec/any.js";
+import { coin, intFromWire, sumCoins } from "../codec/coins.js";
 import { LegacyDec } from "../codec/dec.js";
-import { registry as defaultRegistry } from "../codec/registry.js";
 import type { BaseAccount, ModuleAccount } from "../gen/cosmos/auth/v1beta1/auth_pb.js";
 import type { Coin } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import type {
@@ -52,17 +51,12 @@ export interface DecodedAccount {
   vesting: VestingSchedule | undefined;
 }
 
-const KINDS: Record<string, AccountKind> = {
-  "cosmos.auth.v1beta1.BaseAccount": "base",
-  "cosmos.auth.v1beta1.ModuleAccount": "module",
-  "cosmos.vesting.v1beta1.ContinuousVestingAccount": "continuous_vesting",
-  "cosmos.vesting.v1beta1.DelayedVestingAccount": "delayed_vesting",
-  "cosmos.vesting.v1beta1.PeriodicVestingAccount": "periodic_vesting",
-  "cosmos.vesting.v1beta1.PermanentLockedAccount": "permanent_locked",
-};
+/** The account messages the decoder reads, told apart by type name. */
+type AccountMessage = BaseAccount | ModuleAccount | ContinuousVestingAccount | DelayedVestingAccount | PeriodicVestingAccount | PermanentLockedAccount;
 
 /** Decodes the Any an account query returns. */
-export function decodeAccount(any: Any, registry: Registry = defaultRegistry): DecodedAccount {
+export function decodeAccount(any: Any, registry: Registry): DecodedAccount {
+  requireRegistry(registry, "decodeAccount");
   const unknown: DecodedAccount = {
     kind: "unknown",
     typeUrl: any.typeUrl,
@@ -76,49 +70,42 @@ export function decodeAccount(any: Any, registry: Registry = defaultRegistry): D
   };
   const unpacked = unpackAny(any, registry);
   if (!unpacked) return unknown;
-  const kind = KINDS[unpacked.schema.typeName] ?? "unknown";
-  const message = unpacked.message;
-  const withBase = (base: BaseAccount | undefined, extra: Partial<DecodedAccount>): DecodedAccount => ({
+  const withBase = (kind: AccountKind, base: BaseAccount | undefined, extra: Partial<DecodedAccount>): DecodedAccount => ({
     ...unknown,
     kind,
-    message,
+    message: unpacked.message,
     address: base?.address ?? "",
     accountNumber: base?.accountNumber ?? 0n,
     sequence: base?.sequence ?? 0n,
     publicKey: base?.pubKey,
     ...extra,
   });
-  switch (kind) {
-    case "base":
-      return withBase(message as BaseAccount, {});
-    case "module": {
-      const m = message as ModuleAccount;
-      return withBase(m.baseAccount, { module: { name: m.name, permissions: [...m.permissions] } });
-    }
-    case "continuous_vesting": {
-      const m = message as ContinuousVestingAccount;
-      return withBase(m.baseVestingAccount?.baseAccount, { vesting: schedule(m.baseVestingAccount, m.startTime, undefined) });
-    }
-    case "delayed_vesting": {
-      const m = message as DelayedVestingAccount;
-      return withBase(m.baseVestingAccount?.baseAccount, { vesting: schedule(m.baseVestingAccount, undefined, undefined) });
-    }
-    case "periodic_vesting": {
-      const m = message as PeriodicVestingAccount;
-      return withBase(m.baseVestingAccount?.baseAccount, {
+  // A message under one of these type names is that account, and each case below narrows to it; any other falls
+  // to the default, which reads nothing from it.
+  const account = unpacked.message as AccountMessage;
+  switch (account.$typeName) {
+    case "cosmos.auth.v1beta1.BaseAccount":
+      return withBase("base", account, {});
+    case "cosmos.auth.v1beta1.ModuleAccount":
+      return withBase("module", account.baseAccount, { module: { name: account.name, permissions: [...account.permissions] } });
+    case "cosmos.vesting.v1beta1.ContinuousVestingAccount":
+      return withBase("continuous_vesting", account.baseVestingAccount?.baseAccount, {
+        vesting: schedule(account.baseVestingAccount, account.startTime, undefined),
+      });
+    case "cosmos.vesting.v1beta1.DelayedVestingAccount":
+      return withBase("delayed_vesting", account.baseVestingAccount?.baseAccount, { vesting: schedule(account.baseVestingAccount, undefined, undefined) });
+    case "cosmos.vesting.v1beta1.PeriodicVestingAccount":
+      return withBase("periodic_vesting", account.baseVestingAccount?.baseAccount, {
         vesting: schedule(
-          m.baseVestingAccount,
-          m.startTime,
-          m.vestingPeriods.map((p) => ({ length: p.length, amount: [...p.amount] })),
+          account.baseVestingAccount,
+          account.startTime,
+          account.vestingPeriods.map((p) => ({ length: p.length, amount: [...p.amount] })),
         ),
       });
-    }
-    case "permanent_locked": {
-      const m = message as PermanentLockedAccount;
-      return withBase(m.baseVestingAccount?.baseAccount, { vesting: schedule(m.baseVestingAccount, undefined, undefined) });
-    }
+    case "cosmos.vesting.v1beta1.PermanentLockedAccount":
+      return withBase("permanent_locked", account.baseVestingAccount?.baseAccount, { vesting: schedule(account.baseVestingAccount, undefined, undefined) });
     default:
-      return { ...unknown, message };
+      return { ...unknown, message: unpacked.message };
   }
 }
 
@@ -143,7 +130,7 @@ export function vestedCoins(account: DecodedAccount, atSeconds: bigint): Coin[] 
       if (atSeconds <= start) return [];
       if (atSeconds >= v.endTime) return [...v.originalVesting];
       const share = LegacyDec.fromInt(atSeconds - start).quo(LegacyDec.fromInt(v.endTime - start));
-      return v.originalVesting.map((c) => coin(c.denom, LegacyDec.fromInt(BigInt(c.amount)).mul(share).roundInt()));
+      return v.originalVesting.map((c) => coin(c.denom, LegacyDec.fromInt(intFromWire(c.amount)).mul(share).roundInt()));
     }
     case "delayed_vesting":
       return atSeconds >= v.endTime ? [...v.originalVesting] : [];
@@ -171,6 +158,6 @@ export function vestedCoins(account: DecodedAccount, atSeconds: bigint): Coin[] 
 export function vestingCoins(account: DecodedAccount, atSeconds: bigint): Coin[] {
   const v = account.vesting;
   if (!v) return [];
-  const vested = new Map(vestedCoins(account, atSeconds).map((c) => [c.denom, BigInt(c.amount)]));
-  return v.originalVesting.map((c) => coin(c.denom, BigInt(c.amount) - (vested.get(c.denom) ?? 0n))).filter((c) => c.amount !== "0");
+  const vested = new Map(vestedCoins(account, atSeconds).map((c) => [c.denom, intFromWire(c.amount)]));
+  return v.originalVesting.map((c) => coin(c.denom, intFromWire(c.amount) - (vested.get(c.denom) ?? 0n))).filter((c) => c.amount !== "0");
 }

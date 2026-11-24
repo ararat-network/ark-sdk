@@ -12,12 +12,12 @@ import { SECP256K1_PUBLIC_KEY_URL, SignerError } from "./signer.js";
 
 test("signDirect reproduces a fixture's signature over its sign document", async () => {
   const f = fixture("bank_send_taxed");
-  const key = fixtureKey(f.signer!.key);
+  const key = fixtureKey(f.signer.key);
   const signer = MemorySigner.fromPrivateKey(fromHex(key.private_key_hex));
   const [account] = await signer.accounts();
-  assert.equal(account?.address, f.signer!.address);
+  assert.equal(account?.address, f.signer.address);
   assert.equal(account?.publicKey.typeUrl, SECP256K1_PUBLIC_KEY_URL);
-  const signDoc = fromBinary(SignDocSchema, fromBase64(f.sign_mode_direct!.sign_doc));
+  const signDoc = fromBinary(SignDocSchema, fromBase64(f.sign_mode_direct.sign_doc));
   const { signature } = await signer.signDirect(signer.address, signDoc);
   assert.equal(toBase64(signature), f.signature);
   await assert.rejects(signer.signDirect("ark1other", signDoc), SignerError);

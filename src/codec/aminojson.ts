@@ -4,14 +4,17 @@
 // decimal text, Any as {"type", "value"} under its amino name, Timestamps in
 // RFC 3339, Durations as nanoseconds, coins never null, wasm JSON inlined,
 // public keys as their bare key. The bytes are Go's compact sorted JSON.
-import { type DescField, type DescMessage, fromBinary, type MessageShape, type Registry, ScalarType } from "@bufbuild/protobuf";
+import { type DescField, type DescMessage, isMessage, type MessageShape, type Registry, ScalarType } from "@bufbuild/protobuf";
 import { type ReflectList, type ReflectMessage, reflect } from "@bufbuild/protobuf/reflect";
-import type { Any, Duration, Timestamp } from "@bufbuild/protobuf/wkt";
+import { type Any, AnySchema, DurationSchema, TimestampSchema } from "@bufbuild/protobuf/wkt";
+import { ArkSdkError } from "../errors.js";
 import { CoinSchema } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import type { Fee, TxBody } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
-import { typeNameOf, typeUrlOf, UnknownTypeError } from "./any.js";
-import { toBase64, utf8Decode } from "./bytes.js";
+import { requireRegistry, typeUrlOf, UnknownTypeError, unpackAny, type WithRegistry } from "./any.js";
+import { toBase64, utf8Decode, utf8Encode } from "./bytes.js";
+import { intFromWire } from "./coins.js";
 import { LegacyDec } from "./dec.js";
+import { numericText } from "./fixed.js";
 import { compareUtf8, type JsonObject, type JsonValue, marshalGoJsonBytes, sortKeys } from "./json.js";
 import {
   ENCODING_INLINE_JSON,
@@ -23,7 +26,6 @@ import {
   SCALAR_DEC,
   SCALAR_INT,
 } from "./options.js";
-import { registry as defaultRegistry } from "./registry.js";
 import { durationToAmino, timestampToAmino } from "./wkt.js";
 
 export interface AminoCoin {
@@ -31,10 +33,11 @@ export interface AminoCoin {
   amount: string;
 }
 
-export interface AminoMsg {
+/** A type alias, not an interface, so that it is itself JSON: the encoder returns one where a JSON value is expected. */
+export type AminoMsg = {
   type: string;
   value: JsonValue;
-}
+};
 
 /** The StdSignDoc a Ledger displays and signs. Optional members are omitted when zero. */
 export interface AminoSignDoc {
@@ -49,13 +52,11 @@ export interface AminoSignDoc {
   timeout_timestamp?: string;
 }
 
-export class AminoError extends Error {
+export class AminoError extends ArkSdkError {
   override readonly name: string = "AminoError";
 }
 
-export interface AminoOptions {
-  registry?: Registry;
-}
+export type AminoOptions = WithRegistry;
 
 export interface AminoSignDocInput {
   body: TxBody;
@@ -65,26 +66,35 @@ export interface AminoSignDocInput {
   sequence: bigint;
 }
 
+/**
+ * A string as the transaction's bytes carry it. The bytes are UTF-8, where half of a surrogate pair becomes U+FFFD,
+ * and the chain builds its document from the bytes: the document signed here must hold the same character, not
+ * the half the caller's string held.
+ */
+function wellFormed(text: string): string {
+  return utf8Decode(utf8Encode(text));
+}
+
 /** The amino sign document of a transaction, as the chain's handler builds it. */
-export function makeAminoSignDoc(input: AminoSignDocInput, options: AminoOptions = {}): AminoSignDoc {
+export function makeAminoSignDoc(input: AminoSignDocInput, options: AminoOptions): AminoSignDoc {
   const { body, fee } = input;
   if (body.extensionOptions.length > 0 || body.nonCriticalExtensionOptions.length > 0) {
     throw new AminoError("SIGN_MODE_LEGACY_AMINO_JSON does not support protobuf extension options");
   }
-  const ctx = { registry: options.registry ?? defaultRegistry };
+  const ctx: Context = { registry: requireRegistry(options?.registry, "makeAminoSignDoc") };
   const doc: AminoSignDoc = {
     account_number: input.accountNumber.toString(),
-    chain_id: input.chainId,
+    chain_id: wellFormed(input.chainId),
     fee: {
       amount: fee.amount.map((c) => marshalMessage(reflect(CoinSchema, c), ctx) as unknown as AminoCoin),
       gas: fee.gasLimit.toString(),
     },
-    memo: body.memo,
-    msgs: body.messages.map((m) => aminoEncodeAny(m, options) as unknown as AminoMsg),
+    memo: wellFormed(body.memo),
+    msgs: body.messages.map((m) => marshalAny(m, ctx)),
     sequence: input.sequence.toString(),
   };
-  if (fee.payer !== "") doc.fee.payer = fee.payer;
-  if (fee.granter !== "") doc.fee.granter = fee.granter;
+  if (fee.payer !== "") doc.fee.payer = wellFormed(fee.payer);
+  if (fee.granter !== "") doc.fee.granter = wellFormed(fee.granter);
   if (body.timeoutHeight !== 0n) doc.timeout_height = body.timeoutHeight.toString();
   if (body.unordered) doc.unordered = true;
   if (body.timeoutTimestamp) doc.timeout_timestamp = timestampToAmino(body.timeoutTimestamp);
@@ -97,30 +107,29 @@ export function aminoSignDocBytes(doc: AminoSignDoc): Uint8Array {
 }
 
 /** Encodes a message; wrapped as {"type", "value"} when the message has an amino name. */
-export function aminoEncode<Desc extends DescMessage>(schema: Desc, message: MessageShape<Desc>, options: AminoOptions = {}): JsonValue {
-  return beginMarshal(reflect(schema, message), false, { registry: options.registry ?? defaultRegistry });
+export function aminoEncode<Desc extends DescMessage>(schema: Desc, message: MessageShape<Desc>, options: AminoOptions): JsonValue {
+  const name = messageOptions(schema).aminoName;
+  const value = marshalMessage(reflect(schema, message), { registry: requireRegistry(options?.registry, "aminoEncode") });
+  return name === undefined ? value : { type: name, value };
 }
 
 /** Encodes a packed message as {"type", "value"}, the type its amino name or else its type URL. */
-export function aminoEncodeAny(any: Any, options: AminoOptions = {}): JsonValue {
-  return marshalAny(any, { registry: options.registry ?? defaultRegistry });
+export function aminoEncodeAny(any: Any, options: AminoOptions): JsonValue {
+  return marshalAny(any, { registry: requireRegistry(options?.registry, "aminoEncodeAny") });
 }
 
 interface Context {
   registry: Registry;
 }
 
-function beginMarshal(r: ReflectMessage, isAny: boolean, ctx: Context): JsonValue {
-  const opts = messageOptions(r.desc);
-  const name = isAny ? (opts.aminoName ?? typeUrlOf(r.desc)) : opts.aminoName;
-  const value = marshalMessage(r, ctx);
-  return name === undefined ? value : { type: name, value };
-}
-
-function marshalAny(any: Any, ctx: Context): JsonValue {
-  const schema = ctx.registry.getMessage(typeNameOf(any.typeUrl));
-  if (!schema) throw new UnknownTypeError(any.typeUrl);
-  return beginMarshal(reflect(schema, fromBinary(schema, any.value)), true, ctx);
+/** A packed message as {"type", "value"}: always wrapped, under its amino name or else its type URL. */
+function marshalAny(any: Any, ctx: Context): AminoMsg {
+  // Nothing to encode for a type the registry lacks, nor for an Any read without its type, which has no bytes
+  // whatever this registry knows.
+  const unpacked = unpackAny(any, ctx.registry);
+  if (!unpacked) throw new UnknownTypeError(any.typeUrl);
+  const value = marshalMessage(reflect(unpacked.schema, unpacked.message), ctx);
+  return { type: messageOptions(unpacked.schema).aminoName ?? typeUrlOf(unpacked.schema), value };
 }
 
 interface Entry {
@@ -131,14 +140,10 @@ interface Entry {
 }
 
 function marshalMessage(r: ReflectMessage, ctx: Context): JsonValue {
-  switch (r.desc.typeName) {
-    case "google.protobuf.Timestamp":
-      return timestampToAmino(r.message as Timestamp);
-    case "google.protobuf.Duration":
-      return durationToAmino(r.message as Duration);
-    case "google.protobuf.Any":
-      return marshalAny(r.message as Any, ctx);
-  }
+  const message = r.message;
+  if (isMessage(message, TimestampSchema)) return timestampToAmino(message);
+  if (isMessage(message, DurationSchema)) return durationToAmino(message);
+  if (isMessage(message, AnySchema)) return marshalAny(message, ctx);
   switch (messageOptions(r.desc).messageEncoding) {
     case "key_field":
       return keyFieldEncoder(r);
@@ -284,23 +289,22 @@ const inlineJson: FieldEncoder = (r, f) => {
   return sortKeys(parsed);
 };
 
-// Decs and Ints travel as decimal text, in a string field or as the bytes of one.
-function numericText(r: ReflectMessage, f: DescField): string {
-  if (f.fieldKind !== "scalar") throw new AminoError(`unsupported type for ${f.name}`);
-  const v = r.get(f);
-  if (f.scalar === ScalarType.STRING) return v as string;
-  if (f.scalar === ScalarType.BYTES) return utf8Decode(v as Uint8Array);
-  throw new AminoError(`unsupported type for ${f.name}`);
+/** The text of a Dec or an Int field, which is a string field or a bytes one and no other. */
+function numericField(r: ReflectMessage, f: DescField): string {
+  if (f.fieldKind !== "scalar" || (f.scalar !== ScalarType.STRING && f.scalar !== ScalarType.BYTES)) throw new AminoError(`unsupported type for ${f.name}`);
+  return numericText(r.get(f));
 }
 
 const cosmosDec: FieldEncoder = (r, f) => {
-  const v = numericText(r, f);
+  const v = numericField(r, f);
   return v === "" ? "0" : LegacyDec.fromWire(v).toString();
 };
 
 const cosmosInt: FieldEncoder = (r, f) => {
-  const v = numericText(r, f);
-  return v === "" ? "0" : v;
+  const v = numericField(r, f);
+  if (v === "") return "0";
+  // The chain's encoder writes a string field's text as it is, and reads the bytes of one as an Int before writing it.
+  return f.fieldKind === "scalar" && f.scalar === ScalarType.BYTES ? intFromWire(v).toString() : v;
 };
 
 function keyFieldEncoder(r: ReflectMessage): JsonValue {

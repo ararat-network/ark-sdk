@@ -6,13 +6,24 @@
 // endpoints, a call that cannot reach one, or finds it unavailable, moves to
 // the next and stays there; an answer that blames the request is final, and
 // a call that must not be repeated is never re-sent.
-import { create, type DescMethod, getOption, hasOption, type MessageInitShape, type MessageShape, type Registry } from "@bufbuild/protobuf";
+import {
+  create,
+  type DescMethod,
+  getOption,
+  hasOption,
+  type Message,
+  type MessageInitShape,
+  type MessageShape,
+  type Registry,
+  ScalarType,
+} from "@bufbuild/protobuf";
 import type { GenService, GenServiceMethods } from "@bufbuild/protobuf/codegenv2";
-
-import { stripTrailing } from "../codec/bytes.js";
-import type { JsonObject, JsonValue } from "../codec/json.js";
-import { fromProtoJson, toProtoJson } from "../codec/protojson.js";
-import { registry as defaultRegistry } from "../codec/registry.js";
+import { reflect } from "@bufbuild/protobuf/reflect";
+import { requireRegistry, type WithRegistry } from "../codec/any.js";
+import { stripTrailing, toBase64 } from "../codec/bytes.js";
+import { isJsonObject, type JsonObject, type JsonValue } from "../codec/json.js";
+import { fromProtoJson, ProtoJsonError, toProtoJson } from "../codec/protojson.js";
+import { ArkSdkError, errorMessage } from "../errors.js";
 import { http } from "../gen/google/api/annotations_pb.js";
 
 /** gRPC status codes the gateway reports in its error body. */
@@ -36,7 +47,7 @@ export enum GrpcCode {
   Unauthenticated = 16,
 }
 
-export class QueryError extends Error {
+export class QueryError extends ArkSdkError {
   override readonly name: string = "QueryError";
   constructor(
     readonly grpcCode: number,
@@ -54,13 +65,13 @@ export class QueryError extends Error {
 }
 
 /** The node could not be reached or did not answer HTTP. */
-export class TransportError extends Error {
+export class TransportError extends ArkSdkError {
   override readonly name: string = "TransportError";
   constructor(
     readonly url: string,
     override readonly cause: unknown,
   ) {
-    super(`${url}: ${cause instanceof Error ? cause.message : String(cause)}`);
+    super(`${url}: ${errorMessage(cause)}`);
   }
 }
 
@@ -70,15 +81,11 @@ export interface EndpointAttempt {
 }
 
 /** Every endpoint was at fault for one call; each attempt's error is kept, the last as the cause. */
-export class EndpointsExhausted extends Error {
+export class EndpointsExhausted extends ArkSdkError {
   override readonly name: string = "EndpointsExhausted";
   constructor(readonly attempts: readonly EndpointAttempt[]) {
-    super(`every endpoint failed: ${attempts.map((a) => `${a.url}: ${describe(a.error)}`).join("; ")}`, { cause: attempts[attempts.length - 1]?.error });
+    super(`every endpoint failed: ${attempts.map((a) => `${a.url}: ${errorMessage(a.error)}`).join("; ")}`, { cause: attempts[attempts.length - 1]?.error });
   }
-}
-
-function describe(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 /** HTTP statuses that say the endpoint, not the request, is at fault: rate limited, or a gateway that cannot reach its node. */
@@ -95,12 +102,11 @@ export function isEndpointFault(err: unknown): boolean {
   return err instanceof TransportError || (err instanceof QueryError && ENDPOINT_FAULT_STATUSES.has(err.httpStatus));
 }
 
-export interface GatewayOptions {
+/** `registry` is the types Any fields resolve against in requests and answers. */
+export interface GatewayOptions extends WithRegistry {
   fetch?: typeof fetch;
   /** Headers sent with every request, for a node behind authentication. */
   headers?: Record<string, string>;
-  /** The types Any fields resolve against; every generated type by default. */
-  registry?: Registry;
   /** How long one request may take before the endpoint counts as unreachable; 15 seconds by default. */
   timeoutMs?: number;
 }
@@ -117,6 +123,15 @@ export interface CallOptions {
 
 export const DEFAULT_TIMEOUT_MS = 15_000;
 
+/** The longest a timer runs; setTimeout fires at once for more. */
+const MAX_TIMER_MS = 2 ** 31 - 1;
+
+/** A request timeout: a positive number of milliseconds. Infinity is accepted, and waits as long as a timer can. */
+function checkTimeout(ms: number): number {
+  if (!(ms > 0)) throw new ArkSdkError(`a request timeout is a positive number of milliseconds: ${ms}`);
+  return ms;
+}
+
 export interface GatewayResult<T> {
   value: T;
   /** The block height the node answered at, from its response header; undefined when it sent none. */
@@ -127,7 +142,7 @@ type MethodNames<S extends GenService<GenServiceMethods>> = keyof S["method"] & 
 type InputOf<S extends GenService<GenServiceMethods>, M extends MethodNames<S>> = S["method"][M]["input"];
 type OutputOf<S extends GenService<GenServiceMethods>, M extends MethodNames<S>> = S["method"][M]["output"];
 
-export interface Route {
+interface Route {
   verb: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
   path: string;
   body: JsonValue | undefined;
@@ -138,21 +153,24 @@ export class GatewayClient {
   readonly baseUrls: readonly string[];
   readonly #fetch: typeof fetch;
   readonly #headers: Record<string, string>;
-  readonly #registry: Registry;
+  /** The types this client resolves an Any against; what decodes one of its answers must use the same. */
+  readonly registry: Registry;
   readonly #timeoutMs: number;
   #current = 0;
 
-  constructor(baseUrl: string | readonly string[], options: GatewayOptions = {}) {
+  constructor(baseUrl: string | readonly string[], options: GatewayOptions) {
     const urls = (typeof baseUrl === "string" ? [baseUrl] : [...baseUrl]).map((u) => stripTrailing(u, "/"));
-    if (urls.length === 0) throw new Error("a gateway client needs at least one endpoint");
+    if (urls.length === 0) throw new ArkSdkError("a gateway client needs at least one endpoint");
     this.baseUrls = urls;
+    // The types say a registry is given. A caller the types do not reach is told so here, not by the first Any.
+    const registry = requireRegistry(options?.registry, "a gateway client");
     this.#fetch = options.fetch ?? globalThis.fetch;
     this.#headers = { ...options.headers };
-    this.#registry = options.registry ?? defaultRegistry;
-    this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.registry = registry;
+    this.#timeoutMs = checkTimeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   }
 
-  /** The endpoint the last successful call used. */
+  /** The endpoint a call tries first: the one that answered the last call that had to move on, or the first. */
   get baseUrl(): string {
     return this.baseUrls[this.#current] as string;
   }
@@ -171,15 +189,21 @@ export class GatewayClient {
     const desc = service.method[method] as DescMethod;
     const input = desc.input as InputOf<S, M>;
     const message = create(input, request);
-    const route = routeFor(desc, toProtoJson(input, message, { registry: this.#registry }) as JsonObject);
+    const route = routeFor(desc, toProtoJson(input, message, { registry: this.registry }) as JsonObject, message);
     const attempts: EndpointAttempt[] = [];
     const tries = options.idempotent === false ? 1 : this.baseUrls.length;
+    // The walk is fixed when the call begins. Calls overlap, and one that moves the client on while this one is
+    // waiting must not shift where this one goes next: read live, the walk could try one endpoint twice and skip
+    // a healthy one.
+    const start = this.#current;
     for (let attempt = 0; attempt < tries; attempt++) {
-      const index = (this.#current + attempt) % this.baseUrls.length;
+      const index = (start + attempt) % this.baseUrls.length;
       const baseUrl = this.baseUrls[index] as string;
       try {
         const result = await this.#request<MessageShape<OutputOf<S, M>>>(baseUrl, route, desc, options);
-        this.#current = index;
+        // Only a call that moved on moves the client. One answered where it began says nothing new, and it may
+        // have begun before another call left that endpoint.
+        if (attempt > 0) this.#current = index;
         return result;
       } catch (err) {
         if (options.signal?.aborted || !isEndpointFault(err)) throw err;
@@ -203,17 +227,25 @@ export class GatewayClient {
     // the event loop alive on every runtime, and the deadline must fire even
     // when the request is the only thing pending.
     const controller = new AbortController();
-    const timeoutMs = options.timeoutMs ?? this.#timeoutMs;
-    const timer = setTimeout(() => controller.abort(new DOMException(`request timed out after ${timeoutMs} ms`, "TimeoutError")), timeoutMs);
+    const timeoutMs = options.timeoutMs === undefined ? this.#timeoutMs : checkTimeout(options.timeoutMs);
+    // A timer cannot run longer than 2^31 − 1 ms, about 25 days, and one asked to fires at once: a longer timeout,
+    // Infinity among them, is held to that.
+    const timer = setTimeout(
+      () => controller.abort(new DOMException(`request timed out after ${timeoutMs} ms`, "TimeoutError")),
+      Math.min(timeoutMs, MAX_TIMER_MS),
+    );
     const forwardAbort = () => controller.abort(options.signal?.reason);
     options.signal?.addEventListener("abort", forwardAbort, { once: true });
     if (options.signal?.aborted) forwardAbort();
     init.signal = controller.signal;
 
+    // Called unbound: a browser's fetch refuses any receiver but its window,
+    // and `this.#fetch(...)` would hand it this client.
+    const send = this.#fetch;
     let response: Response;
     let text: string;
     try {
-      response = await this.#fetch(url, init);
+      response = await send(url, init);
       text = await response.text();
     } catch (err) {
       throw new TransportError(url, err);
@@ -231,12 +263,22 @@ export class GatewayClient {
     if (!response.ok) throw gatewayError(json, response.status, url);
     const heightHeader = response.headers.get("grpc-metadata-x-cosmos-block-height");
     const height = heightHeader !== null && /^\d+$/.test(heightHeader) ? BigInt(heightHeader) : undefined;
-    return { value: fromProtoJson(desc.output, json, { registry: this.#registry }) as T, height };
+    // A type or an enum name the registry lacks is kept as unknown, with the node's JSON, so one new message or one
+    // new value does not fail a whole answer. An answer that does not fit its type is refused as such, by an SDK
+    // error, whatever the reader threw.
+    let value: T;
+    try {
+      value = fromProtoJson(desc.output, json, { registry: this.registry, unknownAny: "keep", unknownEnum: "keep" }) as T;
+    } catch (err) {
+      if (err instanceof ArkSdkError) throw err;
+      throw new ProtoJsonError(`${url}: the answer does not fit ${desc.output.typeName}: ${errorMessage(err)}`, { cause: err });
+    }
+    return { value, height };
   }
 }
 
 function gatewayError(json: JsonValue, status: number, url: string): QueryError {
-  if (json !== null && typeof json === "object" && !Array.isArray(json)) {
+  if (isJsonObject(json)) {
     const code = typeof json.code === "number" ? json.code : GrpcCode.Unknown;
     const message = typeof json.message === "string" ? json.message : typeof json.error === "string" ? json.error : JSON.stringify(json);
     const details = Array.isArray(json.details) ? json.details : [];
@@ -245,18 +287,37 @@ function gatewayError(json: JsonValue, status: number, url: string): QueryError 
   return new QueryError(GrpcCode.Unknown, JSON.stringify(json), status, url);
 }
 
-/** The gateway route of a method for one request, from its google.api.http option. */
-export function routeFor(method: DescMethod, request: JsonObject): Route {
-  if (!hasOption(method, http)) throw new Error(`${method.parent.typeName}.${method.name} has no gateway route`);
+/**
+ * Bytes as a path parameter. The gateway reads one as base64, in the standard alphabet or the URL's, and takes a "/"
+ * in the path for a separator: the standard alphabet's would cut the value short or name another route. The URL
+ * alphabet with its padding is the form it reads whatever the bytes.
+ */
+function bytesPathSegment(bytes: Uint8Array): string {
+  return toBase64(bytes).replaceAll("+", "-").replaceAll("/", "_");
+}
+
+/**
+ * The gateway route of a method for one request, from its google.api.http option. `message` is the request the JSON
+ * was rendered from: a bytes field in the path is taken from it, since its JSON may be the JSON it holds and not
+ * its bytes.
+ */
+function routeFor(method: DescMethod, request: JsonObject, message: Message): Route {
+  if (!hasOption(method, http)) throw new ArkSdkError(`${method.parent.typeName}.${method.name} has no gateway route`);
   const rule = getOption(method, http);
   const pattern = rule.pattern;
-  if (pattern.case === undefined || pattern.case === "custom") throw new Error(`${method.parent.typeName}.${method.name}: unsupported route pattern`);
+  if (pattern.case === undefined || pattern.case === "custom") throw new ArkSdkError(`${method.parent.typeName}.${method.name}: unsupported route pattern`);
   const verb = pattern.case.toUpperCase() as Route["verb"];
   const remaining: JsonObject = { ...request };
   const path = pattern.value.replace(/\{([^}=]+)(?:=[^}]*)?\}/g, (_, name: string) => {
     const value = remaining[name];
     delete remaining[name];
-    if (value === undefined || value === null) throw new Error(`${method.parent.typeName}.${method.name}: request lacks ${name} for the route`);
+    // An empty value would leave an empty path segment, which is another route or none.
+    if (value === undefined || value === null || value === "")
+      throw new ArkSdkError(`${method.parent.typeName}.${method.name}: request lacks ${name} for the route`);
+    const field = method.input.fields.find((f) => f.name === name);
+    if (field?.fieldKind === "scalar" && field.scalar === ScalarType.BYTES) {
+      return encodeURIComponent(bytesPathSegment(reflect(method.input, message).get(field) as Uint8Array));
+    }
     return encodeURIComponent(typeof value === "string" ? value : JSON.stringify(value));
   });
   if (rule.body === "*") return { verb, path, body: remaining };

@@ -3,10 +3,12 @@
 // one that does not answers with an error the caller sees as it is.
 import type { Registry } from "@bufbuild/protobuf";
 
+import { type RegistryOption, requireRegistry } from "../codec/any.js";
 import { type DecodedEvent, decodeEvents } from "../decode/events.js";
 import { decodeMsgResponses } from "../decode/responses.js";
 import { classifyResult, type Outcome } from "../decode/result.js";
 import { type DecodedMessage, decodeTxMessages } from "../decode/tx.js";
+import { ArkSdkError } from "../errors.js";
 import type { TxResponse } from "../gen/cosmos/base/abci/v1beta1/abci_pb.js";
 import type { OrderBy } from "../gen/cosmos/tx/v1beta1/service_pb.js";
 import type { Tx } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
@@ -29,11 +31,11 @@ export interface FoundTx {
   gasUsed: bigint;
 }
 
-export interface SearchOptions {
+/** `registry` is the client's own by default: the types its answers were read with. */
+export interface SearchOptions extends RegistryOption {
   page?: bigint;
   limit?: bigint;
   orderBy?: OrderBy;
-  registry?: Registry;
 }
 
 export interface SearchResult {
@@ -50,8 +52,8 @@ export const txQuery = {
 };
 
 /** Builds the decoded view of one committed transaction. */
-export function foundTx(response: TxResponse, tx: Tx | undefined, registry?: Registry): FoundTx {
-  const options = registry ? { registry } : {};
+export function foundTx(response: TxResponse, tx: Tx | undefined, registry: Registry): FoundTx {
+  const options = { registry: requireRegistry(registry, "foundTx") };
   return {
     hash: response.txhash,
     height: response.height,
@@ -67,9 +69,9 @@ export function foundTx(response: TxResponse, tx: Tx | undefined, registry?: Reg
   };
 }
 
-/** Committed transactions matching a query, newest first by default. */
-export async function searchTxs(client: QueryClient, query: string, options: SearchOptions = {}): Promise<SearchResult> {
-  const { registry, ...paging } = options;
+/** Committed transactions matching a query, newest first by default, decoded with the client's registry unless another is given. */
+export async function searchTxs(client: Pick<QueryClient, "gateway" | "tx">, query: string, options: SearchOptions = {}): Promise<SearchResult> {
+  const { registry = client.gateway.registry, ...paging } = options;
   const result = await client.tx.search(query, paging);
   return {
     total: result.total,
@@ -77,14 +79,44 @@ export async function searchTxs(client: QueryClient, query: string, options: Sea
   };
 }
 
-/** One committed transaction by hash, or undefined while it is pending or unknown. */
-export async function fetchTx(client: QueryClient, hash: string, registry?: Registry): Promise<FoundTx | undefined> {
+/** The node answered a lookup with a different transaction than the one asked for, or with one it did not name: `answered` is then empty. */
+export class WrongTransaction extends ArkSdkError {
+  override readonly name: string = "WrongTransaction";
+  constructor(
+    readonly hash: string,
+    readonly answered: string,
+  ) {
+    super(answered === "" ? `the node answered for a transaction with no hash, not ${hash}` : `the node answered for transaction ${answered}, not ${hash}`);
+  }
+}
+
+/**
+ * The node's answer for one committed transaction by hash, as it sent it, or
+ * undefined while the node has none under the hash: NotFound means pending or
+ * unknown, not a failure. An answer for another hash, or for none, is refused,
+ * so a faulty endpoint cannot pass one transaction's result off as another's.
+ */
+export async function lookUpTx(client: Pick<QueryClient, "tx">, hash: string): Promise<{ response: TxResponse; tx: Tx | undefined } | undefined> {
   try {
-    const result = await client.tx.getTx(hash);
-    if (!result.txResponse) return undefined;
-    return foundTx(result.txResponse, result.tx, registry);
+    const found = await client.tx.getTx(hash);
+    const response = found.txResponse;
+    if (!response) return undefined;
+    // A node names the transaction it answers for. An answer with no hash is refused as one for another hash is:
+    // an empty result reads as code zero, a success, for a transaction that may be in no block.
+    if (response.txhash.toUpperCase() !== hash.toUpperCase()) throw new WrongTransaction(hash, response.txhash);
+    return { response, tx: found.tx };
   } catch (err) {
     if (err instanceof QueryError && err.isNotFound) return undefined;
     throw err;
   }
+}
+
+/** One committed transaction by hash, decoded with the client's registry unless another is given, or undefined while it is pending or unknown. */
+export async function fetchTx(
+  client: Pick<QueryClient, "gateway" | "tx">,
+  hash: string,
+  registry: Registry = client.gateway.registry,
+): Promise<FoundTx | undefined> {
+  const found = await lookUpTx(client, hash);
+  return found && foundTx(found.response, found.tx, registry);
 }

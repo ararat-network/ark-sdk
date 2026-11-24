@@ -38,6 +38,10 @@ SDK and weekly.
 - **Decs stay in wire form** in generated messages; `LegacyDec` reads and writes them.
 - **Moving the pin.** A new chain release changes `ARK_VERSION` and the `tag` in `buf.gen.yaml` together, then
   `pnpm gen`, `pnpm fixtures:sync`, `pnpm check`, `pnpm test`. The weekly pin check says when a release was missed.
+- **Never hand a schema or a registry to a comparing assertion.** A protobuf schema links to its whole file graph and
+  prints as over a million lines; when `assert.equal` or `assert.deepEqual` fails, Node diffs both sides in memory
+  quadratic in that, and one test process grows to hundreds of gigabytes. This covers what carries a schema too: an
+  unpacked `Any`, a decoded message, response, or event. Compare with `assert.ok(a === b)`, or compare the type name.
 - **Style.** British spelling in identifiers (`materialise`, `serialise`); comments say what a reader cannot see in the
   code and no more; tests are table-driven and name the case they check.
 - **Commits** have a subject and a body saying what changed and why, one logical area each.

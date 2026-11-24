@@ -30,6 +30,8 @@ export interface FieldOptions {
   /** cosmos.Int: the wire holds the decimal integer. */
   readonly isMathInt: boolean;
   readonly isInlineJson: boolean;
+  /** Bytes cast to CometBFT's HexBytes: the chain's JSON writes them as uppercase hex, not base64. */
+  readonly isHexBytes: boolean;
 }
 
 const fieldCache = new WeakMap<DescField, FieldOptions>();
@@ -51,6 +53,7 @@ export function fieldOptions(field: DescField): FieldOptions {
     isLegacyDec: scalar === SCALAR_DEC && customtype === LEGACY_DEC,
     isMathInt: scalar === SCALAR_INT || customtype === MATH_INT,
     isInlineJson: encoding === ENCODING_INLINE_JSON,
+    isHexBytes: hasOption(field, gogo.casttype) && getOption(field, gogo.casttype).endsWith("bytes.HexBytes"),
   };
   fieldCache.set(field, opts);
   return opts;

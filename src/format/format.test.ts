@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
+import { CoinError } from "../codec/coins.js";
+import { LegacyDec } from "../codec/dec.js";
 import { Network } from "../registry/network.js";
-import type { ArkJson, AssetListJson, ChainJson } from "../registry/types.js";
+import { registryFiles } from "../testing/fixtures.js";
 import { shortenAddress } from "./address.js";
 import {
   AmountError,
@@ -19,8 +20,7 @@ import {
   toDisplayUnits,
 } from "./amount.js";
 
-const read = <T>(file: string): T => JSON.parse(readFileSync(new URL(`../../testdata/registry/arklocal/${file}`, import.meta.url), "utf8")) as T;
-const network = Network.fromRegistry({ chain: read<ChainJson>("chain.json"), assets: read<AssetListJson>("assetlist.json"), ark: read<ArkJson>("ark.json") });
+const network = Network.fromRegistry(registryFiles("arklocal"));
 const usd = network.asset("ausd")!;
 
 test("base and display units convert exactly both ways", () => {
@@ -70,6 +70,49 @@ test("coin text parses as the chain writes it", () => {
   assert.equal(c.amount, "10500000000000000000");
 });
 
+test("coin text with a leading zero is refused, and a decoded coin's text is shown as the chain reads it", () => {
+  // The chain never writes a leading zero, and reads one as octal: parsing it as decimal would build another amount.
+  assert.throws(() => parseCoin("007ausd"), AmountError);
+  assert.throws(() => parseCoin("0100ausd"), AmountError);
+  assert.throws(() => parseCoins("5ausd,010anoah"), AmountError);
+  assert.equal(parseCoin("0ausd").amount, "0");
+  assert.throws(() => coinFromDisplay("-1", usd), CoinError, "a coin's amount is never negative");
+
+  // A coin out of a decoded message carries the text its sender wrote; "0100" is 64 to the chain.
+  assert.equal(formatCoin({ denom: "ibc/unlisted", amount: "0100" }, network), "64ibc/unlisted");
+  assert.equal(
+    coinsToString([
+      { denom: "ausd", amount: "0100" },
+      { denom: "anoah", amount: "0x10" },
+    ]),
+    "16anoah,64ausd",
+  );
+  const octalOne = `0${(10n ** 18n).toString(8)}`;
+  assert.equal(
+    formatCoin({ denom: "ausd", amount: octalOne }, network, { locale: "en-US" }),
+    formatCoin({ denom: "ausd", amount: 10n ** 18n }, network, { locale: "en-US" }),
+  );
+  assert.throws(() => formatCoin({ denom: "ausd", amount: "08" }, network), CoinError);
+});
+
+test("a least number of places above the default most raises the most, and no tail is no tail", () => {
+  // Asking for eight places at least used to throw: the most stayed at its default six.
+  assert.equal(formatAssetAmount("1500000000000000000", usd, { locale: "en-US", minimumFractionDigits: 8, symbol: false }), "1.50000000");
+  assert.equal(formatAssetAmount("1500000000000000000", usd, { locale: "en-US", minimumFractionDigits: 2, symbol: false }), "1.50");
+  assert.equal(formatAssetAmount("1234567890000000000", usd, { locale: "en-US", minimumFractionDigits: 2, maximumFractionDigits: 4, symbol: false }), "1.2345");
+  assert.equal(
+    formatAssetAmount("1500000000000000000", usd, { locale: "en-US", minimumFractionDigits: 99, symbol: false }),
+    `1.5${"0".repeat(19)}`,
+    "twenty at most",
+  );
+
+  const address = "ark1fec7dnxl3fre9zmc3kyvtt357de3ek9fnlu96j";
+  assert.equal(shortenAddress(address, { tail: 0 }), "ark1fec7d…", "slice(-0) would have been the whole address again");
+  assert.equal(shortenAddress(address, { head: 0 }), "ark1…lu96j");
+  assert.equal(shortenAddress(address, { head: -3, tail: -1 }), "ark1…");
+  assert.equal(shortenAddress(address, { head: 2.9, tail: 2.9 }), "ark1fe…6j");
+});
+
 test("shortenAddress keeps the prefix and both ends", () => {
   assert.equal(shortenAddress("ark1fec7dnxl3fre9zmc3kyvtt357de3ek9fnlu96j"), "ark1fec7d…lu96j");
   // The separator is the last "1": the data part never contains one.
@@ -95,14 +138,9 @@ test("coin lists, decimal coins, and their display", () => {
     "truncated at 18 places of the display unit",
   );
   assert.equal(
-    formatDecCoin({ denom: "ausd", amount: LegacyDecWire("2500000000000000000.5") }, network, { locale: "en-GB", maximumFractionDigits: 6 }),
+    formatDecCoin({ denom: "ausd", amount: LegacyDec.fromString("2500000000000000000.5").toWire() }, network, { locale: "en-GB", maximumFractionDigits: 6 }),
     "2.5 arkUSD",
   );
   assert.equal(formatDecCoin({ denom: "ausd-venue", amount: "1500000000000000000" }, network), "1.500000000000000000ausd-venue");
   assert.throws(() => parseDecCoin("1.5"), AmountError);
 });
-
-function LegacyDecWire(decimal: string): string {
-  const [whole, frac = ""] = decimal.split(".");
-  return `${whole}${frac.padEnd(18, "0")}`;
-}

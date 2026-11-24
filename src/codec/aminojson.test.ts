@@ -6,15 +6,21 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { type DescMessage, fromBinary } from "@bufbuild/protobuf";
+import { create, type DescMessage, fromBinary } from "@bufbuild/protobuf";
+import { aminoEncode, makeAminoSignDoc } from "../defaults.js";
 import { MsgSetRecognitionPolicySchema } from "../gen/ark/reserve/v1/tx_pb.js";
 import { BaseAccountSchema } from "../gen/cosmos/auth/v1beta1/auth_pb.js";
 import { MsgGrantSchema } from "../gen/cosmos/authz/v1beta1/tx_pb.js";
 import { MsgMultiSendSchema, MsgSendSchema } from "../gen/cosmos/bank/v1beta1/tx_pb.js";
+import { CoinSchema } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import { MsgDepositSchema } from "../gen/cosmos/gov/v1/tx_pb.js";
-import { aminoEncode } from "./aminojson.js";
-import { fromBase64 } from "./bytes.js";
-import { marshalGoJson } from "./json.js";
+import { GenesisStateSchema as StakingGenesisStateSchema } from "../gen/cosmos/staking/v1beta1/genesis_pb.js";
+import { FeeSchema, TxBodySchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
+import { MsgExecuteContractSchema } from "../gen/cosmwasm/wasm/v1/tx_pb.js";
+import { aminoSignDocBytes } from "./aminojson.js";
+import { fromBase64, utf8Encode } from "./bytes.js";
+import { materialise } from "./gogo.js";
+import { type JsonObject, marshalGoJson } from "./json.js";
 
 const granter = "ark102p6s52n97e7zcmxc49ufwx04lntre5ktqkkzp";
 const grantee = "ark1lw7jrngdgm88ruz8v7k6s70gssu6vryufel8nq";
@@ -93,3 +99,44 @@ for (const v of vectors) {
     assert.equal(marshalGoJson(aminoEncode(v.schema, message)), v.amino);
   });
 }
+
+test("amino: the bytes of an Int are read as the chain reads them and written as the integer", () => {
+  // The registry's one Int held as bytes. The chain's encoder unmarshals it, base taken from the text, and writes
+  // the integer; a string Int goes out as its text, which the fixtures cover.
+  const state = materialise(StakingGenesisStateSchema, create(StakingGenesisStateSchema));
+  state.lastTotalPower = utf8Encode("0100");
+  assert.equal((aminoEncode(StakingGenesisStateSchema, state) as JsonObject).last_total_power, "64");
+});
+
+test("amino: a contract message's JSON is signed member for member, a __proto__ key and a negative zero included", () => {
+  // What the chain's encoder writes for each, run over wasmd's MsgExecuteContract: it reads the JSON and writes it back with sorted keys.
+  const signed = (msg: string) => {
+    const execute = create(MsgExecuteContractSchema, { sender: "ark1s", contract: "ark1c", msg: utf8Encode(msg) });
+    return marshalGoJson((aminoEncode(MsgExecuteContractSchema, execute) as { value: { msg: JsonObject } }).value.msg);
+  };
+  assert.equal(signed('{"__proto__":{"x":1},"a":1}'), '{"__proto__":{"x":1},"a":1}', "the member is signed, not taken for the object's prototype");
+  assert.equal(signed('{"b":{"__proto__":2},"a":1}'), '{"a":1,"b":{"__proto__":2}}');
+  assert.equal(signed('{"x":-0}'), '{"x":-0}', "Go writes the sign of a negative zero");
+  assert.equal(signed('{"z":1,"a":[3,{"d":1,"c":2}]}'), '{"a":[3,{"c":2,"d":1}],"z":1}');
+});
+
+test("amino: the document holds a string as the transaction's bytes carry it, half a surrogate pair as U+FFFD", () => {
+  // The body's bytes are UTF-8, where the half becomes U+FFFD, and the chain writes that character as it is.
+  const body = create(TxBodySchema, { memo: "gm \ud83d" });
+  const doc = makeAminoSignDoc({ body, fee: create(FeeSchema, { gasLimit: 1n }), chainId: "localark", accountNumber: 1n, sequence: 0n });
+  assert.equal(doc.memo, "gm \ufffd");
+  const bytes = aminoSignDocBytes(doc);
+  const text = new TextDecoder().decode(bytes);
+  assert.ok(text.includes('"memo":"gm \ufffd"'), "the character itself, three bytes, not a six-character escape");
+  assert.ok(!text.includes("\\ufffd"));
+});
+
+test("amino: a message with no amino name is encoded bare, and one with a name under it", () => {
+  const coin = create(CoinSchema, { denom: "ausd", amount: "5" });
+  assert.deepEqual(aminoEncode(CoinSchema, coin), { denom: "ausd", amount: "5" }, "no wrapper for a type the chain gives no amino name");
+  const send = create(MsgSendSchema, { fromAddress: "ark1a", toAddress: "ark1b", amount: [coin] });
+  assert.deepEqual(aminoEncode(MsgSendSchema, send), {
+    type: "cosmos-sdk/MsgSend",
+    value: { from_address: "ark1a", to_address: "ark1b", amount: [{ denom: "ausd", amount: "5" }] },
+  });
+});
