@@ -196,7 +196,8 @@ export class QueryClient {
     vote: (proposalId: bigint, voter: string) => this.#value(GovQuery, "vote", { proposalId, voter }),
     votes: (proposalId: bigint, pagination?: Page) => this.#value(GovQuery, "votes", { proposalId, pagination }),
     tallyResult: (proposalId: bigint) => this.#value(GovQuery, "tallyResult", { proposalId }),
-    params: (paramsType = "") => this.#value(GovQuery, "params", { paramsType }),
+    /** The route needs a params type, "voting", "tallying", or "deposit"; `params` in the answer holds them all whichever is named. */
+    params: (paramsType: "voting" | "tallying" | "deposit") => this.#value(GovQuery, "params", { paramsType }),
   };
 
   readonly tx = {

@@ -8,6 +8,7 @@ import { GrantKind } from "../gen/ark/disbursement/v1/disbursement_pb.js";
 import { Query as DisbursementQuery } from "../gen/ark/disbursement/v1/query_pb.js";
 import { Query as TreasuryQuery } from "../gen/ark/treasury/v1/query_pb.js";
 import { MsgSendSchema } from "../gen/cosmos/bank/v1beta1/tx_pb.js";
+import { Query as GovQuery } from "../gen/cosmos/gov/v1/query_pb.js";
 import { Service as TxService } from "../gen/cosmos/tx/v1beta1/service_pb.js";
 import { fixtureKeys } from "../testing/fixtures.js";
 import { QueryClient } from "./client.js";
@@ -64,6 +65,19 @@ test("routes come from the http option: path parameters, query parameters, and b
   const ordered = routeFor(TxService.method.getTxsEvent, { query: "tx.height=7", page: "1", limit: "50", order_by: "ORDER_BY_DESC" });
   assert.ok(ordered.path.endsWith("&order_by=ORDER_BY_DESC"));
   assert.throws(() => routeFor(DisbursementQuery.method.member, {}), /lacks address/);
+});
+
+test("a route refuses an empty path parameter, and gov.params names its params type", async () => {
+  // An empty value would leave "/cosmos/gov/v1/params/", a path the gateway has no route for.
+  for (const params_type of ["", null]) {
+    assert.throws(() => routeFor(GovQuery.method.params, { params_type }), /request lacks params_type for the route/);
+  }
+  assert.throws(() => routeFor(GovQuery.method.params, {}), /request lacks params_type for the route/);
+  assert.equal(routeFor(GovQuery.method.proposal, { proposal_id: "0" }).path, "/cosmos/gov/v1/proposals/0", "zero is a value, not an absence");
+
+  const { fetch, seen } = stub(() => json({ voting_params: null, deposit_params: null, tally_params: null, params: null }));
+  await new QueryClient("http://node", { fetch }).gov.params("voting");
+  assert.equal(seen[0]?.url, "http://node/cosmos/gov/v1/params/voting");
 });
 
 test("a call encodes the request, reads the dialect back, and carries the height", async () => {

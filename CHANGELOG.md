@@ -20,6 +20,13 @@ Fixed:
 - `broadcastSync` always reports the hash it computed from the bytes, and `waitForInclusion` throws the new
   `WrongTransaction` when a lookup is answered with another hash. The node's echoed `txhash` used to replace the
   computed one and was then polled, so a faulty endpoint could have another transaction's result returned as this one's.
+- A route refuses an empty path parameter, as it does a missing one, instead of requesting a path with an empty
+  segment.
+
+Changed:
+
+- `client.gov.params` takes its params type, `"voting"`, `"tallying"`, or `"deposit"`, as a required argument. The
+  default was the empty string, which requested `/cosmos/gov/v1/params/`, a path the gateway does not serve.
 
 ## 0.2.0
 

@@ -259,7 +259,8 @@ export function routeFor(method: DescMethod, request: JsonObject): Route {
   const path = pattern.value.replace(/\{([^}=]+)(?:=[^}]*)?\}/g, (_, name: string) => {
     const value = remaining[name];
     delete remaining[name];
-    if (value === undefined || value === null) throw new Error(`${method.parent.typeName}.${method.name}: request lacks ${name} for the route`);
+    // An empty value would leave an empty path segment, which is another route or none.
+    if (value === undefined || value === null || value === "") throw new Error(`${method.parent.typeName}.${method.name}: request lacks ${name} for the route`);
     return encodeURIComponent(typeof value === "string" ? value : JSON.stringify(value));
   });
   if (rule.body === "*") return { verb, path, body: remaining };
