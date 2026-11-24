@@ -3,7 +3,7 @@
 // `mode` attribute whose value is a bare word, which must go before decoding;
 // `msg_index` names the message an event belongs to and is not a field.
 import type { DescMessage, Message } from "@bufbuild/protobuf";
-import type { WithRegistry } from "../codec/any.js";
+import { requireRegistry, type WithRegistry } from "../codec/any.js";
 import type { JsonObject, JsonValue } from "../codec/json.js";
 import { fromProtoJson, toProtoJson } from "../codec/protojson.js";
 
@@ -38,7 +38,7 @@ export type EventDecodeOptions = WithRegistry;
 
 /** Decodes one event; an event that is not a typed proto event keeps its attributes and has no `typed`. */
 export function decodeEvent(event: ChainEvent, options: EventDecodeOptions): DecodedEvent {
-  const { registry } = options;
+  const registry = requireRegistry(options?.registry, "decodeEvent");
   const mode = event.attributes.find((a) => a.key === "mode")?.value;
   const msgIndexText = event.attributes.find((a) => a.key === "msg_index")?.value;
   const msgIndex = msgIndexText !== undefined && /^\d+$/.test(msgIndexText) ? Number(msgIndexText) : undefined;

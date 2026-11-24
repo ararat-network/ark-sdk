@@ -77,13 +77,20 @@ Fixed:
   timed out after a millisecond. Such a timeout is held to the longest a timer runs, about 25 days, and one that
   is not positive is refused.
 - A `GatewayClient` or `QueryClient` built without a registry, by a caller the types do not reach, is refused at
-  once with `ArkSdkError`; it was a `TypeError`, or none until the first `Any`.
+  once with `ArkSdkError`; it was a `TypeError`, or none until the first `Any`. The core entry's readers, `decodeTx`
+  and `toProtoJson` among them, say the same by name when called without one.
+- The JSON view of a contract message keeps every integer exact. It parsed the message's JSON into numbers, so a
+  64-bit value above 2^53 was shown rounded. Such a value is now the runtime's raw JSON value, which
+  `JSON.stringify` writes back digit for digit, and the view reads back to the bytes it came from. On a runtime
+  without `JSON.rawJSON` it is a number, as before.
 - `loadNetwork` takes a registry directory's name and a git ref, and refuses anything else before requesting a
   file. Both went into the URL as given, so a name or a ref holding `..` read another repository's files:
   `loadNetwork("../../../other/repo/main/arktestnet")` built a network, chain ID and endpoints included, from them,
   which matters to an app that takes either from a link or a setting. `registrySource` refuses such a ref too.
 - `loadNetwork` refuses files that describe another network than the one asked for. A directory serving another
   chain's well-formed files handed a caller who asked for the testnet that chain's ID and endpoints.
+- A unit's exponent is at most 77, the places a 256-bit amount has. A registry file giving one of 10^21 was accepted,
+  and formatting an amount of that asset threw the runtime's `RangeError`.
 - A name belongs to one unit of an asset. A unit's alias matching the display unit's name, or the display unit
   listed twice, gave the asset the exponent of whichever came first: with the display's at 18 read as 0, an amount
   of one display unit was built as one base unit. Such an asset is refused.

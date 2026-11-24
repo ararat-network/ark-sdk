@@ -4,7 +4,7 @@
 // never given a reassuring label.
 import { create, type DescMessage, fromBinary, type Message, type Registry } from "@bufbuild/protobuf";
 import { type Any, AnySchema } from "@bufbuild/protobuf/wkt";
-import { typeNameOf, unknownAnyJson, type WithRegistry } from "../codec/any.js";
+import { requireRegistry, typeNameOf, unknownAnyJson, type WithRegistry } from "../codec/any.js";
 import { txHash } from "../codec/hash.js";
 import { isJsonObject, type JsonValue } from "../codec/json.js";
 import { anyJson, toProtoJson } from "../codec/protojson.js";
@@ -48,7 +48,7 @@ export interface DecodedTx {
 }
 
 export function decodeMessage(any: Any, options: TxDecodeOptions): DecodedMessage {
-  return decodePacked(any, options.registry, undefined);
+  return decodePacked(any, requireRegistry(options?.registry, "decodeMessage"), undefined);
 }
 
 /**
@@ -79,12 +79,13 @@ function renderedMessages(txJson: JsonValue): JsonValue[] {
 
 /** The decoded messages of a transaction a query returned already parsed. */
 export function decodeTxMessages(tx: Tx, options: TxDecodeOptions): DecodedMessage[] {
-  return (tx.body?.messages ?? []).map((m) => decodeMessage(m, options));
+  const registry = requireRegistry(options?.registry, "decodeTxMessages");
+  return (tx.body?.messages ?? []).map((m) => decodeMessage(m, { registry }));
 }
 
 /** Decodes raw transaction bytes as a node returns them. */
 export function decodeTx(bytes: Uint8Array, options: TxDecodeOptions): DecodedTx {
-  const { registry } = options;
+  const registry = requireRegistry(options?.registry, "decodeTx");
   const raw = fromBinary(TxRawSchema, bytes);
   const body = fromBinary(TxBodySchema, raw.bodyBytes);
   const authInfo = fromBinary(AuthInfoSchema, raw.authInfoBytes);

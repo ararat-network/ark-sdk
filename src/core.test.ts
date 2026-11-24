@@ -6,11 +6,14 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { test } from "node:test";
 
 import { create, createRegistry } from "@bufbuild/protobuf";
+import { AnySchema } from "@bufbuild/protobuf/wkt";
 
 import { fromBase64, fromHex } from "./codec/bytes.js";
 import { registry } from "./codec/registry.js";
 import * as core from "./core.js";
 import { MsgSendSchema } from "./gen/cosmos/bank/v1beta1/tx_pb.js";
+import { TxResponseSchema } from "./gen/cosmos/base/abci/v1beta1/abci_pb.js";
+import { TxBodySchema, TxSchema } from "./gen/cosmos/tx/v1beta1/tx_pb.js";
 import * as main from "./index.js";
 import { MemorySigner } from "./keys/memory_signer.js";
 import { SignerError } from "./keys/signer.js";
@@ -118,4 +121,41 @@ void (() => {
   main.toProtoJson(MsgSendSchema, create(MsgSendSchema));
   new main.QueryClient("http://node");
   new main.GatewayClient("http://node", {});
+});
+
+test("a core reader called without a registry says so by name, to a caller the types do not reach", () => {
+  // Plain JavaScript on the core entry: the types require the registry, and nothing else stopped the call before the
+  // runtime's own error did, at whatever line first read it.
+  const untyped = core as unknown as Record<string, (...args: unknown[]) => unknown>;
+  const any = create(AnySchema, { typeUrl: "/cosmos.bank.v1beta1.MsgSend" });
+  const calls: [string, () => unknown][] = [
+    ["decodeTx", () => untyped.decodeTx!(fromBase64(fixture("bank_send_taxed").tx_bytes!))],
+    ["decodeTx", () => untyped.decodeTx!(new Uint8Array(), {})],
+    ["decodeMessage", () => untyped.decodeMessage!(any)],
+    ["decodeTxMessages", () => untyped.decodeTxMessages!(create(TxSchema))],
+    ["decodeEvent", () => untyped.decodeEvent!({ type: "t", attributes: [] })],
+    ["decodeEvent", () => untyped.decodeEvents!([{ type: "t", attributes: [] }])],
+    ["decodeAccount", () => untyped.decodeAccount!(any)],
+    ["decodeMsgResponses", () => untyped.decodeMsgResponses!("")],
+    ["unpackAny", () => untyped.unpackAny!(any)],
+    ["toProtoJson", () => untyped.toProtoJson!(MsgSendSchema, create(MsgSendSchema))],
+    ["fromProtoJson", () => untyped.fromProtoJson!(MsgSendSchema, {})],
+    [
+      "makeAminoSignDoc",
+      () =>
+        untyped.makeAminoSignDoc!({
+          body: create(TxBodySchema),
+          fee: core.makeFee({ amount: [], gasLimit: 1n }),
+          chainId: "c",
+          accountNumber: 0n,
+          sequence: 0n,
+        }),
+    ],
+    ["aminoEncode", () => untyped.aminoEncode!(MsgSendSchema, create(MsgSendSchema))],
+    ["aminoEncodeAny", () => untyped.aminoEncodeAny!(any)],
+    ["foundTx", () => untyped.foundTx!(create(TxResponseSchema), undefined)],
+  ];
+  for (const [reader, call] of calls) {
+    assert.throws(call, (err: unknown) => err instanceof core.ArkSdkError && err.message.startsWith(`${reader} needs a registry`), reader);
+  }
 });

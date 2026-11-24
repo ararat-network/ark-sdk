@@ -417,6 +417,9 @@ function parseChain(value: unknown): ChainJson {
   return parsed;
 }
 
+/** The most places a unit can have: 10^77 is the largest power of ten a 256-bit amount holds. */
+const MAX_UNIT_EXPONENT = 77;
+
 function parseAssets(value: unknown): AssetListJson {
   const where = "assetlist.json";
   const assets = object(value, where);
@@ -439,7 +442,11 @@ function parseAssets(value: unknown): AssetListJson {
         denom_units: units.map((u, j): DenomUnit => {
           const ut = `${at}.denom_units[${j}]`;
           const unit = object(u, ut);
-          return { denom: text(unit, "denom", ut), exponent: wholeNumber(unit, "exponent", ut), aliases: optionalTexts(unit, "aliases", ut) };
+          const exponent = wholeNumber(unit, "exponent", ut);
+          // An amount is at most 256 bits, 78 digits: a unit of more places than 77 names no amount, and its power
+          // of ten is past what the formatters can build.
+          if (exponent > MAX_UNIT_EXPONENT) throw new RegistryError(`${ut}: exponent ${exponent} is more than ${MAX_UNIT_EXPONENT}`);
+          return { denom: text(unit, "denom", ut), exponent, aliases: optionalTexts(unit, "aliases", ut) };
         }),
       };
     }),

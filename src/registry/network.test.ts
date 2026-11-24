@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-
+import { formatAssetAmount } from "../format/amount.js";
 import { registryFiles } from "../testing/fixtures.js";
 import { json, stubFetch } from "../testing/node.js";
 import { GenesisMismatch, loadNetwork, Network, RegistryError, registrySource } from "./network.js";
@@ -378,4 +378,27 @@ test("a name belongs to one unit of an asset, so the display unit's exponent is 
   assert.equal(asset.exponent, 18);
   assert.equal(asset.unit("dollar").exponent, 18);
   assert.equal(asset.unit("attousd").exponent, 0);
+});
+
+test("a unit's exponent is at most the places a 256-bit amount has", () => {
+  const withExponent = (exponent: number) => {
+    const f = registryFiles("arklocal");
+    const usd = f.assets.assets.find((a) => a.base === "ausd")!;
+    usd.denom_units = [
+      { denom: "ausd", exponent: 0 },
+      { denom: usd.display, exponent },
+    ];
+    return f;
+  };
+  // 1e21 is a whole number, and a unit of that many places made the formatters throw the runtime's RangeError.
+  for (const exponent of [78, 1000, 1e21]) {
+    assert.throws(
+      () => Network.fromRegistry(withExponent(exponent)),
+      (err: unknown) => err instanceof RegistryError && /exponent .* is more than 77/.test(err.message),
+      String(exponent),
+    );
+  }
+  const widest = Network.fromRegistry(withExponent(77)).asset("ausd")!;
+  assert.equal(widest.exponent, 77);
+  assert.equal(formatAssetAmount(10n ** 77n, widest, { locale: "en-US", symbol: false }), "1");
 });

@@ -26,6 +26,15 @@ export class UnknownTypeError extends ArkSdkError {
   }
 }
 
+/**
+ * The registry a reader was given. The types require one; a caller they do not reach, plain JavaScript on the core
+ * entry, is told so by name here, not by the runtime's error at the first use. Internal: not re-exported.
+ */
+export function requireRegistry(registry: Registry | undefined, reader: string): Registry {
+  if (!registry) throw new ArkSdkError(`${reader} needs a registry, the types an Any resolves against; the main entry defaults it`);
+  return registry;
+}
+
 /** The type URL of a message schema: "/" and the full name. */
 export function typeUrlOf(schema: DescMessage): string {
   return `/${schema.typeName}`;
@@ -100,6 +109,7 @@ export function unknownAnyJson(any: Any): JsonObject | undefined {
 
 /** Unpacks an Any through the registry; undefined when the type is unknown, or was when the Any was read and only its JSON is held. */
 export function unpackAny(any: Any, registry: Registry): Unpacked | undefined {
+  requireRegistry(registry, "unpackAny");
   if (heldJson.has(any)) return undefined;
   const schema = registry.getMessage(typeNameOf(any.typeUrl));
   if (!schema) return undefined;

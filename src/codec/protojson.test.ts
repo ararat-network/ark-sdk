@@ -17,6 +17,7 @@ import { CommissionRatesSchema } from "../gen/cosmos/staking/v1beta1/staking_pb.
 import { TxBodySchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { AcceptedMessagesFilterSchema } from "../gen/cosmwasm/wasm/v1/authz_pb.js";
 import { QueryCodeInfoResponseSchema } from "../gen/cosmwasm/wasm/v1/query_pb.js";
+import { MsgExecuteContractSchema } from "../gen/cosmwasm/wasm/v1/tx_pb.js";
 import { AccessConfigSchema, AccessType, ModelSchema } from "../gen/cosmwasm/wasm/v1/types_pb.js";
 import { UnknownTypeError, unknownAnyJson, unpackAnyAs } from "./any.js";
 import { fromHex, utf8Decode, utf8Encode } from "./bytes.js";
@@ -243,4 +244,18 @@ test('a message that renders as one value sits under "value" in an Any, and null
   assert.deepEqual(fromProtoJson(AnySchema, { "@type": "/google.protobuf.Duration", value: "1.500s" }, { registry }).value, any.value);
   for (const notAnObject of [null, [], "text", 1, true]) assert.equal(isJsonObject(notAnObject), false);
   assert.equal(isJsonObject({}), true);
+});
+
+test("a contract message's JSON view keeps every integer exact, past what a number holds", () => {
+  // The chain shows a contract's message as the JSON it is. A number holds integers to 2^53; a 64-bit value above
+  // that was shown rounded, 9007199254740993 as 9007199254740992.
+  const text = '{"id":9007199254740993,"debt":-18446744073709551615,"small":12,"ratio":1.5,"name":"x","list":[9007199254740993,1]}';
+  const execute = create(MsgExecuteContractSchema, { sender: "ark1s", contract: "ark1c", msg: utf8Encode(text) });
+  const view = toProtoJson(MsgExecuteContractSchema, execute) as { msg: Record<string, unknown> };
+  assert.equal(JSON.stringify(view.msg), text, "written back digit for digit");
+  assert.equal(view.msg.small, 12, "an integer a number holds is a number");
+  assert.equal(view.msg.ratio, 1.5);
+  // And it reads back to the bytes it came from.
+  const back = fromProtoJson(MsgExecuteContractSchema, view as never);
+  assert.equal(utf8Decode(back.msg), text);
 });

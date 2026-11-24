@@ -5,7 +5,7 @@
 import type { Message, Registry } from "@bufbuild/protobuf";
 import type { Any } from "@bufbuild/protobuf/wkt";
 
-import { unpackAny } from "../codec/any.js";
+import { requireRegistry, unpackAny } from "../codec/any.js";
 import { coin, intFromWire, sumCoins } from "../codec/coins.js";
 import { LegacyDec } from "../codec/dec.js";
 import type { BaseAccount, ModuleAccount } from "../gen/cosmos/auth/v1beta1/auth_pb.js";
@@ -62,6 +62,7 @@ const KINDS: Record<string, AccountKind> = {
 
 /** Decodes the Any an account query returns. */
 export function decodeAccount(any: Any, registry: Registry): DecodedAccount {
+  requireRegistry(registry, "decodeAccount");
   const unknown: DecodedAccount = {
     kind: "unknown",
     typeUrl: any.typeUrl,

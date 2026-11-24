@@ -18,7 +18,7 @@ import {
 import { type ReflectList, type ReflectMap, type ReflectMessage, reflect } from "@bufbuild/protobuf/reflect";
 import { type Any, AnySchema, type Duration, DurationSchema, type Timestamp, TimestampSchema } from "@bufbuild/protobuf/wkt";
 import { ArkSdkError, errorMessage } from "../errors.js";
-import { anyFromUnknownJson, typeNameOf, typeUrlOf, UnknownTypeError, unknownAnyJson, type WithRegistry } from "./any.js";
+import { anyFromUnknownJson, requireRegistry, typeNameOf, typeUrlOf, UnknownTypeError, unknownAnyJson, type WithRegistry } from "./any.js";
 import { fromBase64, fromHex, toBase64, toHex, utf8Decode, utf8Encode } from "./bytes.js";
 import { intFromWire } from "./coins.js";
 import { LegacyDec } from "./dec.js";
@@ -90,14 +90,14 @@ const WKT_ANY = "google.protobuf.Any";
 
 /** Renders a message in the chain's JSON dialect. */
 export function toProtoJson<Desc extends DescMessage>(schema: Desc, message: MessageShape<Desc>, options: ToProtoJsonOptions): JsonValue {
-  const ctx: WriteContext = { registry: options.registry, unknownAny: options.unknownAny ?? "throw" };
+  const ctx: WriteContext = { registry: requireRegistry(options?.registry, "toProtoJson"), unknownAny: options.unknownAny ?? "throw" };
   return messageToJson(reflect(schema, message), ctx);
 }
 
 /** Reads a message from the chain's JSON dialect. */
 export function fromProtoJson<Desc extends DescMessage>(schema: Desc, json: JsonValue, options: FromProtoJsonOptions): MessageShape<Desc> {
   const ctx: ReadContext = {
-    registry: options.registry,
+    registry: requireRegistry(options?.registry, "fromProtoJson"),
     ignoreUnknownFields: options.ignoreUnknownFields ?? true,
     unknownAny: options.unknownAny ?? "throw",
     unknownEnum: options.unknownEnum ?? "throw",
@@ -216,10 +216,28 @@ function enumToJson(e: DescEnum, n: number): JsonValue {
   return e.values.find((v) => v.number === n)?.name ?? n;
 }
 
+/** JSON.rawJSON, where the runtime has it: a value that is written back as the text it was made from. */
+const rawJson = (JSON as { rawJSON?: (text: string) => JsonObject }).rawJSON;
+
+/**
+ * Parses a contract message's JSON keeping every integer exact. A number holds integers to 2^53, and a contract's
+ * 64-bit value above that would be shown rounded: such a token is kept as the runtime's raw JSON value, an object
+ * that JSON.stringify writes back as the digits it was read from. On a runtime without raw JSON it is a number, as
+ * JSON.parse makes it.
+ */
+function parseExact(text: string): JsonValue {
+  if (!rawJson) return JSON.parse(text) as JsonValue;
+  return JSON.parse(text, function (this: unknown, _key: string, value: unknown, context?: { source?: string }) {
+    const source = context?.source;
+    if (typeof value === "number" && source !== undefined && /^-?\d+$/.test(source) && !Number.isSafeInteger(value)) return rawJson(source);
+    return value;
+  } as (key: string, value: unknown) => unknown) as JsonValue;
+}
+
 /** The JSON a RawContractMessage's bytes hold, which the chain's JSON carries as it is. */
 function inlineJsonOf(bytes: Uint8Array, f: DescField): JsonValue {
   try {
-    return JSON.parse(utf8Decode(bytes)) as JsonValue;
+    return parseExact(utf8Decode(bytes));
   } catch (err) {
     throw new ProtoJsonError(`${f.parent.typeName}.${f.name}: its bytes are not JSON: ${errorMessage(err)}`, { cause: err });
   }
