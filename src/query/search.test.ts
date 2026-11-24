@@ -64,6 +64,35 @@ test("searchTxs sends the query and decodes each result the one way", async () =
   assert.equal(txQuery.and(txQuery.byRecipient("ark1x"), txQuery.byHeight(7n)), "transfer.recipient='ark1x' AND tx.height=7");
 });
 
+test("a message of a type the registry lacks is one unknown message, not a failed page", async () => {
+  const future = { "@type": "/ark.future.v1.MsgNew", sender: "ark1x", amount: "5" };
+  const tx = structuredClone(f.tx) as { body: { messages: unknown[] } };
+  tx.body.messages.push(future);
+  const page = { ...found, txs: [tx], tx_responses: [{ ...found.tx_responses[0], tx: { "@type": "/cosmos.tx.v1beta1.Tx", ...tx } }] };
+  const { client } = stub(() => new Response(JSON.stringify(page)));
+  const [item] = (await searchTxs(client, "message.sender='ark1x'")).items;
+  assert.ok(item);
+  assert.deepEqual(
+    item.messages.map((m) => [m.typeUrl, m.known]),
+    [
+      ["/cosmos.bank.v1beta1.MsgSend", true],
+      ["/cosmos.staking.v1beta1.MsgDelegate", true],
+      ["/ark.future.v1.MsgNew", false],
+    ],
+  );
+  const unknown = item.messages[2]!;
+  assert.equal(unknown.message, undefined);
+  assert.equal(unknown.schema, undefined);
+  assert.deepEqual(unknown.json, future, "the node's own JSON is what is shown for it");
+
+  // An account of an unknown type is named as unknown with its type URL.
+  const account = stub(() => new Response(JSON.stringify({ account: { "@type": "/ark.future.v1.SeatAccount", address: "ark1x" } })));
+  const decoded = await account.client.auth.decodedAccount("ark1x");
+  assert.equal(decoded.kind, "unknown");
+  assert.equal(decoded.typeUrl, "/ark.future.v1.SeatAccount");
+  assert.equal(decoded.message, undefined);
+});
+
 test("fetchTx returns undefined for a pending hash and the decoded transaction otherwise", async () => {
   const notFound = stub(() => new Response(JSON.stringify({ code: 5, message: "tx not found", details: [] }), { status: 404 }));
   assert.equal(await fetchTx(notFound.client, f.tx_hash!), undefined);

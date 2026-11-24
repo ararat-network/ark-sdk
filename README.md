@@ -119,7 +119,9 @@ const events = decodeEvents(response.events);
 
 Two things to know when reading messages. A `cosmos.Dec` field holds the chain's wire form, the 18-decimal scaled
 integer; `LegacyDec.fromWire` reads it and the JSON view shows the decimal. And a message type the registry does
-not know decodes as unknown, with its type URL and bytes, never under a label it did not earn.
+not know decodes as unknown, never under a label it did not earn: with its type URL and bytes from a transaction's
+bytes, and from a gateway answer, which has no bytes for it, with its type URL and the JSON the node rendered, which
+`unknownAnyJson` returns. Such a message holds no bytes, so the builder refuses to put it in a transaction.
 
 ## The signer
 

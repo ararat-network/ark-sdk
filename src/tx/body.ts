@@ -4,7 +4,7 @@
 import { create, type DescMessage, type MessageShape } from "@bufbuild/protobuf";
 import type { Any, Timestamp } from "@bufbuild/protobuf/wkt";
 
-import { packAny } from "../codec/any.js";
+import { packAny, unknownAnyJson } from "../codec/any.js";
 import { type CoinInput, coins } from "../codec/coins.js";
 import { materialise } from "../codec/gogo.js";
 import { SignMode } from "../gen/cosmos/tx/signing/v1beta1/signing_pb.js";
@@ -37,9 +37,17 @@ function isAny(m: TxMessage): m is Any {
   return (m as Any).$typeName === "google.protobuf.Any";
 }
 
-/** Packs each message under its type URL; an Any passes through. */
+/**
+ * Packs each message under its type URL; an Any passes through. One that was
+ * read from a node without its type is refused: it holds no bytes, and
+ * signing it would sign an empty message under that type.
+ */
 export function packMessages(messages: readonly TxMessage[]): Any[] {
-  return messages.map((m) => (isAny(m) ? m : packAny(m.schema, materialise(m.schema, m.message))));
+  return messages.map((m) => {
+    if (!isAny(m)) return packAny(m.schema, materialise(m.schema, m.message));
+    if (unknownAnyJson(m)) throw new Error(`message ${m.typeUrl} was read without its type and holds no bytes; it cannot be put in a transaction`);
+    return m;
+  });
 }
 
 export interface TxBodyInput {

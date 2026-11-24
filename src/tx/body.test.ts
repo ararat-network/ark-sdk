@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { fromBinary } from "@bufbuild/protobuf";
-import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { AnySchema, timestampFromDate } from "@bufbuild/protobuf/wkt";
 
+import { fromProtoJson } from "../codec/protojson.js";
 import { timestampToAmino } from "../codec/wkt.js";
 import { TxBodySchema, TxRawSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { MemorySigner } from "../keys/memory_signer.js";
-import { makeFee } from "./body.js";
+import { makeFee, packMessages } from "./body.js";
 import { signTx, simulationTxBytes } from "./builder.js";
 
 test("an unordered transaction and its timeout timestamp reach the body, the simulation, and the amino document", async () => {
@@ -45,4 +46,12 @@ test("an unordered transaction and its timeout timestamp reach the body, the sim
   const ordered = await signTx({ signer, address: signer.address, chainId: "localark", accountNumber: 1n, sequence: 0n, messages: [], fee, mode: "amino" });
   assert.equal(fromBinary(TxBodySchema, ordered.bodyBytes).unordered, false);
   assert.equal(ordered.aminoSignDoc?.unordered, undefined, "omitted when false, as the chain's document omits it");
+});
+
+test("a message read from a node without its type cannot be put in a transaction", () => {
+  // It holds no bytes: packed as it is, the signature would cover an empty message under that type.
+  const held = fromProtoJson(AnySchema, { "@type": "/ark.future.v1.MsgNew", amount: "5" }, { unknownAny: "keep" });
+  assert.throws(() => packMessages([held]), /read without its type and holds no bytes/);
+  const read = fromProtoJson(AnySchema, { "@type": "/cosmos.bank.v1beta1.MsgSend", from_address: "ark1a", to_address: "ark1b", amount: [] });
+  assert.deepEqual(packMessages([read]), [read], "one read with its type passes through");
 });

@@ -9,7 +9,7 @@ import { type ReflectList, type ReflectMessage, reflect } from "@bufbuild/protob
 import type { Any, Duration, Timestamp } from "@bufbuild/protobuf/wkt";
 import { CoinSchema } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import type { Fee, TxBody } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
-import { typeNameOf, typeUrlOf, UnknownTypeError } from "./any.js";
+import { typeNameOf, typeUrlOf, UnknownTypeError, unknownAnyJson } from "./any.js";
 import { toBase64, utf8Decode } from "./bytes.js";
 import { LegacyDec } from "./dec.js";
 import { compareUtf8, type JsonObject, type JsonValue, marshalGoJsonBytes, sortKeys } from "./json.js";
@@ -118,6 +118,8 @@ function beginMarshal(r: ReflectMessage, isAny: boolean, ctx: Context): JsonValu
 }
 
 function marshalAny(any: Any, ctx: Context): JsonValue {
+  // An Any read without its type has no bytes to encode, whatever this registry knows.
+  if (unknownAnyJson(any)) throw new UnknownTypeError(any.typeUrl);
   const schema = ctx.registry.getMessage(typeNameOf(any.typeUrl));
   if (!schema) throw new UnknownTypeError(any.typeUrl);
   return beginMarshal(reflect(schema, fromBinary(schema, any.value)), true, ctx);

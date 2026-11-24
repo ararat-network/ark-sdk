@@ -234,7 +234,8 @@ export class GatewayClient {
     if (!response.ok) throw gatewayError(json, response.status, url);
     const heightHeader = response.headers.get("grpc-metadata-x-cosmos-block-height");
     const height = heightHeader !== null && /^\d+$/.test(heightHeader) ? BigInt(heightHeader) : undefined;
-    return { value: fromProtoJson(desc.output, json, { registry: this.#registry }) as T, height };
+    // A type the registry lacks is kept as unknown, with the node's JSON, so one new message does not fail a whole answer.
+    return { value: fromProtoJson(desc.output, json, { registry: this.#registry, unknownAny: "keep" }) as T, height };
   }
 }
 

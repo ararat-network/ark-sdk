@@ -4,7 +4,7 @@
 // never given a reassuring label.
 import { create, type DescMessage, fromBinary, type Message, type Registry } from "@bufbuild/protobuf";
 import type { Any } from "@bufbuild/protobuf/wkt";
-import { typeNameOf } from "../codec/any.js";
+import { typeNameOf, unknownAnyJson } from "../codec/any.js";
 import { txHash } from "../codec/hash.js";
 import type { JsonValue } from "../codec/json.js";
 import { toProtoJson } from "../codec/protojson.js";
@@ -23,7 +23,7 @@ export interface DecodedMessage {
   /** The decoded message, or undefined for an unknown message. */
   message: Message | undefined;
   known: boolean;
-  /** The chain's JSON view; for an unknown message, its type URL and raw bytes. */
+  /** The chain's JSON view; for an unknown message, its type URL and raw bytes, or the JSON the node rendered when it was read through the gateway. */
   json: JsonValue;
 }
 
@@ -52,6 +52,9 @@ export interface DecodedTx {
 
 export function decodeMessage(any: Any, options: TxDecodeOptions = {}): DecodedMessage {
   const registry = options.registry ?? defaultRegistry;
+  // Read through the gateway without its type: there are no bytes to decode, only the node's JSON.
+  const held = unknownAnyJson(any);
+  if (held) return { typeUrl: any.typeUrl, schema: undefined, message: undefined, known: false, json: held };
   const schema = registry.getMessage(typeNameOf(any.typeUrl));
   if (!schema) {
     return { typeUrl: any.typeUrl, schema: undefined, message: undefined, known: false, json: toProtoJson(AnySchemaRef, any, { registry, unknownAny: "raw" }) };

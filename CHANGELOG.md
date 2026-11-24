@@ -22,6 +22,16 @@ Fixed:
   computed one and was then polled, so a faulty endpoint could have another transaction's result returned as this one's.
 - A route refuses an empty path parameter, as it does a missing one, instead of requesting a path with an empty
   segment.
+- A gateway answer carrying an `Any` of a type the registry lacks no longer fails the whole call with
+  `UnknownTypeError`. `searchTxs`, `fetchTx`, `tx.byBlock`, `gov.proposals`, `auth.account`, and `waitForInclusion`
+  keep it as unknown: the `Any` has its type URL, an empty value, and the node's JSON, which the new `unknownAnyJson`
+  returns and `decodeMessage` shows as the message's `json` with `known: false`. Nested inside a known `Any` it keeps
+  its type URL alone. `unpackAny`, the amino encoder, and `packMessages` never treat its empty value as the message.
+
+Added:
+
+- `unknownAnyJson` and `anyFromUnknownJson`, and `unknownAny: "keep"` on `fromProtoJson`, which still throws on an
+  unknown type by default.
 
 Changed:
 

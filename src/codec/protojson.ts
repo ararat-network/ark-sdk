@@ -8,7 +8,7 @@ import { create, type DescEnum, type DescField, type DescMessage, fromBinary, ty
 import { type ReflectList, type ReflectMap, type ReflectMessage, reflect } from "@bufbuild/protobuf/reflect";
 import { type Any, AnySchema, type Duration, DurationSchema, type Timestamp, TimestampSchema } from "@bufbuild/protobuf/wkt";
 
-import { typeNameOf, typeUrlOf, UnknownTypeError } from "./any.js";
+import { anyFromUnknownJson, typeNameOf, typeUrlOf, UnknownTypeError, unknownAnyJson } from "./any.js";
 import { fromBase64, toBase64, utf8Decode, utf8Encode } from "./bytes.js";
 import { LegacyDec } from "./dec.js";
 import type { JsonObject, JsonValue } from "./json.js";
@@ -30,6 +30,13 @@ export interface FromProtoJsonOptions {
   registry?: Registry;
   /** Skip members no field matches; the default, so a newer chain's extra fields do not break a reader. */
   ignoreUnknownFields?: boolean;
+  /**
+   * What to do with an Any whose type the registry lacks. `throw`, the default, fails: JSON has no bytes for it, and a
+   * message built from JSON must not carry a hollow one. `keep` is for reading what a node returned: the Any keeps its
+   * type URL, an empty value, and the JSON it arrived as, which `unknownAnyJson` returns. One nested inside a known
+   * Any keeps its type URL alone, since the outer message is held as bytes.
+   */
+  unknownAny?: "throw" | "keep";
 }
 
 interface WriteContext {
@@ -40,6 +47,7 @@ interface WriteContext {
 interface ReadContext {
   registry: Registry;
   ignoreUnknownFields: boolean;
+  unknownAny: "throw" | "keep";
 }
 
 const WKT_TIMESTAMP = "google.protobuf.Timestamp";
@@ -54,7 +62,11 @@ export function toProtoJson<Desc extends DescMessage>(schema: Desc, message: Mes
 
 /** Reads a message from the chain's JSON dialect. */
 export function fromProtoJson<Desc extends DescMessage>(schema: Desc, json: JsonValue, options: FromProtoJsonOptions = {}): MessageShape<Desc> {
-  const ctx: ReadContext = { registry: options.registry ?? defaultRegistry, ignoreUnknownFields: options.ignoreUnknownFields ?? true };
+  const ctx: ReadContext = {
+    registry: options.registry ?? defaultRegistry,
+    ignoreUnknownFields: options.ignoreUnknownFields ?? true,
+    unknownAny: options.unknownAny ?? "throw",
+  };
   return messageFromJson(schema, json, ctx).message as MessageShape<Desc>;
 }
 
@@ -77,6 +89,9 @@ function messageToJson(r: ReflectMessage, ctx: WriteContext): JsonValue {
 
 function anyToJson(any: Any, ctx: WriteContext): JsonValue {
   if (any.typeUrl === "") return {};
+  // An Any read without its type has no bytes; the JSON it arrived as is its only rendering.
+  const held = unknownAnyJson(any);
+  if (held) return held;
   const schema = ctx.registry.getMessage(typeNameOf(any.typeUrl));
   if (!schema) {
     if (ctx.unknownAny === "raw") return { "@type": any.typeUrl, value: toBase64(any.value) };
@@ -257,7 +272,10 @@ function anyFromJson(json: JsonValue, ctx: ReadContext): Any {
     throw new ProtoJsonError("Any: missing @type");
   }
   const schema = ctx.registry.getMessage(typeNameOf(typeUrl));
-  if (!schema) throw new UnknownTypeError(typeUrl);
+  if (!schema) {
+    if (ctx.unknownAny === "keep") return anyFromUnknownJson(typeUrl, json);
+    throw new UnknownTypeError(typeUrl);
+  }
   const wkt = schema.typeName === WKT_TIMESTAMP || schema.typeName === WKT_DURATION || schema.typeName === WKT_ANY;
   const inner = messageFromJson(schema, wkt ? (rest.value as JsonValue) : rest, ctx);
   return create(AnySchema, { typeUrl: typeUrlOf(schema), value: toBinaryImpl(schema, inner.message) });
