@@ -102,7 +102,9 @@ export class QueryClient {
 
   async #verifyGenesis(network: Network): Promise<"verified" | "unverifiable"> {
     if (network.genesisSha256 === undefined || network.genesisUrl === undefined) return "unverifiable";
-    const response = await this.#fetch(network.genesisUrl);
+    // Called unbound, as the gateway does: a browser's fetch refuses this client as its receiver.
+    const send = this.#fetch;
+    const response = await send(network.genesisUrl);
     if (!response.ok) throw new RegistryError(`${network.genesisUrl}: ${response.status} ${response.statusText}`);
     return network.verifyGenesis(new Uint8Array(await response.arrayBuffer()));
   }

@@ -112,6 +112,17 @@ test("gateway errors carry the gRPC code and NotFound is recognisable", async ()
   });
 });
 
+test("fetch is called without a receiver, as a browser's requires", async () => {
+  // window.fetch throws "Illegal invocation" when `this` is anything but its window or undefined.
+  const strict = async function (this: unknown): Promise<Response> {
+    if (this !== undefined && this !== globalThis) throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
+    return json({ default_node_info: { network: "localark" }, application_version: { app_name: "arkd", version: "v1" } });
+  } as typeof fetch;
+  const client = new QueryClient("http://node", { fetch: strict });
+  assert.equal((await client.node.info()).defaultNodeInfo?.network, "localark");
+  assert.equal((await new GatewayClient(["http://a", "http://b"], { fetch: strict }).call(TxService, "getTx", { hash: "AB" })).value.txResponse, undefined);
+});
+
 test("an unreachable node is a transport error, not a query error", async () => {
   const failing = (async () => {
     throw new TypeError("fetch failed");

@@ -10,6 +10,8 @@ Fixed:
 - `broadcastSync` reports a 502, 503, or 504 answer as `BroadcastUnknown`, with the hash to poll and the gateway's
   answer as its cause. A proxy answers with these when the node's own answer was lost, after the node may have taken
   the transaction; they surfaced as a plain `QueryError` with no hash. A 429 is still a `QueryError`.
+- `QueryClient` and `GatewayClient` work in a browser without a `fetch` option. They called the stored `fetch` as a
+  method of the client, which a browser refuses with "Illegal invocation", so every call failed as a `TransportError`.
 
 ## 0.2.0
 

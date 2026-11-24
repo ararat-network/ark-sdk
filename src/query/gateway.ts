@@ -210,10 +210,13 @@ export class GatewayClient {
     if (options.signal?.aborted) forwardAbort();
     init.signal = controller.signal;
 
+    // Called unbound: a browser's fetch refuses any receiver but its window,
+    // and `this.#fetch(...)` would hand it this client.
+    const send = this.#fetch;
     let response: Response;
     let text: string;
     try {
-      response = await this.#fetch(url, init);
+      response = await send(url, init);
       text = await response.text();
     } catch (err) {
       throw new TransportError(url, err);

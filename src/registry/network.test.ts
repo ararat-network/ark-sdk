@@ -197,6 +197,12 @@ test("verifyNetwork checks the chain id, reports the binary against the registry
     (async (input: string | URL | Request) =>
       String(input).endsWith("genesis.json") ? new Response(body, { status: 200 }) : node("ark-testnet-1", "v0.1.0-alpha.1")(input)) as typeof fetch;
   assert.equal((await new QueryClient("http://node", { fetch: serving(genesis) }).verifyNetwork(withGenesis, { genesis: true })).genesis, "verified");
+  // A browser's fetch refuses a receiver that is not its window; the genesis file is fetched without one.
+  const strict = async function (this: unknown, input: string | URL | Request): Promise<Response> {
+    if (this !== undefined && this !== globalThis) throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
+    return serving(genesis)(input);
+  } as typeof fetch;
+  assert.equal((await new QueryClient("http://node", { fetch: strict }).verifyNetwork(withGenesis, { genesis: true })).genesis, "verified");
   await assert.rejects(
     new QueryClient("http://node", { fetch: serving(new TextEncoder().encode("{}")) }).verifyNetwork(withGenesis, { genesis: true }),
     GenesisMismatch,
