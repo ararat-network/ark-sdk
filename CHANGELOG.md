@@ -69,9 +69,23 @@ Changed:
 - `SignTxInput`, `SimulationTxInput`, and `PrepareInput` extend `TxBodyInput` in place of repeating its members.
 - `AminoMsg` is a type alias, no longer an interface, so the amino encoder returns one without a cast. It has the same
   members; only code that merged a declaration into the interface is affected.
-
 - `client.gov.params` takes its params type, `"voting"`, `"tallying"`, or `"deposit"`, as a required argument. The
   default was the empty string, which requested `/cosmos/gov/v1/params/`, a path the gateway does not serve.
+- The package index names every export where it re-exported each module whole, so a helper one module shares with
+  another is no longer public by accident. Apart from the names under Removed, everything exported before still is.
+
+Removed:
+
+- `Event` is now `ChainEvent`: the name shadowed the DOM's `Event` wherever it was imported. Rename the import.
+- The codecs' own plumbing, which was public only because the index re-exported every module: `fieldOptions`,
+  `FieldOptions`, `messageOptions`, `MessageOptions`, `LEGACY_DEC`, `MATH_INT`, `SCALAR_DEC`, `SCALAR_INT`,
+  `ENCODING_INLINE_JSON`, `ENCODING_LEGACY_COINS`, `ENCODING_NULL_SLICE_AS_EMPTY`, and `stripTrailing`. Nothing replaces
+  them; they read proto options for the encoders and trim a string.
+- `routeFor` and `Route`, the gateway client's route builder. To change how a request is sent, pass `fetch`.
+- `compareUtf8`, `goJsonString`, and `goJsonNumber`, the pieces of the sorted-JSON serialiser. `marshalGoJson`,
+  `marshalGoJsonBytes`, and `sortKeys` are the surface.
+- `anyHolds`, `schemaFor`, and `concatBytes`, which nothing used. `anyHolds` answered true for an `Any` read without
+  its type, which `unpackAnyAs` refuses; `schemaFor(url)` is `registry.getMessage(typeNameOf(url))`.
 
 ## 0.2.0
 

@@ -68,8 +68,3 @@ export function unpackAnyAs<Desc extends DescMessage>(any: Any, schema: Desc): M
   if (heldJson.has(any) || typeNameOf(any.typeUrl) !== schema.typeName) throw new UnknownTypeError(any.typeUrl);
   return fromBinary(schema, any.value);
 }
-
-/** Whether an Any holds a message of this schema. */
-export function anyHolds(any: Any, schema: DescMessage): boolean {
-  return typeNameOf(any.typeUrl) === schema.typeName;
-}

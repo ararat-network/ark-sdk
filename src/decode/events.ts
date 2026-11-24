@@ -14,7 +14,8 @@ export interface EventAttribute {
   index?: boolean;
 }
 
-export interface Event {
+/** An event as a node reports it. Named for the chain, since `Event` is the DOM's. */
+export interface ChainEvent {
   type: string;
   attributes: readonly EventAttribute[];
 }
@@ -37,7 +38,7 @@ export interface DecodedEvent {
 export type EventDecodeOptions = RegistryOption;
 
 /** Decodes one event; an event that is not a typed proto event keeps its attributes and has no `typed`. */
-export function decodeEvent(event: Event, options: EventDecodeOptions = {}): DecodedEvent {
+export function decodeEvent(event: ChainEvent, options: EventDecodeOptions = {}): DecodedEvent {
   const registry = options.registry ?? defaultRegistry;
   const mode = event.attributes.find((a) => a.key === "mode")?.value;
   const msgIndexText = event.attributes.find((a) => a.key === "msg_index")?.value;
@@ -63,7 +64,7 @@ export function decodeEvent(event: Event, options: EventDecodeOptions = {}): Dec
   }
 }
 
-export function decodeEvents(events: readonly Event[], options: EventDecodeOptions = {}): DecodedEvent[] {
+export function decodeEvents(events: readonly ChainEvent[], options: EventDecodeOptions = {}): DecodedEvent[] {
   return events.map((e) => decodeEvent(e, options));
 }
 
