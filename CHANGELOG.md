@@ -7,6 +7,9 @@ Fixed:
 - `waitForInclusion`, and `sendTx` through it, read a timeout height of zero as none. Zero is the body's value for no
   timeout; it was compared as a height, so the first poll after an accepted broadcast threw `TransactionExpired` for
   a transaction that then landed.
+- `broadcastSync` reports a 502, 503, or 504 answer as `BroadcastUnknown`, with the hash to poll and the gateway's
+  answer as its cause. A proxy answers with these when the node's own answer was lost, after the node may have taken
+  the transaction; they surfaced as a plain `QueryError` with no hash. A 429 is still a `QueryError`.
 
 ## 0.2.0
 

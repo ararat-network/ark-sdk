@@ -78,6 +78,23 @@ test("a broadcast whose answer never arrives, or carries no verdict, is an unkno
     (err: unknown) => err instanceof QueryError && err.httpStatus === 400,
     "a verdict on the request is not an unknown outcome",
   );
+  // A gateway answering in the node's place has lost the node's answer, not refused the transaction.
+  for (const status of [502, 503, 504]) {
+    const proxied = node([() => new Response("<html>upstream timed out</html>", { status })]);
+    await assert.rejects(broadcastSync(proxied.client, bytes), (err: unknown) => {
+      assert.ok(err instanceof BroadcastUnknown, `${status} is an unknown outcome`);
+      assert.equal(err.hash, txHash(bytes));
+      assert.ok(err.cause instanceof QueryError && err.cause.httpStatus === status, "the gateway's answer is kept as the cause");
+      return true;
+    });
+    assert.equal(proxied.calls.length, 1, "and it is still sent once");
+  }
+  const limited = node([() => json({ code: 8, message: "rate limited", details: [] }, 429)]);
+  await assert.rejects(
+    broadcastSync(limited.client, bytes),
+    (err: unknown) => err instanceof QueryError && err.httpStatus === 429,
+    "a rate limiter answers before forwarding, so the transaction was not sent on",
+  );
 });
 
 test("polling rides out an endpoint fault, names the last one at the deadline, and stops on the caller's error", async () => {

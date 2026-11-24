@@ -13,6 +13,13 @@ import { EndpointsExhausted, isEndpointFault, QueryError, TransportError } from 
 /** The SDK's code for a transaction the mempool already holds: the first broadcast reached it. */
 const TX_IN_MEMPOOL_CACHE = 19;
 
+/**
+ * Statuses a proxy in front of the node answers with when the node's own
+ * answer did not come back: the node may have taken the transaction first. A
+ * 429 is not among them, since a rate limiter answers before forwarding.
+ */
+const ANSWER_LOST_STATUSES: ReadonlySet<number> = new Set([502, 503, 504]);
+
 export interface BroadcastResult {
   hash: string;
   /** CheckTx's code: zero means the mempool accepted the transaction, nothing more. */
@@ -31,7 +38,11 @@ export class BroadcastRefused extends Error {
   }
 }
 
-/** The broadcast's answer never arrived or carried no verdict: the transaction may be in the mempool; poll the hash. */
+/**
+ * The broadcast's answer never arrived, came from a gateway that lost the
+ * node's, or carried no verdict: the transaction may be in the mempool; poll
+ * the hash.
+ */
 export class BroadcastUnknown extends Error {
   override readonly name: string = "BroadcastUnknown";
   constructor(
@@ -69,9 +80,10 @@ export class InclusionTimeout extends Error {
 /**
  * Hands the transaction to the node's mempool, once, and returns its CheckTx
  * verdict. The broadcast is never re-sent to another endpoint: the first may
- * have taken it, so a lost answer is an unknown outcome, not a refusal. A
- * node that already holds the transaction reports a cache hit, which is an
- * acceptance.
+ * have taken it, so a lost answer is an unknown outcome, not a refusal,
+ * whether the connection failed or a gateway answered 502, 503, or 504 in the
+ * node's place. A node that already holds the transaction reports a cache
+ * hit, which is an acceptance.
  */
 export async function broadcastSync(client: QueryClient, txBytes: Uint8Array): Promise<BroadcastResult> {
   const hash = txHash(txBytes);
@@ -80,6 +92,7 @@ export async function broadcastSync(client: QueryClient, txBytes: Uint8Array): P
     r = (await client.tx.broadcast(txBytes)).txResponse;
   } catch (err) {
     if (err instanceof TransportError) throw new BroadcastUnknown(hash, err);
+    if (err instanceof QueryError && ANSWER_LOST_STATUSES.has(err.httpStatus)) throw new BroadcastUnknown(hash, err);
     throw err;
   }
   if (!r) throw new BroadcastUnknown(hash, new Error("the node answered without a verdict"));
