@@ -19,7 +19,8 @@ import type { QueryProposalsRequestSchema } from "../gen/cosmos/gov/v1/query_pb.
 import { Query as GovQuery } from "../gen/cosmos/gov/v1/query_pb.js";
 import { Query as StakingQuery } from "../gen/cosmos/staking/v1beta1/query_pb.js";
 import { BroadcastMode, OrderBy, Service as TxService } from "../gen/cosmos/tx/v1beta1/service_pb.js";
-import { fetchOk, type Network } from "../registry/network.js";
+import { fetchOk } from "../registry/load.js";
+import type { Network } from "../registry/network.js";
 import { RegistryError } from "../registry/parse.js";
 import { type CallOptions, GatewayClient, type GatewayOptions } from "./gateway.js";
 import type { PageRequestInit } from "./pagination.js";
