@@ -200,6 +200,7 @@ types CosmJS lags, Ark's own messages are not in any shared library, and Ledger 
 protos carry; the fixtures prove the encoding byte for byte instead. Queries go over the node's gRPC gateway, which
 every node serves and the fee contract names; gRPC-web left the SDK in v0.50 and would need a proxy. pnpm is the
 package manager, TypeScript the only language, `tsx` the test runner's one dependency, Biome the linter and formatter,
-and nothing in the package holds or sees a key. The type registry holds every generated type so any message decodes; a consumer that wants a smaller
-bundle builds its own with `createRegistry` from `@bufbuild/protobuf` and passes it to the gateway client and the
-decoders. The tarball ships `src` beside `dist`, so the source maps resolve in a debugger.
+and nothing in the package holds or sees a key. The type registry holds every generated type so any message decodes; a consumer that wants
+other types, a newer release's or fewer, builds its own with `createRegistry` from `@bufbuild/protobuf` and passes it
+to the gateway client, whose search and account helpers then decode with it, and to the decoders. That does not make
+the bundle smaller yet: each reader still imports the whole registry as its default. The tarball ships `src` beside `dist`, so the source maps resolve in a debugger.

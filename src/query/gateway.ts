@@ -12,7 +12,7 @@ import type { GenService, GenServiceMethods } from "@bufbuild/protobuf/codegenv2
 import { stripTrailing } from "../codec/bytes.js";
 import { isJsonObject, type JsonObject, type JsonValue } from "../codec/json.js";
 import { fromProtoJson, toProtoJson } from "../codec/protojson.js";
-import { registry as defaultRegistry } from "../codec/registry.js";
+import { registry as defaultRegistry, type RegistryOption } from "../codec/registry.js";
 import { http } from "../gen/google/api/annotations_pb.js";
 
 /** gRPC status codes the gateway reports in its error body. */
@@ -95,12 +95,11 @@ export function isEndpointFault(err: unknown): boolean {
   return err instanceof TransportError || (err instanceof QueryError && ENDPOINT_FAULT_STATUSES.has(err.httpStatus));
 }
 
-export interface GatewayOptions {
+/** `registry` is the types Any fields resolve against in requests and answers; every generated type by default. */
+export interface GatewayOptions extends RegistryOption {
   fetch?: typeof fetch;
   /** Headers sent with every request, for a node behind authentication. */
   headers?: Record<string, string>;
-  /** The types Any fields resolve against; every generated type by default. */
-  registry?: Registry;
   /** How long one request may take before the endpoint counts as unreachable; 15 seconds by default. */
   timeoutMs?: number;
 }
@@ -138,7 +137,8 @@ export class GatewayClient {
   readonly baseUrls: readonly string[];
   readonly #fetch: typeof fetch;
   readonly #headers: Record<string, string>;
-  readonly #registry: Registry;
+  /** The types this client resolves an Any against; what decodes one of its answers must use the same. */
+  readonly registry: Registry;
   readonly #timeoutMs: number;
   #current = 0;
 
@@ -148,7 +148,7 @@ export class GatewayClient {
     this.baseUrls = urls;
     this.#fetch = options.fetch ?? globalThis.fetch;
     this.#headers = { ...options.headers };
-    this.#registry = options.registry ?? defaultRegistry;
+    this.registry = options.registry ?? defaultRegistry;
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 
@@ -171,7 +171,7 @@ export class GatewayClient {
     const desc = service.method[method] as DescMethod;
     const input = desc.input as InputOf<S, M>;
     const message = create(input, request);
-    const route = routeFor(desc, toProtoJson(input, message, { registry: this.#registry }) as JsonObject);
+    const route = routeFor(desc, toProtoJson(input, message, { registry: this.registry }) as JsonObject);
     const attempts: EndpointAttempt[] = [];
     const tries = options.idempotent === false ? 1 : this.baseUrls.length;
     for (let attempt = 0; attempt < tries; attempt++) {
@@ -235,7 +235,7 @@ export class GatewayClient {
     const heightHeader = response.headers.get("grpc-metadata-x-cosmos-block-height");
     const height = heightHeader !== null && /^\d+$/.test(heightHeader) ? BigInt(heightHeader) : undefined;
     // A type the registry lacks is kept as unknown, with the node's JSON, so one new message does not fail a whole answer.
-    return { value: fromProtoJson(desc.output, json, { registry: this.#registry, unknownAny: "keep" }) as T, height };
+    return { value: fromProtoJson(desc.output, json, { registry: this.registry, unknownAny: "keep" }) as T, height };
   }
 }
 

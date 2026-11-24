@@ -162,7 +162,7 @@ export class QueryClient {
     decodedAccount: async (address: string): Promise<DecodedAccount> => {
       const { account } = await this.#value(AuthQuery, "account", { address });
       if (!account) throw new Error(`no account at ${address}`);
-      return decodeAccount(account);
+      return decodeAccount(account, this.gateway.registry);
     },
   };
 

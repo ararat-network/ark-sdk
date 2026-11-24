@@ -23,21 +23,19 @@ import { fromBase64, toBase64, utf8Decode, utf8Encode } from "./bytes.js";
 import { LegacyDec } from "./dec.js";
 import { isJsonObject, type JsonObject, type JsonValue } from "./json.js";
 import { fieldOptions } from "./options.js";
-import { registry as defaultRegistry } from "./registry.js";
+import { registry as defaultRegistry, type RegistryOption } from "./registry.js";
 import { durationFromText, durationToProtoJson, GO_ZERO_TIME_SECONDS, timestampFromText, timestampToProtoJson } from "./wkt.js";
 
 export class ProtoJsonError extends Error {
   override readonly name: string = "ProtoJsonError";
 }
 
-export interface ToProtoJsonOptions {
-  registry?: Registry;
+export interface ToProtoJsonOptions extends RegistryOption {
   /** What to do with an Any whose type the registry lacks: fail, or emit {"@type", "value": base64}. */
   unknownAny?: "throw" | "raw";
 }
 
-export interface FromProtoJsonOptions {
-  registry?: Registry;
+export interface FromProtoJsonOptions extends RegistryOption {
   /** Skip members no field matches; the default, so a newer chain's extra fields do not break a reader. */
   ignoreUnknownFields?: boolean;
   /**

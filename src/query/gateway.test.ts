@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { create } from "@bufbuild/protobuf";
+import { create, createRegistry } from "@bufbuild/protobuf";
 
 import { packAny } from "../codec/any.js";
+import { registry } from "../codec/registry.js";
 import { GrantKind } from "../gen/ark/disbursement/v1/disbursement_pb.js";
 import { Query as DisbursementQuery } from "../gen/ark/disbursement/v1/query_pb.js";
 import { Query as TreasuryQuery } from "../gen/ark/treasury/v1/query_pb.js";
@@ -75,6 +76,12 @@ test("a call encodes the request, reads the dialect back, and carries the height
   assert.equal(seen[0]?.url, "http://localhost:1317/ark/treasury/v1/gas_prices");
   assert.equal(seen[0]?.headers["x-cosmos-block-height"], "41");
   assert.equal(seen[0]?.headers.authorization, "Bearer x");
+});
+
+test("the client exposes the registry it resolves types against: every generated type, or the one it was given", () => {
+  assert.equal(new GatewayClient("http://node").registry, registry);
+  const own = createRegistry();
+  assert.equal(new QueryClient("http://node", { registry: own }).gateway.registry, own);
 });
 
 test("computeTax posts the packed messages as proto JSON", async () => {

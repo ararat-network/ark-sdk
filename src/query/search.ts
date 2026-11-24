@@ -3,6 +3,7 @@
 // one that does not answers with an error the caller sees as it is.
 import type { Registry } from "@bufbuild/protobuf";
 
+import type { RegistryOption } from "../codec/registry.js";
 import { type DecodedEvent, decodeEvents } from "../decode/events.js";
 import { decodeMsgResponses } from "../decode/responses.js";
 import { classifyResult, type Outcome } from "../decode/result.js";
@@ -29,11 +30,11 @@ export interface FoundTx {
   gasUsed: bigint;
 }
 
-export interface SearchOptions {
+/** `registry` is the client's own by default: the types its answers were read with. */
+export interface SearchOptions extends RegistryOption {
   page?: bigint;
   limit?: bigint;
   orderBy?: OrderBy;
-  registry?: Registry;
 }
 
 export interface SearchResult {
@@ -49,9 +50,9 @@ export const txQuery = {
   and: (...conditions: string[]): string => conditions.join(" AND "),
 };
 
-/** Builds the decoded view of one committed transaction. */
+/** Builds the decoded view of one committed transaction; with no registry given, every generated type. */
 export function foundTx(response: TxResponse, tx: Tx | undefined, registry?: Registry): FoundTx {
-  const options = registry ? { registry } : {};
+  const options = { registry };
   return {
     hash: response.txhash,
     height: response.height,
@@ -67,9 +68,9 @@ export function foundTx(response: TxResponse, tx: Tx | undefined, registry?: Reg
   };
 }
 
-/** Committed transactions matching a query, newest first by default. */
+/** Committed transactions matching a query, newest first by default, decoded with the client's registry unless another is given. */
 export async function searchTxs(client: QueryClient, query: string, options: SearchOptions = {}): Promise<SearchResult> {
-  const { registry, ...paging } = options;
+  const { registry = client.gateway.registry, ...paging } = options;
   const result = await client.tx.search(query, paging);
   return {
     total: result.total,
@@ -107,8 +108,8 @@ export async function lookUpTx(client: QueryClient, hash: string): Promise<{ res
   }
 }
 
-/** One committed transaction by hash, decoded, or undefined while it is pending or unknown. */
-export async function fetchTx(client: QueryClient, hash: string, registry?: Registry): Promise<FoundTx | undefined> {
+/** One committed transaction by hash, decoded with the client's registry unless another is given, or undefined while it is pending or unknown. */
+export async function fetchTx(client: QueryClient, hash: string, registry: Registry = client.gateway.registry): Promise<FoundTx | undefined> {
   const found = await lookUpTx(client, hash);
   return found && foundTx(found.response, found.tx, registry);
 }

@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { JsonValue } from "../codec/json.js";
+import { registry } from "../codec/registry.js";
 import { fixture } from "../testing/fixtures.js";
 import { json, stubFetch } from "../testing/node.js";
+import { FUTURE_MSG_URL, registryWithFutureTypes } from "../testing/registry.js";
 import { QueryClient } from "./client.js";
 import { fetchTx, lookUpTx, searchTxs, txQuery, WrongTransaction } from "./search.js";
 
@@ -82,6 +84,27 @@ test("a message of a type the registry lacks is one unknown message, not a faile
   assert.equal(unknown.message, undefined);
   assert.equal(unknown.schema, undefined);
   assert.deepEqual(unknown.json, future, "the node's own JSON is what is shown for it");
+});
+
+test("searchTxs and fetchTx decode with the client's registry unless another is given", async () => {
+  const future = { "@type": FUTURE_MSG_URL, sender: "ark1x", amount: "5" };
+  const tx = structuredClone(f.tx!);
+  (tx.body.messages as JsonValue[]).push(future);
+  const response = { ...found.tx_responses[0], tx: { "@type": "/cosmos.tx.v1beta1.Tx", ...tx } };
+  const { fetch } = stubFetch(({ url }) =>
+    url.includes("/txs/") ? json({ tx, tx_response: response }) : json({ ...found, txs: [tx], tx_responses: [response] }),
+  );
+  // A client on a newer release's types: its registry knows a message the generated files lack.
+  const client = new QueryClient("http://node", { fetch, registry: registryWithFutureTypes() });
+  const [item] = (await searchTxs(client, "message.sender='ark1x'")).items;
+  assert.equal(item?.messages[2]?.known, true, "the search decodes with the registry the answer was read with");
+  assert.deepEqual(item?.messages[2]?.json, future);
+  assert.equal((await fetchTx(client, f.tx_hash!))?.messages[2]?.known, true);
+
+  // Another registry, given explicitly, is the one used: the default lacks the type, so the message is unknown with its bytes.
+  const [narrow] = (await searchTxs(client, "message.sender='ark1x'", { registry })).items;
+  assert.equal(narrow?.messages[2]?.known, false);
+  assert.equal((await fetchTx(client, f.tx_hash!, registry))?.messages[2]?.known, false);
 });
 
 test("fetchTx returns undefined for a pending hash and the decoded transaction otherwise", async () => {

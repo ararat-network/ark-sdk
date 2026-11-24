@@ -23,7 +23,7 @@ import {
   SCALAR_DEC,
   SCALAR_INT,
 } from "./options.js";
-import { registry as defaultRegistry } from "./registry.js";
+import { registry as defaultRegistry, type RegistryOption } from "./registry.js";
 import { durationToAmino, timestampToAmino } from "./wkt.js";
 
 export interface AminoCoin {
@@ -54,9 +54,7 @@ export class AminoError extends Error {
   override readonly name: string = "AminoError";
 }
 
-export interface AminoOptions {
-  registry?: Registry;
-}
+export type AminoOptions = RegistryOption;
 
 export interface AminoSignDocInput {
   body: TxBody;

@@ -7,6 +7,7 @@ import { vestedCoins } from "../decode/account.js";
 import { GenesisMismatch, Network } from "../registry/network.js";
 import { amounts, registryFiles } from "../testing/fixtures.js";
 import { json, stubFetch } from "../testing/node.js";
+import { FUTURE_ACCOUNT_URL, registryWithFutureTypes } from "../testing/registry.js";
 import { NetworkMismatch, NodeVersionUnlisted, QueryClient } from "./client.js";
 
 test("verifyNetwork checks the chain id, reports the binary against the registry, and can hash the genesis", async () => {
@@ -101,4 +102,12 @@ test("decodedAccount names an account of a type the registry lacks as unknown, w
   assert.equal(decoded.kind, "unknown");
   assert.equal(decoded.typeUrl, "/ark.future.v1.SeatAccount");
   assert.equal(decoded.message, undefined);
+});
+
+test("decodedAccount decodes with the client's registry, so a type only it knows is decoded", async () => {
+  const { fetch } = stubFetch(() => json({ account: { "@type": FUTURE_ACCOUNT_URL, address: "ark1x" } }));
+  const decoded = await new QueryClient("http://node", { fetch, registry: registryWithFutureTypes() }).auth.decodedAccount("ark1x");
+  assert.equal(decoded.typeUrl, FUTURE_ACCOUNT_URL);
+  assert.ok(decoded.message, "the message is decoded through the client's registry");
+  assert.equal(decoded.kind, "unknown", "it is still none of the account kinds the SDK names");
 });

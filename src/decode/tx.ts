@@ -8,13 +8,11 @@ import { typeNameOf, unknownAnyJson } from "../codec/any.js";
 import { txHash } from "../codec/hash.js";
 import { isJsonObject, type JsonValue } from "../codec/json.js";
 import { anyJson, toProtoJson } from "../codec/protojson.js";
-import { registry as defaultRegistry } from "../codec/registry.js";
+import { registry as defaultRegistry, type RegistryOption } from "../codec/registry.js";
 import type { SignMode } from "../gen/cosmos/tx/signing/v1beta1/signing_pb.js";
 import { type AuthInfo, AuthInfoSchema, type Fee, type Tx, type TxBody, TxBodySchema, TxRawSchema, TxSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 
-export interface TxDecodeOptions {
-  registry?: Registry;
-}
+export type TxDecodeOptions = RegistryOption;
 
 export interface DecodedMessage {
   typeUrl: string;

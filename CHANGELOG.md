@@ -10,6 +10,8 @@ Fixed:
 - `broadcastSync` reports a 502, 503, or 504 answer as `BroadcastUnknown`, with the hash to poll and the gateway's
   answer as its cause. A proxy answers with these when the node's own answer was lost, after the node may have taken
   the transaction; they surfaced as a plain `QueryError` with no hash. A 429 is still a `QueryError`.
+- `client.auth.decodedAccount` decodes with the registry the client was given. It used every generated type whatever
+  the client's registry, so an account type only the client's registry knew came back with no message.
 - `QueryClient` and `GatewayClient` work in a browser without a `fetch` option. They called the stored `fetch` as a
   method of the client, which a browser refuses with "Illegal invocation", so every call failed as a `TransportError`.
 - `prepareAndSign` and `sendTx` simulate and sign an unordered transaction at sequence zero, and refuse one without
@@ -32,6 +34,8 @@ Added:
 
 - `unknownAnyJson` and `anyFromUnknownJson`, and `unknownAny: "keep"` on `fromProtoJson`, which still throws on an
   unknown type by default.
+- `GatewayClient.registry`, the types the client resolves an `Any` against, readable so that what decodes one of its
+  answers uses the same; and `RegistryOption`, the `registry` member every reader's options share.
 - `lookUpTx`, the node's answer for one transaction by hash, undecoded: undefined while the node has none, and
   refusing an answer for another hash. `fetchTx` and `waitForInclusion` both read through it.
 - `SignTxInput.signerAccount`, the signer's account when the caller already holds it. `prepareAndSign` passes the one
@@ -41,6 +45,11 @@ Added:
 
 Changed:
 
+- `searchTxs` and `fetchTx` decode with the client's registry unless one is passed; they used every generated type.
+  A client built without a registry is unaffected. One built with a narrower registry now gets a typed event or a
+  message response decoded only when that registry holds its type, so pass a registry to keep the old result.
+- `AminoOptions`, `EventDecodeOptions`, and `TxDecodeOptions` are aliases of `RegistryOption`, and `GatewayOptions`,
+  `SearchOptions`, `ToProtoJsonOptions`, and `FromProtoJsonOptions` extend it. Their members are unchanged.
 - `fetchTx` throws `WrongTransaction` when the node answers with another transaction's hash, as `waitForInclusion`
   does. It used to return that transaction decoded.
 - `prepareAndSign` asks for the tax and the gas price sheet together, and for the chain's account and the signer's
