@@ -87,7 +87,9 @@ const outcome = classifyResult(response);
 
 `sendTx` runs those steps in that order on the same messages, with the headroom, gas adjustment, and fee
 denomination still yours, and, when another transaction took the sequence, signs once more at the sequence the
-chain names, whether the mismatch surfaced at simulation or at CheckTx; `prepareAndSign` stops before the broadcast:
+chain names, whether the mismatch surfaced at simulation or at CheckTx. It signs again only while the first
+transaction cannot be in the mempool; once a broadcast is accepted, or its outcome is unknown, nothing is signed
+again whatever the node then answers. `prepareAndSign` stops before the broadcast:
 
 ```ts
 import { arkdPolicy, sendTx } from "@ararat-network/sdk";
@@ -102,9 +104,13 @@ a stable leg's slack before it lets NOAH pay and would then charge the whole NOA
 before inclusion refuses the transaction for a new quote. `tip`, in NOAH base units, buys priority: its own leg
 beside a stable gas leg, part of the NOAH leg when NOAH carries the gas, and `quote.tip` is what will be charged as
 tip, exact, since NOAH is charged whole. `broadcastAndConfirm` keeps the mempool's verdict and the block's result
-apart: a broadcast whose answer never arrives is an unknown outcome that carries the hash to poll, a node that
-already holds the transaction counts as an acceptance, and polling rides out an unavailable endpoint until the
-deadline. `classifyResult` names an SDK refusal, an execution failure, or a module error with its log.
+apart: a broadcast whose answer never arrives, or arrives and cannot be read, is an unknown outcome that carries the
+hash to poll, a node that already holds the transaction counts as an acceptance, and polling rides out an
+unavailable endpoint until the deadline. A lookup answered for another hash, or for none, is refused. After an
+acceptance every failure carries the hash: the wait's own verdicts, and `InclusionUnknown` around anything else the
+wait met, so that `sendTx`, whose caller holds neither the bytes nor the hash, never leaves one unnamed in the mempool. Past a
+transaction's timeout height the wait says it expired only once it has stayed unfound for a grace period on a node
+that is not catching up, since a node indexes a block's transactions after it reports the block. `classifyResult` names an SDK refusal, an execution failure, or a module error with its log.
 `decodeMsgResponses` reads the responses the messages returned from the result's data. Nothing summarises a tax, a
 tip, a price age, or a pending transaction away.
 

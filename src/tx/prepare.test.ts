@@ -2,14 +2,16 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { create, fromBinary } from "@bufbuild/protobuf";
 import { TimestampSchema } from "@bufbuild/protobuf/wkt";
-import { fromHex, toBase64 } from "../codec/bytes.js";
+import { aminoSignDocBytes } from "../codec/aminojson.js";
+import { fromBase64, fromHex, toBase64, utf8Decode } from "../codec/bytes.js";
 import { fromProtoJson, QueryClient } from "../defaults.js";
-import { AuthInfoSchema, TxBodySchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
+import { AuthInfoSchema, TxBodySchema, TxRawSchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { MemorySigner } from "../keys/memory_signer.js";
 import { type Signer, SignerError } from "../keys/signer.js";
+import { QueryError } from "../query/gateway.js";
 import { amounts, fixture, fixtureKey } from "../testing/fixtures.js";
 import { fakeNode, json, stubFetch, txResponse } from "../testing/node.js";
-import { BroadcastRefused } from "./broadcast.js";
+import { BroadcastRefused, BroadcastUnknown, InclusionUnknown } from "./broadcast.js";
 import { FeeError } from "./fee.js";
 import { PrepareError, prepareAndSign, sendTx } from "./prepare.js";
 
@@ -230,4 +232,64 @@ test("sendTx broadcasts and confirms, and signs again at the sequence the chain 
     BroadcastRefused,
     "a given sequence is the caller's to fix",
   );
+});
+
+test("once a broadcast is accepted, or may have been, sendTx signs nothing again whatever the node then answers", async () => {
+  // The text the ante gives for a sequence another transaction took, in an error where the chain never puts it.
+  const sequenceText = () => json({ code: 2, message: "account sequence mismatch, expected 3, got 2: incorrect account sequence", details: [] }, 500);
+  const broadcasts = (calls: string[]) => calls.filter((c) => c === "POST /cosmos/tx/v1beta1/txs").length;
+  const simulations = (calls: string[]) => calls.filter((c) => c.includes("simulate")).length;
+
+  // The lookup after an accepted broadcast answers with it. Signing again at sequence 3 would pay twice.
+  const afterAccepted = node();
+  afterAccepted.script.push(broadcastOk, sequenceText);
+  await assert.rejects(sendTx(base(afterAccepted.client), { sleep: async () => {} }), (err: unknown) => {
+    // The caller holds neither the bytes nor the hash, so the error brings the hash of what the mempool holds.
+    assert.ok(err instanceof InclusionUnknown);
+    assert.equal(err.hash, HASH);
+    assert.equal(err.broadcast.accepted, true);
+    assert.ok(err.cause instanceof QueryError && err.cause.httpStatus === 500, "the node's answer is kept as the cause");
+    return true;
+  });
+  assert.equal(broadcasts(afterAccepted.calls), 1, "one transaction reached the mempool");
+  assert.equal(simulations(afterAccepted.calls), 1, "and nothing was prepared again");
+
+  // The broadcast itself answers with it: the text is the node's, and the node may have taken the transaction.
+  const atBroadcast = node();
+  atBroadcast.script.push(sequenceText);
+  await assert.rejects(sendTx(base(atBroadcast.client), { sleep: async () => {} }), (err: unknown) => err instanceof QueryError && err.httpStatus === 500);
+  assert.equal(broadcasts(atBroadcast.calls), 1);
+  assert.equal(simulations(atBroadcast.calls), 1);
+
+  // A broadcast whose outcome is unknown is not sent or signed again either, and its error carries the hash.
+  const lost = node();
+  lost.script.push(() => new Response("<html>bad gateway</html>", { status: 502 }));
+  await assert.rejects(sendTx(base(lost.client), { sleep: async () => {} }), (err: unknown) => err instanceof BroadcastUnknown && err.hash === HASH);
+  assert.equal(broadcasts(lost.calls), 1);
+  assert.equal(simulations(lost.calls), 1);
+});
+
+test("the flow signs in amino mode, encoding the messages through the client's registry", async () => {
+  const prepared = await prepareAndSign({ ...base(node().client), mode: "amino" });
+  assert.equal(prepared.signed.mode, "amino");
+  assert.equal(utf8Decode(aminoSignDocBytes(prepared.signed.aminoSignDoc!)), f.sign_mode_amino!.sign_bytes, "the document a Ledger signs for this fixture");
+});
+
+test("the simulation runs over the body that is signed, its memo and timeouts included", async () => {
+  const bodyOf = (request: { body: string | undefined }) => fromBinary(TxRawSchema, fromBase64(JSON.parse(request.body!).tx_bytes)).bodyBytes;
+  const simulated = (n: ReturnType<typeof node>) => bodyOf(n.requests.find((r) => r.call.startsWith("POST /cosmos/tx/v1beta1/simulate"))!);
+
+  const n = node();
+  const prepared = await prepareAndSign({ ...base(n.client), memo: "invoice 7", timeoutHeight: 99n });
+  assert.deepEqual(simulated(n), prepared.signed.bodyBytes);
+  const signedBody = fromBinary(TxBodySchema, prepared.signed.bodyBytes);
+  assert.equal(signedBody.memo, "invoice 7");
+  assert.equal(signedBody.timeoutHeight, 99n);
+
+  // An unordered body is refused by the chain at any sequence but zero, so the simulation must carry the flag too.
+  const u = node("7");
+  const until = create(TimestampSchema, { seconds: 1_900_000_000n });
+  const unordered = await prepareAndSign({ ...base(u.client), unordered: true, timeoutTimestamp: until });
+  assert.deepEqual(simulated(u), unordered.signed.bodyBytes);
+  assert.equal(fromBinary(TxBodySchema, simulated(u)).unordered, true);
 });

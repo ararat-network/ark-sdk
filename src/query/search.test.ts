@@ -153,6 +153,9 @@ test("fetchTx refuses an answer for another transaction, and takes the hash in e
   const other = "AA".repeat(32);
   await assert.rejects(fetchTx(answer.client, other), (err: unknown) => err instanceof WrongTransaction && err.hash === other && err.answered === f.tx_hash);
   assert.equal((await fetchTx(answer.client, f.tx_hash!.toLowerCase()))?.hash, f.tx_hash, "case is not a difference");
+  // An answer that names no transaction is refused too: empty, it would read as a success at height zero.
+  const unnamed = stub(() => json({ tx: null, tx_response: {} }));
+  await assert.rejects(fetchTx(unnamed.client, other), (err: unknown) => err instanceof WrongTransaction && err.hash === other && err.answered === "");
   const [raw] = [await lookUpTx(answer.client, f.tx_hash!)];
   assert.equal(raw?.response.txhash, f.tx_hash, "lookUpTx returns the node's answer undecoded");
   assert.equal(raw?.tx?.body?.messages.length, 2);

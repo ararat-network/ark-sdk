@@ -187,8 +187,10 @@ export {
   broadcastAndConfirm,
   broadcastSync,
   type Confirmed,
+  DEFAULT_EXPIRY_GRACE_MS,
   type InclusionOptions,
   InclusionTimeout,
+  InclusionUnknown,
   TransactionExpired,
   waitForInclusion,
 } from "./tx/broadcast.js";

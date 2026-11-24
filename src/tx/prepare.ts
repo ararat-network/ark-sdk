@@ -12,7 +12,7 @@ import { type Signer, SignerError } from "../keys/signer.js";
 import type { QueryClient } from "../query/client.js";
 import { QueryError } from "../query/gateway.js";
 import { packMessages, type TxBodyInput } from "./body.js";
-import { BroadcastRefused, broadcastAndConfirm, type Confirmed, type InclusionOptions } from "./broadcast.js";
+import { BroadcastRefused, type BroadcastResult, broadcastSync, type Confirmed, type InclusionOptions, waitForAccepted } from "./broadcast.js";
 import { feeFromQuote, type SignedTx, type SigningMode, signTx, simulationTxBytes } from "./builder.js";
 import { adjustGas, FeeError, type FeeQuote, type Headroom, quoteFee } from "./fee.js";
 
@@ -151,7 +151,10 @@ const EXPECTED_SEQUENCE = /account sequence mismatch, expected (\d+), got \d+/;
  * surfaces at simulation, which runs against the mempool's state and so sees
  * a pending transaction, as a query error; or at CheckTx as the SDK's code
  * 32. Either way the log names the expected sequence, which the committed
- * account does not show while the earlier transaction is still pending.
+ * account does not show while the earlier transaction is still pending. This
+ * only reads the error: signing again on its answer is safe when the error
+ * came before the broadcast or is CheckTx's refusal, and not for an error met
+ * after a broadcast was accepted, whose text a faulty node could choose.
  */
 export function expectedSequence(err: unknown): bigint | undefined {
   let log: string | undefined;
@@ -161,21 +164,54 @@ export function expectedSequence(err: unknown): bigint | undefined {
   return m ? BigInt(m[1] as string) : undefined;
 }
 
-/** prepareAndSign, broadcast, and the block, signing once more at the chain's sequence when another transaction took it. */
+/**
+ * prepareAndSign, broadcast, and the block, signing once more at the chain's
+ * sequence when another transaction took it. The second signature is made
+ * only while the first transaction is known not to be in the mempool: before
+ * anything was sent, or when CheckTx refused it. Once a broadcast is accepted,
+ * or its outcome is unknown, nothing is signed again whatever the node then
+ * answers, since a second transaction would pay twice. Every failure from the
+ * broadcast on carries the transaction's hash.
+ */
 export async function sendTx(input: PrepareInput, options: SendOptions = {}): Promise<Sent> {
-  const retry = options.retryOnSequenceMismatch ?? true;
-  try {
-    return await attempt(input, options);
-  } catch (err) {
-    const expected = retry && !input.account ? expectedSequence(err) : undefined;
-    if (expected === undefined) throw err;
+  let attempt = input;
+  let signAgain = (options.retryOnSequenceMismatch ?? true) && !input.account;
+  for (;;) {
+    const handed = await signAndBroadcast(attempt, signAgain);
+    if (!("expected" in handed)) {
+      const inclusion = { ...options, timeoutHeight: options.timeoutHeight ?? input.timeoutHeight };
+      const response = await waitForAccepted(input.client, handed.broadcast, inclusion);
+      return { ...handed.prepared, broadcast: handed.broadcast, response };
+    }
+    // The committed account still shows the old sequence while the earlier transaction is pending, so it is read
+    // for its number only, and the sequence is the one the chain named.
     const { accountNumber } = await fetchAccount(input.client, input.address);
-    return attempt({ ...input, account: { accountNumber, sequence: expected } }, options);
+    attempt = { ...input, account: { accountNumber, sequence: handed.expected } };
+    signAgain = false;
   }
 }
 
-async function attempt(input: PrepareInput, options: InclusionOptions): Promise<Sent> {
-  const prepared = await prepareAndSign(input);
-  const inclusion = { ...options, timeoutHeight: options.timeoutHeight ?? input.timeoutHeight };
-  return { ...prepared, ...(await broadcastAndConfirm(input.client, prepared.signed.txBytes, inclusion)) };
+/**
+ * Signs and hands the transaction to the mempool. When another transaction
+ * took the sequence and the caller allows signing again, the sequence the
+ * chain expects is returned in place of an error, from the two points where
+ * the mempool cannot hold this transaction: the flow before the broadcast,
+ * and a CheckTx refusal. An error from the broadcast itself is never read for
+ * a sequence: its text is the node's, and the node may have the transaction.
+ */
+async function signAndBroadcast(input: PrepareInput, signAgain: boolean): Promise<{ prepared: Prepared; broadcast: BroadcastResult } | { expected: bigint }> {
+  let prepared: Prepared;
+  try {
+    prepared = await prepareAndSign(input);
+  } catch (err) {
+    const expected = signAgain ? expectedSequence(err) : undefined;
+    if (expected === undefined) throw err;
+    return { expected };
+  }
+  const broadcast = await broadcastSync(input.client, prepared.signed.txBytes);
+  if (broadcast.accepted) return { prepared, broadcast };
+  const refused = new BroadcastRefused(broadcast);
+  const expected = signAgain ? expectedSequence(refused) : undefined;
+  if (expected === undefined) throw refused;
+  return { expected };
 }

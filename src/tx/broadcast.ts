@@ -10,15 +10,20 @@ import { SDK_CODESPACE, TX_IN_MEMPOOL_CODE } from "../decode/result.js";
 import { ArkSdkError, errorMessage } from "../errors.js";
 import type { TxResponse } from "../gen/cosmos/base/abci/v1beta1/abci_pb.js";
 import type { QueryClient } from "../query/client.js";
-import { EndpointsExhausted, isEndpointFault, QueryError, TransportError } from "../query/gateway.js";
-import { lookUpTx } from "../query/search.js";
+import { EndpointsExhausted, isEndpointFault, QueryError } from "../query/gateway.js";
+import { lookUpTx, WrongTransaction } from "../query/search.js";
 
 /**
- * Statuses a proxy in front of the node answers with when the node's own
- * answer did not come back: the node may have taken the transaction first. A
- * 429 is not among them, since a rate limiter answers before forwarding.
+ * Whether a status is one a proxy in front of the node answers with when the
+ * node's own answer did not come back: the node may have taken the
+ * transaction first. 502, 503, and 504 are a gateway's, and the statuses
+ * above them are what a CDN answers with for an origin that timed out. A 500
+ * and a 501 are the node's own, given before it takes a transaction, and a
+ * 429 is a rate limiter's, which answers before forwarding.
  */
-const ANSWER_LOST_STATUSES: ReadonlySet<number> = new Set([502, 503, 504]);
+function answerLost(status: number): boolean {
+  return status >= 502 && status <= 599;
+}
 
 export interface BroadcastResult {
   /** SHA-256 of the bytes that were sent, computed here. */
@@ -41,8 +46,8 @@ export class BroadcastRefused extends ArkSdkError {
 
 /**
  * The broadcast's answer never arrived, came from a gateway that lost the
- * node's, or carried no verdict: the transaction may be in the mempool; poll
- * the hash.
+ * node's, could not be read, or carried no verdict: the transaction may be in
+ * the mempool; poll the hash.
  */
 export class BroadcastUnknown extends ArkSdkError {
   override readonly name: string = "BroadcastUnknown";
@@ -54,7 +59,13 @@ export class BroadcastUnknown extends ArkSdkError {
   }
 }
 
-/** The chain is past the transaction's timeout height and no block carried it: it can no longer be included. */
+/**
+ * The chain is past the transaction's timeout height and the node has no
+ * block that carried it: it can no longer be included. The node's word is
+ * taken only after the transaction stayed unfound for the grace period, on a
+ * node that says it is not catching up; a node whose index is further behind
+ * than that can still be wrong, so look the hash up elsewhere before paying again.
+ */
 export class TransactionExpired extends ArkSdkError {
   override readonly name: string = "TransactionExpired";
   constructor(
@@ -63,6 +74,27 @@ export class TransactionExpired extends ArkSdkError {
     readonly height: bigint,
   ) {
     super(`transaction ${hash} was not included by its timeout height ${timeoutHeight}; the chain is at ${height}`);
+  }
+}
+
+/**
+ * The mempool accepted the transaction, and the wait for its block then ended
+ * on an error that says nothing of the transaction: a node's answer to a
+ * lookup, or the caller's abort, kept as the cause. The transaction may still
+ * be included, and the hash is what finds it. sendTx and broadcastAndConfirm
+ * throw this so that no failure after an acceptance leaves a caller without
+ * the hash; the wait's own verdicts, which carry it, are thrown as they are.
+ */
+export class InclusionUnknown extends ArkSdkError {
+  override readonly name: string = "InclusionUnknown";
+  readonly hash: string;
+  constructor(
+    /** The mempool's verdict the transaction was accepted with. */
+    readonly broadcast: BroadcastResult,
+    override readonly cause: unknown,
+  ) {
+    super(`transaction ${broadcast.hash} was accepted by the mempool, and the wait for its block failed: ${errorMessage(cause)}; it may still be included`);
+    this.hash = broadcast.hash;
   }
 }
 
@@ -82,9 +114,10 @@ export class InclusionTimeout extends ArkSdkError {
  * Hands the transaction to the node's mempool, once, and returns its CheckTx
  * verdict. The broadcast is never re-sent to another endpoint: the first may
  * have taken it, so a lost answer is an unknown outcome, not a refusal,
- * whether the connection failed or a gateway answered 502, 503, or 504 in the
- * node's place. A node that already holds the transaction reports a cache
- * hit, which is an acceptance.
+ * whether the connection failed, a gateway answered in the node's place, or
+ * the node's answer arrived and could not be read. Only an answer that blames
+ * the request is the request's error. A node that already holds the
+ * transaction reports a cache hit, which is an acceptance.
  */
 export async function broadcastSync(client: QueryClient, txBytes: Uint8Array): Promise<BroadcastResult> {
   const hash = txHash(txBytes);
@@ -92,9 +125,11 @@ export async function broadcastSync(client: QueryClient, txBytes: Uint8Array): P
   try {
     r = (await client.tx.broadcast(txBytes)).txResponse;
   } catch (err) {
-    if (err instanceof TransportError) throw new BroadcastUnknown(hash, err);
-    if (err instanceof QueryError && ANSWER_LOST_STATUSES.has(err.httpStatus)) throw new BroadcastUnknown(hash, err);
-    throw err;
+    // The node's own verdict on the request, given before it takes a transaction.
+    if (err instanceof QueryError && !answerLost(err.httpStatus)) throw err;
+    // Anything else leaves the outcome unknown, and the hash is what the caller needs: the request was sent, and
+    // no answer that settles it came back.
+    throw new BroadcastUnknown(hash, err);
   }
   if (!r) throw new BroadcastUnknown(hash, new Error("the node answered without a verdict"));
   // The mempool already holds the transaction: the first broadcast reached it.
@@ -119,12 +154,21 @@ export interface InclusionOptions {
    * running to the deadline. Zero is the body's own value for no timeout and is read as none.
    */
   timeoutHeight?: bigint;
+  /**
+   * How long the transaction must stay unfound, once the chain is seen past its timeout height, before the wait
+   * says it expired; 10 seconds by default. The height is read from the node's blocks and the transaction from its
+   * index, which is written later and apart, so one look past the height does not settle it.
+   */
+  expiryGraceMs?: number;
   pollMs?: number;
   signal?: AbortSignal;
   /** Injectable for tests. */
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   now?: () => number;
 }
+
+/** How long a transaction must stay unfound past its timeout height before it is called expired: two of Ark's block intervals. */
+export const DEFAULT_EXPIRY_GRACE_MS = 10_000;
 
 const abortReason = (signal: AbortSignal): Error => (signal.reason instanceof Error ? signal.reason : new Error("aborted"));
 
@@ -157,13 +201,21 @@ async function latestHeight(client: QueryClient): Promise<bigint> {
   return height;
 }
 
+/** Whether the node says it is still catching up with the chain: its newest blocks are then ahead of its transaction index. */
+async function catchingUp(client: QueryClient): Promise<boolean> {
+  return (await client.node.syncing()).syncing;
+}
+
 /**
  * Polls the node until the transaction is in a committed block and returns
  * its result, whatever its code. NotFound means not yet; an endpoint fault is
  * ridden out until the deadline, which then names it; any other error is the
  * caller's and is thrown at once. Given the body's timeout height, the wait
- * ends once the chain is past it, after one last look, since a block at the
- * height may have carried the transaction between the poll and the read.
+ * ends as expired once the chain is past it and the transaction has stayed
+ * unfound for the grace period after, on a node that is not catching up, and
+ * after one last look: the node indexes a block's transactions after it
+ * reports the block, so the first look past the height can miss one the
+ * block carried.
  */
 export async function waitForInclusion(client: QueryClient, hash: string, options: InclusionOptions = {}): Promise<TxResponse> {
   const timeoutMs = options.timeoutMs ?? 60_000;
@@ -173,7 +225,10 @@ export async function waitForInclusion(client: QueryClient, hash: string, option
   // A body with no timeout carries height zero, which every chain height is
   // past: it must not read as an expiry.
   const timeoutHeight = options.timeoutHeight !== undefined && options.timeoutHeight > 0n ? options.timeoutHeight : undefined;
+  const expiryGraceMs = options.expiryGraceMs ?? DEFAULT_EXPIRY_GRACE_MS;
   const start = now();
+  /** When the chain was first seen past the timeout height. */
+  let pastSince: number | undefined;
   let lastError: unknown;
   for (;;) {
     try {
@@ -183,9 +238,12 @@ export async function waitForInclusion(client: QueryClient, hash: string, option
       if (timeoutHeight !== undefined) {
         const height = await latestHeight(client);
         if (height > timeoutHeight) {
-          const last = await lookUpTx(client, hash);
-          if (last) return last.response;
-          throw new TransactionExpired(hash, timeoutHeight, height);
+          pastSince ??= now();
+          if (now() - pastSince >= expiryGraceMs && !(await catchingUp(client))) {
+            const last = await lookUpTx(client, hash);
+            if (last) return last.response;
+            throw new TransactionExpired(hash, timeoutHeight, height);
+          }
         }
       }
     } catch (err) {
@@ -205,10 +263,25 @@ export interface Confirmed {
   response: TxResponse;
 }
 
-/** Broadcasts, fails on a CheckTx refusal, and waits for the block. */
+/**
+ * Waits for the block of a transaction the mempool accepted. Every failure
+ * from here carries the hash: the wait's verdicts on the transaction as they
+ * are, and anything else as InclusionUnknown. Shared with sendTx; not
+ * re-exported from the index.
+ */
+export async function waitForAccepted(client: QueryClient, broadcast: BroadcastResult, options: InclusionOptions = {}): Promise<TxResponse> {
+  try {
+    return await waitForInclusion(client, broadcast.hash, options);
+  } catch (err) {
+    if (err instanceof InclusionTimeout || err instanceof TransactionExpired || err instanceof WrongTransaction) throw err;
+    throw new InclusionUnknown(broadcast, err);
+  }
+}
+
+/** Broadcasts, fails on a CheckTx refusal, and waits for the block; a failure after the acceptance carries the hash. */
 export async function broadcastAndConfirm(client: QueryClient, txBytes: Uint8Array, options: InclusionOptions = {}): Promise<Confirmed> {
   const broadcast = await broadcastSync(client, txBytes);
   if (!broadcast.accepted) throw new BroadcastRefused(broadcast);
-  const response = await waitForInclusion(client, broadcast.hash, options);
+  const response = await waitForAccepted(client, broadcast, options);
   return { broadcast, response };
 }

@@ -54,14 +54,14 @@ export type Reply = (call: string) => Response;
 export function fakeNode(
   script: Reply[] = [],
   replies: Record<string, Reply> = {},
-): { client: QueryClient; calls: string[]; script: Reply[]; replies: Record<string, Reply> } {
+): { client: QueryClient; calls: string[]; requests: SeenRequest[]; script: Reply[]; replies: Record<string, Reply> } {
   const calls: string[] = [];
-  const { fetch } = stubFetch(({ call }) => {
+  const { fetch, seen } = stubFetch(({ call }) => {
     calls.push(call);
     const standing = Object.entries(replies).find(([prefix]) => call.startsWith(prefix));
     const reply = standing ? standing[1] : script.shift();
     if (!reply) throw new Error(`unexpected request ${call}`);
     return reply(call);
   });
-  return { client: new QueryClient("http://node", { fetch }), calls, script, replies };
+  return { client: new QueryClient("http://node", { fetch }), calls, requests: seen, script, replies };
 }

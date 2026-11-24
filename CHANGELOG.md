@@ -41,6 +41,21 @@ Fixed:
   `coinsToString`, `LegacyDec.fromWire`, the vesting and fee arithmetic, and the JSON view now give the chain's
   number, and refuse text the chain refuses; `fromProtoJson` reads an `Int`'s JSON text the same way. The amino
   document still carries a string `Int`'s text as it is, as the chain's does.
+- `sendTx` signs again on a sequence mismatch only while the first transaction cannot be in the mempool: when the
+  flow before the broadcast met it, or CheckTx refused the transaction for it. It read the text of any query error
+  from the whole flow, the wait after an accepted broadcast included, so a lookup answered with the ante's sequence
+  error made it sign and broadcast the same messages a second time at the next sequence: two payments.
+- A lookup answered with no transaction hash is refused with `WrongTransaction`, as one for another hash is.
+  `waitForInclusion`, `fetchTx`, and `lookUpTx` took an empty answer for the transaction, and an empty result reads
+  as code zero: a success reported for a transaction that may be in no block.
+- `broadcastSync` reports a broadcast answer it cannot read as `BroadcastUnknown`, with the hash and what failed
+  as the cause, and likewise an answer with a status above 504, which a CDN gives for an origin that timed out.
+  They surfaced as a codec error or a `QueryError` with no hash, though the node may hold the transaction. A 500 and
+  a 501 are still the node's own refusal.
+- `waitForInclusion` says a transaction expired only once it has stayed unfound for `expiryGraceMs`, 10 seconds by
+  default, after the chain is seen past its timeout height, and only on a node that says it is not catching up. A
+  node reports a block before it has indexed the block's transactions, so the one look it took could report a
+  transaction as never includable that a block at the height had carried.
 - With several endpoints, calls in flight together each walk the endpoints once. A call read the client's current
   endpoint again at every attempt, so one that failed over while another was still waiting sent that other back to
   the endpoint it had just left: it could fail with `EndpointsExhausted` naming one endpoint twice while a healthy
@@ -49,6 +64,10 @@ Fixed:
 
 Added:
 
+- `InclusionUnknown`, thrown by `sendTx` and `broadcastAndConfirm` when the wait for a block fails after the mempool
+  accepted the transaction: it carries the hash, the mempool's verdict, and what the wait met as the cause.
+- `InclusionOptions.expiryGraceMs` and `DEFAULT_EXPIRY_GRACE_MS`, how long a transaction stays unfound past its
+  timeout height before `waitForInclusion` calls it expired.
 - `intFromWire`, the integer a `cosmos.Int`'s text holds as the chain reads it: what to use in place of `BigInt` on
   a coin's amount out of a decoded message.
 - `unknownAnyJson` and `anyFromUnknownJson`, and `unknownAny: "keep"` on `fromProtoJson`, which still throws on an
@@ -72,6 +91,12 @@ Added:
 
 Changed:
 
+- After an accepted broadcast, `sendTx` and `broadcastAndConfirm` throw `InclusionUnknown` where they threw whatever
+  the wait met: a node's error answering a lookup, or the caller's abort, which is now its `cause`. Such an error
+  carried no hash, and a caller of `sendTx` holds neither the bytes nor the hash, so a transaction was left in the
+  mempool with nothing to find it by. `InclusionTimeout`, `TransactionExpired`, and `WrongTransaction` carry the
+  hash and are thrown as they were; `waitForInclusion` called directly is unchanged. This is a breaking change for
+  a caller that matched those errors by class or by an abort's name.
 - `coin` refuses an amount that is negative, over 256 bits, or text other than decimal digits with no leading zero,
   with `CoinError`; it passed any text through. `parseCoin` and `parseCoins` refuse a leading zero, and
   `coinFromDisplay` a negative amount. `packMessages`, and so `signTx` and `prepareAndSign`, refuse a message whose

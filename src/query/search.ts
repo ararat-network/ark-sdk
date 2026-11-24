@@ -79,29 +79,31 @@ export async function searchTxs(client: QueryClient, query: string, options: Sea
   };
 }
 
-/** The node answered a lookup with a different transaction than the one asked for. */
+/** The node answered a lookup with a different transaction than the one asked for, or with one it did not name: `answered` is then empty. */
 export class WrongTransaction extends ArkSdkError {
   override readonly name: string = "WrongTransaction";
   constructor(
     readonly hash: string,
     readonly answered: string,
   ) {
-    super(`the node answered for transaction ${answered}, not ${hash}`);
+    super(answered === "" ? `the node answered for a transaction with no hash, not ${hash}` : `the node answered for transaction ${answered}, not ${hash}`);
   }
 }
 
 /**
  * The node's answer for one committed transaction by hash, as it sent it, or
  * undefined while the node has none under the hash: NotFound means pending or
- * unknown, not a failure. An answer for another hash is refused, so a faulty
- * endpoint cannot pass one transaction's result off as another's.
+ * unknown, not a failure. An answer for another hash, or for none, is refused,
+ * so a faulty endpoint cannot pass one transaction's result off as another's.
  */
 export async function lookUpTx(client: QueryClient, hash: string): Promise<{ response: TxResponse; tx: Tx | undefined } | undefined> {
   try {
     const found = await client.tx.getTx(hash);
     const response = found.txResponse;
     if (!response) return undefined;
-    if (response.txhash !== "" && response.txhash.toUpperCase() !== hash.toUpperCase()) throw new WrongTransaction(hash, response.txhash);
+    // A node names the transaction it answers for. An answer with no hash is refused as one for another hash is:
+    // an empty result reads as code zero, a success, for a transaction that may be in no block.
+    if (response.txhash.toUpperCase() !== hash.toUpperCase()) throw new WrongTransaction(hash, response.txhash);
     return { response, tx: found.tx };
   } catch (err) {
     if (err instanceof QueryError && err.isNotFound) return undefined;
