@@ -41,6 +41,20 @@ Fixed:
   `coinsToString`, `LegacyDec.fromWire`, the vesting and fee arithmetic, and the JSON view now give the chain's
   number, and refuse text the chain refuses; `fromProtoJson` reads an `Int`'s JSON text the same way. The amino
   document still carries a string `Int`'s text as it is, as the chain's does.
+- A bytes field in a route's path is sent as the gateway reads it: base64 in the URL's alphabet, of the bytes
+  themselves. `gateway.call` put a smart contract query's JSON in the path, which the gateway refused, and the
+  standard alphabet elsewhere, whose `/` the gateway takes for a path separator: a raw contract state key or
+  `addressBytesToString` failed for about a third of binary values, and for some answered for another key.
+- Bytes cast to CometBFT's `HexBytes` are written and read as uppercase hex, as the chain's JSON has them. wasmd's
+  contract state keys and code checksums were read as base64: wrong bytes with no error, or the base64 library's.
+- A list of inline JSON renders as a list of what each holds, as the chain shows a contract authorization's
+  accepted messages; it rendered as base64 that did not read back to the same bytes.
+- The amino document signs a contract message's JSON member for member. A member named `__proto__` was dropped
+  and a negative zero written as `0`, so a Ledger signed bytes the chain did not rebuild. It also holds the memo,
+  chain ID, payer, and granter as the transaction's bytes carry them, half a surrogate pair as U+FFFD.
+- The amino encoder's bound on a duration is the chain's: seconds whose nanoseconds fit a 64-bit integer. It was
+  jsonpb's ten thousand years, so a duration over 292 years was signed that the chain refuses to encode.
+- wasmd's access type renders as `Unspecified` for a value it does not name, as wasmd writes it, not as a number.
 - `paginate` and `collectAll` walk a route that pages by offset to its end. They stopped when an answer carried no
   next key, and such a route never carries one: `collectAll` over `tx.byBlock` returned the first 100 transactions
   of a larger block, with no error. A page with no next key whose total says more exist is followed by offset.

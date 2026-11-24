@@ -142,7 +142,7 @@ function rank(order: readonly string[], denom: string): number {
   return i < 0 ? order.length : i;
 }
 
-/** Gas for the limit: ceil(simulated × adjustment); the adjustment is the caller's. */
+/** Gas for the limit: ceil(simulated × adjustment); the adjustment is the caller's, read to six decimal places. */
 export function adjustGas(gasUsed: bigint, adjustment: number): bigint {
   if (!(adjustment >= 1)) throw new FeeError(`gas adjustment ${adjustment} is below 1`);
   return LegacyDec.fromInt(gasUsed)

@@ -19,7 +19,7 @@ import { type ReflectList, type ReflectMap, type ReflectMessage, reflect } from 
 import { type Any, AnySchema, type Duration, DurationSchema, type Timestamp, TimestampSchema } from "@bufbuild/protobuf/wkt";
 import { ArkSdkError, errorMessage } from "../errors.js";
 import { anyFromUnknownJson, typeNameOf, typeUrlOf, UnknownTypeError, unknownAnyJson, type WithRegistry } from "./any.js";
-import { fromBase64, toBase64, utf8Decode, utf8Encode } from "./bytes.js";
+import { fromBase64, fromHex, toBase64, toHex, utf8Decode, utf8Encode } from "./bytes.js";
 import { intFromWire } from "./coins.js";
 import { LegacyDec } from "./dec.js";
 import { isJsonObject, type JsonObject, type JsonValue } from "./json.js";
@@ -176,7 +176,8 @@ function listToJson(list: ReflectList, f: DescField & { fieldKind: "list" }, ctx
         out.push(enumToJson(f.enum, item as number));
         break;
       case "scalar":
-        out.push(scalarToJson(f.scalar, item, f.longAsString));
+        // A list of inline JSON is a list of what each holds, as a single one is what it holds.
+        out.push(fieldOptions(f).isInlineJson ? inlineJsonOf(item as Uint8Array, f) : scalarToJson(f.scalar, item, f.longAsString));
     }
   }
   return out;
@@ -209,9 +210,19 @@ const CUSTOM_ENUM_NAMES: Record<string, Record<number, string>> = {
 };
 
 function enumToJson(e: DescEnum, n: number): JsonValue {
-  const custom = CUSTOM_ENUM_NAMES[e.typeName]?.[n];
-  if (custom !== undefined) return custom;
+  const custom = CUSTOM_ENUM_NAMES[e.typeName];
+  // An enum with names of its own names every value: wasmd's String() answers "Unspecified" for one it does not list.
+  if (custom !== undefined) return custom[n] ?? (custom[0] as string);
   return e.values.find((v) => v.number === n)?.name ?? n;
+}
+
+/** The JSON a RawContractMessage's bytes hold, which the chain's JSON carries as it is. */
+function inlineJsonOf(bytes: Uint8Array, f: DescField): JsonValue {
+  try {
+    return JSON.parse(utf8Decode(bytes)) as JsonValue;
+  } catch (err) {
+    throw new ProtoJsonError(`${f.parent.typeName}.${f.name}: its bytes are not JSON: ${errorMessage(err)}`, { cause: err });
+  }
 }
 
 function scalarFieldToJson(r: ReflectMessage, f: DescField & { fieldKind: "scalar" }): JsonValue {
@@ -231,12 +242,9 @@ function scalarFieldToJson(r: ReflectMessage, f: DescField & { fieldKind: "scala
   }
   if (o.isInlineJson) {
     if (!set) return null;
-    try {
-      return JSON.parse(utf8Decode(v as Uint8Array)) as JsonValue;
-    } catch (err) {
-      throw new ProtoJsonError(`${f.parent.typeName}.${f.name}: its bytes are not JSON: ${errorMessage(err)}`, { cause: err });
-    }
+    return inlineJsonOf(v as Uint8Array, f);
   }
+  if (o.isHexBytes && f.scalar === ScalarType.BYTES) return toHex(v as Uint8Array).toUpperCase();
   return scalarToJson(f.scalar, v, f.longAsString);
 }
 
@@ -466,6 +474,14 @@ function scalarFromJson(type: ScalarType, json: JsonValue, longAsString: boolean
     return type === ScalarType.BYTES ? utf8Encode(text) : text;
   }
   if (o.isInlineJson) return utf8Encode(JSON.stringify(json));
+  if (o.isHexBytes && type === ScalarType.BYTES) {
+    if (typeof json !== "string") throw new ProtoJsonError(`${where}: expected hex`);
+    try {
+      return fromHex(json);
+    } catch (err) {
+      throw new ProtoJsonError(`${where}: ${errorMessage(err)}`, { cause: err });
+    }
+  }
   switch (type) {
     case ScalarType.STRING:
       if (typeof json !== "string") throw new ProtoJsonError(`${where}: expected a string`);

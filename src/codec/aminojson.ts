@@ -11,7 +11,7 @@ import { ArkSdkError } from "../errors.js";
 import { CoinSchema } from "../gen/cosmos/base/v1beta1/coin_pb.js";
 import type { Fee, TxBody } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
 import { typeNameOf, typeUrlOf, UnknownTypeError, unknownAnyJson, type WithRegistry } from "./any.js";
-import { toBase64, utf8Decode } from "./bytes.js";
+import { toBase64, utf8Decode, utf8Encode } from "./bytes.js";
 import { intFromWire } from "./coins.js";
 import { LegacyDec } from "./dec.js";
 import { compareUtf8, type JsonObject, type JsonValue, marshalGoJsonBytes, sortKeys } from "./json.js";
@@ -65,6 +65,15 @@ export interface AminoSignDocInput {
   sequence: bigint;
 }
 
+/**
+ * A string as the transaction's bytes carry it. The bytes are UTF-8, where half of a surrogate pair becomes U+FFFD,
+ * and the chain builds its document from the bytes: the document signed here must hold the same character, not
+ * the half the caller's string held.
+ */
+function wellFormed(text: string): string {
+  return utf8Decode(utf8Encode(text));
+}
+
 /** The amino sign document of a transaction, as the chain's handler builds it. */
 export function makeAminoSignDoc(input: AminoSignDocInput, options: AminoOptions): AminoSignDoc {
   const { body, fee } = input;
@@ -74,17 +83,17 @@ export function makeAminoSignDoc(input: AminoSignDocInput, options: AminoOptions
   const ctx: Context = { registry: options.registry };
   const doc: AminoSignDoc = {
     account_number: input.accountNumber.toString(),
-    chain_id: input.chainId,
+    chain_id: wellFormed(input.chainId),
     fee: {
       amount: fee.amount.map((c) => marshalMessage(reflect(CoinSchema, c), ctx) as unknown as AminoCoin),
       gas: fee.gasLimit.toString(),
     },
-    memo: body.memo,
+    memo: wellFormed(body.memo),
     msgs: body.messages.map((m) => marshalAny(m, ctx)),
     sequence: input.sequence.toString(),
   };
-  if (fee.payer !== "") doc.fee.payer = fee.payer;
-  if (fee.granter !== "") doc.fee.granter = fee.granter;
+  if (fee.payer !== "") doc.fee.payer = wellFormed(fee.payer);
+  if (fee.granter !== "") doc.fee.granter = wellFormed(fee.granter);
   if (body.timeoutHeight !== 0n) doc.timeout_height = body.timeoutHeight.toString();
   if (body.unordered) doc.unordered = true;
   if (body.timeoutTimestamp) doc.timeout_timestamp = timestampToAmino(body.timeoutTimestamp);

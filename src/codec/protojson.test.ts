@@ -15,9 +15,11 @@ import { TxResponseSchema } from "../gen/cosmos/base/abci/v1beta1/abci_pb.js";
 import { ProposalSchema, ProposalStatus } from "../gen/cosmos/gov/v1/gov_pb.js";
 import { CommissionRatesSchema } from "../gen/cosmos/staking/v1beta1/staking_pb.js";
 import { TxBodySchema } from "../gen/cosmos/tx/v1beta1/tx_pb.js";
-import { AccessConfigSchema, AccessType } from "../gen/cosmwasm/wasm/v1/types_pb.js";
+import { AcceptedMessagesFilterSchema } from "../gen/cosmwasm/wasm/v1/authz_pb.js";
+import { QueryCodeInfoResponseSchema } from "../gen/cosmwasm/wasm/v1/query_pb.js";
+import { AccessConfigSchema, AccessType, ModelSchema } from "../gen/cosmwasm/wasm/v1/types_pb.js";
 import { UnknownTypeError, unknownAnyJson, unpackAnyAs } from "./any.js";
-import { fromHex, utf8Encode } from "./bytes.js";
+import { fromHex, utf8Decode, utf8Encode } from "./bytes.js";
 import { CoinError } from "./coins.js";
 import { LegacyDec } from "./dec.js";
 import { ProtoJsonError, unknownEnumNames } from "./protojson.js";
@@ -198,4 +200,33 @@ test("a scalar that is not what its field holds is refused by name, with the SDK
     (err: unknown) => err instanceof ProtoJsonError && /PubKey\.key/.test(err.message),
   );
   assert.throws(() => fromHex("zz"), ArkSdkError);
+});
+
+test("bytes cast to HexBytes are uppercase hex in the chain's JSON, and a list of inline JSON is a list of what each holds", () => {
+  // What the gateway's own marshaller writes for wasmd's Model and its code checksum.
+  const model = create(ModelSchema, { key: fromHex("01abff"), value: fromHex("0102") });
+  assert.deepEqual(toProtoJson(ModelSchema, model), { key: "01ABFF", value: "AQI=" });
+  const read = fromProtoJson(ModelSchema, { key: "636F6E666967", value: "AQI=" });
+  assert.equal(utf8Decode(read.key), "config", "read as base64 this key was nine other bytes");
+  assert.deepEqual(fromProtoJson(ModelSchema, { key: "01abff", value: "" }).key, fromHex("01abff"), "either case reads");
+  assert.throws(
+    () => fromProtoJson(ModelSchema, { key: "xyz" }),
+    (err: unknown) => err instanceof ProtoJsonError && /Model\.key/.test(err.message),
+  );
+  const checksum = "DEADBEEF".repeat(8);
+  assert.equal(fromProtoJson(QueryCodeInfoResponseSchema, { checksum }).checksum.length, 32, "a code checksum is 32 bytes");
+  assert.equal((toProtoJson(QueryCodeInfoResponseSchema, fromProtoJson(QueryCodeInfoResponseSchema, { checksum })) as { checksum: string }).checksum, checksum);
+
+  // A contract authorization's filter: each accepted message is JSON, and the chain's view shows it as JSON.
+  const filter = create(AcceptedMessagesFilterSchema, { messages: [utf8Encode('{"transfer":{}}'), utf8Encode('{"b":1,"a":2}')] });
+  const view = toProtoJson(AcceptedMessagesFilterSchema, filter);
+  assert.deepEqual(view, { messages: [{ transfer: {} }, { b: 1, a: 2 }] });
+  assert.deepEqual(
+    fromProtoJson(AcceptedMessagesFilterSchema, view).messages.map(utf8Decode),
+    ['{"transfer":{}}', '{"b":1,"a":2}'],
+    "and it reads back to the same bytes",
+  );
+
+  // wasmd names every access type: one it does not list is "Unspecified", never a bare number.
+  assert.deepEqual(toProtoJson(AccessConfigSchema, create(AccessConfigSchema, { permission: 5 as AccessType })), { permission: "Unspecified", addresses: [] });
 });

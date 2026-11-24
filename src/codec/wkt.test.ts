@@ -37,14 +37,17 @@ test("timestamps render as jsonpb and as Go's RFC 3339 forms", () => {
 
 test("a duration past the chain's bounds, or with its parts at odds, is refused as the chain refuses it", () => {
   const cases: [string, { seconds: bigint; nanos: number }][] = [
-    ["seconds past ten thousand years", { seconds: 315_576_000_001n, nanos: 0 }],
-    ["negative seconds past the bound", { seconds: -315_576_000_001n, nanos: 0 }],
+    // The chain's amino encoder writes nanoseconds as a 64-bit integer and refuses seconds above MaxInt64 / 10^9 − 1.
+    ["seconds whose nanoseconds pass 64 bits", { seconds: 9_223_372_036n, nanos: 0 }],
+    ["ten thousand years, jsonpb's bound and not this encoder's", { seconds: 315_576_000_000n, nanos: 0 }],
+    ["negative seconds whose nanoseconds pass 64 bits", { seconds: -9_223_372_037n, nanos: 0 }],
     ["a second of nanos", { seconds: 1n, nanos: 1_000_000_000 }],
     ["positive seconds with negative nanos", { seconds: 1n, nanos: -1 }],
     ["negative seconds with positive nanos", { seconds: -1n, nanos: 1 }],
   ];
   for (const [name, d] of cases) assert.throws(() => durationToAmino(create(DurationSchema, d)), /duration/, name);
-  assert.equal(durationToAmino(create(DurationSchema, { seconds: 315_576_000_000n, nanos: 999_999_999 })), "315576000000999999999", "the bound itself encodes");
+  assert.equal(durationToAmino(create(DurationSchema, { seconds: 9_223_372_035n, nanos: 999_999_999 })), "9223372035999999999", "the bound itself encodes");
+  assert.equal(durationToAmino(create(DurationSchema, { seconds: -9_223_372_036n, nanos: 0 })), "-9223372036000000000");
 });
 
 test("durations render as jsonpb seconds and amino nanoseconds", () => {

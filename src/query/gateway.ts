@@ -6,10 +6,21 @@
 // endpoints, a call that cannot reach one, or finds it unavailable, moves to
 // the next and stays there; an answer that blames the request is final, and
 // a call that must not be repeated is never re-sent.
-import { create, type DescMethod, getOption, hasOption, type MessageInitShape, type MessageShape, type Registry } from "@bufbuild/protobuf";
+import {
+  create,
+  type DescMethod,
+  getOption,
+  hasOption,
+  type Message,
+  type MessageInitShape,
+  type MessageShape,
+  type Registry,
+  ScalarType,
+} from "@bufbuild/protobuf";
 import type { GenService, GenServiceMethods } from "@bufbuild/protobuf/codegenv2";
+import { reflect } from "@bufbuild/protobuf/reflect";
 import type { WithRegistry } from "../codec/any.js";
-import { stripTrailing } from "../codec/bytes.js";
+import { fromBase64, stripTrailing, toBase64 } from "../codec/bytes.js";
 import { isJsonObject, type JsonObject, type JsonValue } from "../codec/json.js";
 import { fromProtoJson, ProtoJsonError, toProtoJson } from "../codec/protojson.js";
 import { ArkSdkError, errorMessage } from "../errors.js";
@@ -179,7 +190,7 @@ export class GatewayClient {
     const desc = service.method[method] as DescMethod;
     const input = desc.input as InputOf<S, M>;
     const message = create(input, request);
-    const route = routeFor(desc, toProtoJson(input, message, { registry: this.registry }) as JsonObject);
+    const route = routeFor(desc, toProtoJson(input, message, { registry: this.registry }) as JsonObject, message);
     const attempts: EndpointAttempt[] = [];
     const tries = options.idempotent === false ? 1 : this.baseUrls.length;
     // The walk is fixed when the call begins. Calls overlap, and one that moves the client on while this one is
@@ -277,8 +288,21 @@ function gatewayError(json: JsonValue, status: number, url: string): QueryError 
   return new QueryError(GrpcCode.Unknown, JSON.stringify(json), status, url);
 }
 
-/** The gateway route of a method for one request, from its google.api.http option. */
-export function routeFor(method: DescMethod, request: JsonObject): Route {
+/**
+ * Bytes as a path parameter. The gateway reads one as base64, in the standard alphabet or the URL's, and takes a "/"
+ * in the path for a separator: the standard alphabet's would cut the value short or name another route. The URL
+ * alphabet with its padding is the form it reads whatever the bytes.
+ */
+function bytesPathSegment(bytes: Uint8Array): string {
+  return toBase64(bytes).replaceAll("+", "-").replaceAll("/", "_");
+}
+
+/**
+ * The gateway route of a method for one request, from its google.api.http option. `message` is the request the JSON
+ * was rendered from: a bytes field in the path is taken from it, since its JSON may be the JSON it holds and not
+ * its bytes.
+ */
+export function routeFor(method: DescMethod, request: JsonObject, message?: Message): Route {
   if (!hasOption(method, http)) throw new ArkSdkError(`${method.parent.typeName}.${method.name} has no gateway route`);
   const rule = getOption(method, http);
   const pattern = rule.pattern;
@@ -291,6 +315,12 @@ export function routeFor(method: DescMethod, request: JsonObject): Route {
     // An empty value would leave an empty path segment, which is another route or none.
     if (value === undefined || value === null || value === "")
       throw new ArkSdkError(`${method.parent.typeName}.${method.name}: request lacks ${name} for the route`);
+    const field = method.input.fields.find((f) => f.name === name);
+    if (field?.fieldKind === "scalar" && field.scalar === ScalarType.BYTES) {
+      const bytes = message ? (reflect(method.input, message).get(field) as Uint8Array) : typeof value === "string" ? fromBase64(value) : undefined;
+      if (!bytes) throw new ArkSdkError(`${method.parent.typeName}.${method.name}: ${name} is bytes, and the route needs the request it was rendered from`);
+      return encodeURIComponent(bytesPathSegment(bytes));
+    }
     return encodeURIComponent(typeof value === "string" ? value : JSON.stringify(value));
   });
   if (rule.body === "*") return { verb, path, body: remaining };

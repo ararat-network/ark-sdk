@@ -35,11 +35,13 @@ export function compareUtf8(a: string, b: string): number {
 export function sortKeys(value: JsonValue): JsonValue {
   if (Array.isArray(value)) return value.map(sortKeys);
   if (value !== null && typeof value === "object") {
-    const out: JsonObject = {};
-    for (const key of Object.keys(value).sort(compareUtf8)) {
-      out[key] = sortKeys(value[key] as JsonValue);
-    }
-    return out;
+    // Built from entries, never by assignment: assigning a member named "__proto__" sets the prototype and loses it,
+    // and a contract's message may hold one.
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort(compareUtf8)
+        .map((key) => [key, sortKeys(value[key] as JsonValue)]),
+    );
   }
   return value;
 }
@@ -132,5 +134,6 @@ export function goJsonString(s: string): string {
  */
 export function goJsonNumber(n: number): string {
   if (!Number.isFinite(n)) throw new ArkSdkError(`json: unsupported value ${n}`);
-  return String(n);
+  // Go writes the sign of a negative zero, and a contract's message may hold one.
+  return Object.is(n, -0) ? "-0" : String(n);
 }

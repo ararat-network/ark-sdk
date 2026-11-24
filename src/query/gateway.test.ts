@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { create, createRegistry } from "@bufbuild/protobuf";
 
 import { packAny } from "../codec/any.js";
+import { utf8Encode } from "../codec/bytes.js";
 import { ProtoJsonError, unknownEnumNames } from "../codec/protojson.js";
 import { registry } from "../codec/registry.js";
 import { GatewayClient, QueryClient } from "../defaults.js";
@@ -11,11 +12,13 @@ import { ArkSdkError } from "../errors.js";
 import { GrantKind } from "../gen/ark/disbursement/v1/disbursement_pb.js";
 import { Query as DisbursementQuery } from "../gen/ark/disbursement/v1/query_pb.js";
 import { Query as TreasuryQuery } from "../gen/ark/treasury/v1/query_pb.js";
+import { Query as AuthQuery } from "../gen/cosmos/auth/v1beta1/query_pb.js";
 import { MsgSendSchema } from "../gen/cosmos/bank/v1beta1/tx_pb.js";
 import { Service as NodeService } from "../gen/cosmos/base/tendermint/v1beta1/query_pb.js";
 import { ProposalStatus } from "../gen/cosmos/gov/v1/gov_pb.js";
 import { Query as GovQuery } from "../gen/cosmos/gov/v1/query_pb.js";
 import { Service as TxService } from "../gen/cosmos/tx/v1beta1/service_pb.js";
+import { Query as WasmQuery } from "../gen/cosmwasm/wasm/v1/query_pb.js";
 import { amounts, fixtureKey } from "../testing/fixtures.js";
 import { json, stubFetch } from "../testing/node.js";
 import { QueryClient as CoreQueryClient } from "./client.js";
@@ -393,4 +396,27 @@ test("a block's transactions are walked to the last, though the route pages by o
     seen.map((s) => s.call.split("?")[1]),
     ["pagination.limit=100", "pagination.offset=100&pagination.limit=100", "pagination.offset=200&pagination.limit=100"],
   );
+});
+
+test("bytes in a route's path are sent as the gateway reads them: base64 in the URL's alphabet, of the bytes themselves", async () => {
+  const { fetch, seen } = stubFetch(() => json({}));
+  const gateway = new GatewayClient("http://node", { fetch });
+  const path = () => seen[seen.length - 1]!.call;
+
+  // A smart query is JSON, and the route takes the base64 of its bytes: the JSON itself in the path was refused.
+  await gateway.call(WasmQuery, "smartContractState", { address: "ark1c", queryData: utf8Encode('{"balance":{}}') });
+  assert.equal(path(), "GET /cosmwasm/wasm/v1/contract/ark1c/smart/eyJiYWxhbmNlIjp7fX0%3D");
+  // The standard alphabet's "/" is a path separator to the gateway, which cut the value short or named no route.
+  await gateway.call(WasmQuery, "rawContractState", { address: "ark1c", queryData: new Uint8Array([0xff, 0xff, 0xfe]) });
+  assert.equal(path(), "GET /cosmwasm/wasm/v1/contract/ark1c/raw/___-");
+  await gateway.call(WasmQuery, "rawContractState", { address: "ark1c", queryData: utf8Encode("config") });
+  assert.equal(path(), "GET /cosmwasm/wasm/v1/contract/ark1c/raw/Y29uZmln");
+  await gateway.call(AuthQuery, "addressBytesToString", { addressBytes: new Uint8Array([0xfb, 0xef, 0xff, 0x01]) });
+  assert.equal(path(), "GET /cosmos/auth/v1beta1/bech32/--__AQ%3D%3D");
+  await assert.rejects(gateway.call(WasmQuery, "rawContractState", { address: "ark1c" }), ArkSdkError, "bytes the route needs and the request lacks");
+
+  // The answers' hex-cast bytes are read as hex: a contract's state keys, as the node writes them.
+  const state = stubFetch(() => json({ models: [{ key: "636F6E666967", value: "e30=" }], pagination: null }));
+  const { models } = (await new GatewayClient("http://node", { fetch: state.fetch }).call(WasmQuery, "allContractState", { address: "ark1c" })).value;
+  assert.equal(new TextDecoder().decode(models[0]!.key), "config");
 });
