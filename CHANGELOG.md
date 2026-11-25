@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+Fixed:
+
+- The amino sign bytes of a contract message whose JSON holds half a surrogate pair as an escape, `"\ud83d"`, match
+  the chain's. Go reads the escaped half as U+FFFD and writes that character as it is; the encoder wrote the
+  six-character escape `\ufffd`, so the chain would have refused the signature. Checked against the chain's own
+  encoder. Two member names that become one this way are refused, since the chain keeps the later in the text.
+
+Added:
+
+- `decodeAminoSignDoc`, the reverse of `makeAminoSignDoc`: the body, fee, chain ID, account number, and sequence an
+  amino sign document describes, for a signer that is handed the document alone and must show what it says.
+  `aminoDecode` and `aminoDecodeAny` read one message, the reverse of `aminoEncode` and `aminoEncodeAny`, and
+  `durationFromAmino` a duration's nanoseconds. The decoder reads by the schemas the encoder writes by, finds a
+  message by its amino name, or by its type URL when it has none, and refuses a name two registered types share, a
+  member that names no field, and whatever the encoder refuses. A decoding is returned only if it encodes back to the
+  JSON it was read from. A contract message's bytes come back as the same JSON, compact with sorted keys, and every
+  message's bytes with its fields in number order: the document carries the content, not how its bytes were written.
+
 ## 0.3.0
 
 The fixes from two correctness reviews, and a client for each service. Code written against 0.2 may need changes: see

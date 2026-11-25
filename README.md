@@ -12,7 +12,7 @@ every byte checked against the chain's own fixtures.
 | --- | --- |
 | [src/registry/](src/registry/) | The network registry: chain ID, prefix, coin type, assets and display units, endpoints, feature flags, and the genesis hash check, from [ark-registry](https://github.com/ararat-network/ark-registry), every member checked on load. |
 | [src/keys/](src/keys/) | Bech32 addresses, secp256k1, BIP-39 derivation at coin type 330, the `Signer` interface, and an in-memory signer for tests and development. |
-| [src/codec/](src/codec/) | The chain's JSON dialect both ways, the amino JSON encoder a Ledger signs, `LegacyDec`, Any packing, and the type registry. |
+| [src/codec/](src/codec/) | The chain's JSON dialect both ways, the amino JSON a Ledger signs, written and read back, `LegacyDec`, Any packing, and the type registry. |
 | [src/query/](src/query/) | The gateway client over one endpoint or several, routes read from the generated descriptors, typed facades for Ark's and the Cosmos modules, pagination, and transaction search. |
 | [src/tx/](src/tx/) | Body, fee, sign documents, signing in direct or amino mode, broadcast, confirmation by polling, and the whole flow in one call. |
 | [src/decode/](src/decode/) | Transactions, typed events, results, message responses, and accounts with their vesting schedules, read the one way every Ark reader must. |
@@ -218,6 +218,16 @@ alone. The builder refuses to continue if a signer returns a different document 
 direct mode for a multisig key; a wallet that lets its user edit the fee or memo in its prompt therefore has to be
 asked not to, which for Keplr is `preferNoSetFee` and `preferNoSetMemo` on the offline signer.
 
+`signAmino` is handed the amino document and nothing else, so a signer that shows its holder what is being signed
+has to read that document back. `decodeAminoSignDoc` is the reverse of `makeAminoSignDoc`: it returns the body, with
+each message packed under its type URL for `decodeMessage`, the fee, the chain ID, the account number, and the
+sequence. It reads by the same schemas the encoder writes by, so every message type the registry holds is covered; a
+member that names no field is refused, and so is a document that the decoded transaction does not encode back to,
+byte for byte, since the chain has no amino reader to match and the encoder, which the fixtures pin, is the check.
+`aminoDecode` and `aminoDecodeAny` do the same for one message. The bytes are another matter than the content: an
+amino document does not say how a message's bytes were written, so a contract's message comes back as the same JSON,
+compact with sorted keys, and every message with its fields in number order.
+
 ## Generated code
 
 [buf.gen.yaml](buf.gen.yaml) generates `src/gen` with `protoc-gen-es` from three inputs, none needing an account:
@@ -261,7 +271,7 @@ The tests run on `node:test` through `tsx`; `pnpm test:coverage` adds coverage t
 and `pnpm check:browser` prove the built tarball installs, its types resolve, and the library bundles for a browser.
 [CONTRIBUTING.md](CONTRIBUTING.md) lists every command and the rules. Every one of the 85 transaction fixtures is reproduced byte for byte
 from its messages and declared fee: the body and auth-info bytes, the direct sign document, the amino sign bytes a
-Ledger would sign, the deterministic signature with the fixture's key, the raw bytes, and the hash; its declared fee
+Ledger would sign, which read back to the same body and fee, the deterministic signature with the fixture's key, the raw bytes, and the hash; its declared fee
 is recomputed from the tax, gas price, gas limit, and pads it records; and its transaction, every typed event in it
 and in the recorded blocks, and its result decode to what the files pin.
 

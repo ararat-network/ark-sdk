@@ -492,8 +492,8 @@ function integerFromJson(json: JsonValue, where: string, min: bigint, max: bigin
   return value;
 }
 
-/** The range of an integer scalar type. */
-function integerRange(type: ScalarType): [bigint, bigint] {
+/** The range of an integer scalar type. Shared with the amino decoder; not exported from the core entry. */
+export function integerRange(type: ScalarType): [bigint, bigint] {
   switch (type) {
     case ScalarType.UINT64:
     case ScalarType.FIXED64:

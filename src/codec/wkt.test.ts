@@ -5,6 +5,7 @@ import { create } from "@bufbuild/protobuf";
 import { DurationSchema, TimestampSchema } from "@bufbuild/protobuf/wkt";
 
 import {
+  durationFromAmino,
   durationFromText,
   durationToAmino,
   durationToProtoJson,
@@ -65,6 +66,13 @@ test("durations render as jsonpb seconds and amino nanoseconds", () => {
     const back = durationFromText(proto);
     assert.equal(back.seconds, seconds, proto);
     assert.equal(back.nanos, nanos, proto);
+    const fromAmino = durationFromAmino(amino);
+    assert.equal(fromAmino.seconds, seconds, amino);
+    assert.equal(fromAmino.nanos, nanos, amino);
   }
   assert.throws(() => durationFromText("5"));
+  // Amino's nanoseconds are read over the range they are written in, and only as the digits the encoder writes.
+  assert.equal(durationFromAmino("-9223372036000000000").seconds, -9_223_372_036n);
+  assert.equal(durationFromAmino("9223372035999999999").nanos, 999_999_999);
+  for (const text of ["9223372036000000000", "-9223372037000000000", "1.5s", "05", "-0", ""]) assert.throws(() => durationFromAmino(text), /duration/, text);
 });

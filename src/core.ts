@@ -14,9 +14,12 @@ export {
   type AminoOptions,
   type AminoSignDoc,
   type AminoSignDocInput,
+  aminoDecode,
+  aminoDecodeAny,
   aminoEncode,
   aminoEncodeAny,
   aminoSignDocBytes,
+  decodeAminoSignDoc,
   makeAminoSignDoc,
 } from "./codec/aminojson.js";
 export {
@@ -47,6 +50,7 @@ export {
 } from "./codec/json.js";
 export { type FromProtoJsonOptions, fromProtoJson, ProtoJsonError, type ToProtoJsonOptions, toProtoJson, unknownEnumNames } from "./codec/protojson.js";
 export {
+  durationFromAmino,
   durationFromText,
   durationToAmino,
   durationToProtoJson,
