@@ -59,7 +59,9 @@ void (async () => {
   void optional;
   sdk.makeAminoSignDoc({ body, fee, chainId: "c", accountNumber: 0n, sequence: 0n });
   sdk.aminoEncode(TxBodySchema, body);
-  sdk.aminoEncodeAny(any);
+  sdk.decodeAminoSignDoc(sdk.makeAminoSignDoc({ body, fee, chainId: "c", accountNumber: 0n, sequence: 0n }));
+  sdk.aminoDecode(TxBodySchema, sdk.aminoEncode(TxBodySchema, body));
+  sdk.aminoDecodeAny(sdk.aminoEncodeAny(any));
   sdk.toProtoJson(TxSchema, tx);
   sdk.fromProtoJson(TxSchema, {});
   sdk.decodeAccount(any);
@@ -143,6 +145,8 @@ const EXPORTED = [
   "addressBytes",
   "adjustGas",
   "affordableFeeDenoms",
+  "aminoDecode",
+  "aminoDecodeAny",
   "aminoEncode",
   "aminoEncodeAny",
   "aminoSignDocBytes",
@@ -161,6 +165,7 @@ const EXPORTED = [
   "collectAll",
   "decodeAccount",
   "decodeAddress",
+  "decodeAminoSignDoc",
   "decodeEvent",
   "decodeEvents",
   "decodeMessage",
@@ -171,6 +176,7 @@ const EXPORTED = [
   "directSignBytes",
   "disbursementClient",
   "distributionClient",
+  "durationFromAmino",
   "durationFromText",
   "durationToAmino",
   "durationToProtoJson",
@@ -307,6 +313,9 @@ test("the main entry's readers default the registry and use another when one is 
   assert.ok(sdk.unpackAny(send, none) === undefined);
   assert.throws(() => sdk.toProtoJson(AnySchema, send, { registry: none }), sdk.UnknownTypeError);
   assert.throws(() => sdk.aminoEncodeAny(send, { registry: none }), sdk.UnknownTypeError);
+  assert.throws(() => sdk.aminoDecodeAny(sdk.aminoEncodeAny(send), { registry: none }), sdk.UnknownTypeError);
+  const signDoc = sdk.makeAminoSignDoc({ body: tx.body!, fee: sdk.makeFee({ amount: [], gasLimit: 1n }), chainId: "c", accountNumber: 0n, sequence: 0n });
+  assert.throws(() => sdk.decodeAminoSignDoc(signDoc, { registry: none }), sdk.UnknownTypeError);
   assert.throws(() => sdk.fromProtoJson(AnySchema, { "@type": "/cosmos.bank.v1beta1.MsgSend" }, { registry: none }), sdk.UnknownTypeError);
 
   // The main entry's client is its own class from every way of making one, with the full registry unless given another.

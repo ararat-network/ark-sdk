@@ -11,8 +11,11 @@ import type { Any } from "@bufbuild/protobuf/wkt";
 import {
   type AminoSignDoc,
   type AminoSignDocInput,
+  aminoDecodeAny as aminoDecodeAnyWith,
+  aminoDecode as aminoDecodeWith,
   aminoEncodeAny as aminoEncodeAnyWith,
   aminoEncode as aminoEncodeWith,
+  decodeAminoSignDoc as decodeAminoSignDocWith,
   makeAminoSignDoc as makeAminoSignDocWith,
 } from "./codec/aminojson.js";
 import { type RegistryOption, type Unpacked, unpackAny as unpackAnyWith } from "./codec/any.js";
@@ -66,6 +69,11 @@ export function makeAminoSignDoc(input: AminoSignDocInput, options: AminoOptions
   return makeAminoSignDocWith(input, withRegistry(options));
 }
 
+/** The transaction an amino sign document describes; refused unless it encodes back to the same document. */
+export function decodeAminoSignDoc(doc: AminoSignDoc, options: AminoOptions = {}): AminoSignDocInput {
+  return decodeAminoSignDocWith(doc, withRegistry(options));
+}
+
 /** Encodes a message; wrapped as {"type", "value"} when the message has an amino name. */
 export function aminoEncode<Desc extends DescMessage>(schema: Desc, message: MessageShape<Desc>, options: AminoOptions = {}): JsonValue {
   return aminoEncodeWith(schema, message, withRegistry(options));
@@ -74,6 +82,16 @@ export function aminoEncode<Desc extends DescMessage>(schema: Desc, message: Mes
 /** Encodes a packed message as {"type", "value"}, the type its amino name or else its type URL. */
 export function aminoEncodeAny(any: Any, options: AminoOptions = {}): JsonValue {
   return aminoEncodeAnyWith(any, withRegistry(options));
+}
+
+/** Decodes what aminoEncode wrote: {"type", "value"} for a message with an amino name, its bare value for one without. */
+export function aminoDecode<Desc extends DescMessage>(schema: Desc, json: JsonValue, options: AminoOptions = {}): MessageShape<Desc> {
+  return aminoDecodeWith(schema, json, withRegistry(options));
+}
+
+/** Decodes {"type", "value"} into a packed message, the type an amino name or else the type URL of a message that has none. */
+export function aminoDecodeAny(json: JsonValue, options: AminoOptions = {}): Any {
+  return aminoDecodeAnyWith(json, withRegistry(options));
 }
 
 /** Renders a message in the chain's JSON dialect. */

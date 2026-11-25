@@ -5,6 +5,7 @@ import { create } from "@bufbuild/protobuf";
 import { type Duration, DurationSchema, type Timestamp, TimestampSchema } from "@bufbuild/protobuf/wkt";
 import { ArkSdkError } from "../errors.js";
 import { stripTrailing } from "./bytes.js";
+import { CANONICAL_INTEGER_TEXT } from "./fixed.js";
 
 const NANOS = 1_000_000_000n;
 
@@ -88,6 +89,18 @@ export function durationToAmino(d: Duration): string {
   if (d.nanos <= -1_000_000_000 || d.nanos >= 1_000_000_000) throw new WktError(`duration nanos out of range: ${d.nanos}`);
   if ((d.seconds > 0n && d.nanos < 0) || (d.seconds < 0n && d.nanos > 0)) throw new WktError(`duration sign mismatch: ${d.seconds}s ${d.nanos}ns`);
   return (d.seconds * NANOS + BigInt(d.nanos)).toString();
+}
+
+/** Reads amino's nanoseconds back: the reverse of durationToAmino, over the same range. */
+export function durationFromAmino(text: string): Duration {
+  if (!CANONICAL_INTEGER_TEXT.test(text)) throw new WktError(`not a duration in nanoseconds: ${text}`);
+  const total = BigInt(text);
+  // Division toward zero leaves the remainder the sign of the whole, as a Duration's two parts must agree.
+  const seconds = total / NANOS;
+  if (seconds > MAX_AMINO_DURATION_SECONDS || seconds < MIN_AMINO_DURATION_SECONDS) {
+    throw new WktError(`duration out of range for its nanoseconds as a 64-bit integer: ${text}ns`);
+  }
+  return create(DurationSchema, { seconds, nanos: Number(total % NANOS) });
 }
 
 /** Parses "1.5s" to a Duration. */

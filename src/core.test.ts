@@ -158,6 +158,9 @@ test("a core reader called without a registry says so by name, to a caller the t
     ],
     ["aminoEncode", () => untyped.aminoEncode!(MsgSendSchema, create(MsgSendSchema))],
     ["aminoEncodeAny", () => untyped.aminoEncodeAny!(any)],
+    ["decodeAminoSignDoc", () => untyped.decodeAminoSignDoc!({})],
+    ["aminoDecode", () => untyped.aminoDecode!(MsgSendSchema, {})],
+    ["aminoDecodeAny", () => untyped.aminoDecodeAny!({})],
     ["foundTx", () => untyped.foundTx!(create(TxResponseSchema), undefined)],
   ];
   for (const [reader, call] of calls) {
