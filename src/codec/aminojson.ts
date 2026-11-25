@@ -358,8 +358,25 @@ const inlineJson: FieldEncoder = (r, f) => {
   } catch {
     throw new AminoError("could not normalize JSON: invalid JSON bytes");
   }
-  return sortKeys(parsed);
+  return sortKeys(asGoReads(parsed));
 };
+
+/**
+ * JSON as Go's decoder holds it. Half of a surrogate pair written as an escape, "\ud83d", is a string here that holds
+ * the half; Go reads U+FFFD in its place, in a member's name as in a value, and the chain signs that character. Two
+ * names that become one are refused: Go keeps the member that came later in the text, and that order is gone.
+ */
+function asGoReads(value: JsonValue): JsonValue {
+  if (typeof value === "string") return wellFormed(value);
+  if (Array.isArray(value)) return value.map(asGoReads);
+  if (value === null || typeof value !== "object") return value;
+  // From entries, never by assignment, as sortKeys builds its copy: a member may be named "__proto__".
+  const entries = Object.entries(value).map(([name, member]) => [wellFormed(name), asGoReads(member)] as const);
+  if (new Set(entries.map(([name]) => name)).size < entries.length) {
+    throw new AminoError("could not normalize JSON: two members have one name once half a surrogate pair is read as U+FFFD");
+  }
+  return Object.fromEntries(entries);
+}
 
 const cosmosDec: FieldEncoder = (r, f) => {
   const v = numericField(r, f);

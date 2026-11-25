@@ -146,6 +146,32 @@ test("amino: a contract message's JSON is signed member for member, a __proto__ 
   assert.equal(signed('{"z":1,"a":[3,{"d":1,"c":2}]}'), '{"a":[3,{"c":2,"d":1}],"z":1}');
 });
 
+test("amino: half a surrogate pair escaped in a contract message's JSON is signed as U+FFFD, the character itself", () => {
+  // Go's decoder reads the escaped half as U+FFFD and its encoder writes that character as it is, three bytes. Each
+  // line is what the chain's encoder wrote for the payload, run over wasmd's MsgExecuteContract.
+  const cases: [string, string][] = [
+    ['{"a":"\\ud83d"}', '{"a":"\ufffd"}'],
+    ['{"a":"\\udc00"}', '{"a":"\ufffd"}'],
+    ['{"a":"\\ud83dx"}', '{"a":"\ufffdx"}'],
+    ['{"a":"\\ud83d\\ud83d\\ude00"}', '{"a":"\ufffd\u{1F600}"}'],
+    ['{"a":"\\ud83d\\ude00"}', '{"a":"\u{1F600}"}'],
+    ['{"\\ud83d":1}', '{"\ufffd":1}'],
+    ['{"a":"\\ufffd"}', '{"a":"\ufffd"}'],
+  ];
+  for (const [payload, signed] of cases) {
+    const execute = create(MsgExecuteContractSchema, { sender: "ark1s", contract: "ark1c", msg: utf8Encode(payload) });
+    const amino = aminoEncode(MsgExecuteContractSchema, execute) as { value: { msg: JsonObject } };
+    const text = marshalGoJson(amino.value.msg);
+    assert.equal(text, signed, payload);
+    assert.ok(!text.includes("\\u"), `${payload}: no six-character escape`);
+    // And the document reads back to a payload that holds the character, which signs the same.
+    assert.equal(utf8Decode(aminoDecode(MsgExecuteContractSchema, amino as unknown as JsonValue).msg), signed, payload);
+  }
+  // Two names the chain would read as one: it keeps the later in the text, an order a parsed object no longer has.
+  const twice = create(MsgExecuteContractSchema, { sender: "ark1s", contract: "ark1c", msg: utf8Encode('{"\\ud83d":1,"\\udc00":2}') });
+  assert.throws(() => aminoEncode(MsgExecuteContractSchema, twice), /two members have one name/);
+});
+
 test("amino: the document holds a string as the transaction's bytes carry it, half a surrogate pair as U+FFFD", () => {
   // The body's bytes are UTF-8, where the half becomes U+FFFD, and the chain writes that character as it is.
   const body = create(TxBodySchema, { memo: "gm \ud83d" });

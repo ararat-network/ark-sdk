@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Fixed:
+
+- The amino sign bytes of a contract message whose JSON holds half a surrogate pair as an escape, `"\ud83d"`, match
+  the chain's. Go reads the escaped half as U+FFFD and writes that character as it is; the encoder wrote the
+  six-character escape `\ufffd`, so the chain would have refused the signature. Checked against the chain's own
+  encoder. Two member names that become one this way are refused, since the chain keeps the later in the text.
+
 Added:
 
 - `decodeAminoSignDoc`, the reverse of `makeAminoSignDoc`: the body, fee, chain ID, account number, and sequence an
