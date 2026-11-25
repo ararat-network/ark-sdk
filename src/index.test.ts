@@ -73,7 +73,7 @@ void (async () => {
   sdk.decodeEvents([]);
   sdk.foundTx(create(TxResponseSchema), undefined);
   const signer = sdk.MemorySigner.random();
-  await sdk.signTx({ signer, address: signer.address, chainId: "c", accountNumber: 0n, sequence: 0n, messages: [], fee });
+  await sdk.signTx({ address: signer.address, chainId: "c", accountNumber: 0n, sequence: 0n, messages: [], fee }, signer);
   new sdk.GatewayClient("http://node");
   new sdk.QueryClient("http://node");
   sdk.QueryClient.forNetwork(sdk.Network.fromRegistry({} as sdk.RegistryFiles));
@@ -154,8 +154,8 @@ const EXPORTED = [
   "arkdPolicy",
   "authClient",
   "bankClient",
-  "broadcastAndConfirm",
   "broadcastSync",
+  "broadcastTx",
   "bytesEqual",
   "classifyResult",
   "coin",
@@ -229,7 +229,7 @@ const EXPORTED = [
   "parseCoin",
   "parseCoins",
   "parseDecCoin",
-  "prepareAndSign",
+  "prepareTx",
   "privateKeyFromMnemonic",
   "publicKeyFromPrivate",
   "publicKeyToAddress",
@@ -388,16 +388,17 @@ type PublicTypes = [
   sdk.Outcome,
   sdk.PageRequestInit,
   sdk.PaginateOptions,
-  sdk.PrepareInput,
-  sdk.Prepared,
+  sdk.PrepareTxInput,
+  sdk.PreparedTx,
   sdk.RegistryFiles,
   sdk.RegistryOption,
   sdk.SearchOptions,
   sdk.SearchResult,
   sdk.SendOptions,
+  sdk.SendTxInput,
   sdk.Sent,
   sdk.SignDocInput,
-  sdk.SignTxInput,
+  sdk.SignedBytes,
   sdk.SignedTx,
   sdk.Signer,
   sdk.SignerAccount,
@@ -411,6 +412,7 @@ type PublicTypes = [
   sdk.TxResultLike,
   sdk.Typed,
   sdk.Unpacked,
+  sdk.UnsignedTx,
   sdk.VerifyOptions,
   sdk.VestingPeriod,
   sdk.VestingSchedule,

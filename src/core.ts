@@ -197,13 +197,14 @@ export {
   BroadcastRefused,
   type BroadcastResult,
   BroadcastUnknown,
-  broadcastAndConfirm,
   broadcastSync,
+  broadcastTx,
   type Confirmed,
   DEFAULT_EXPIRY_GRACE_MS,
   type InclusionOptions,
   InclusionTimeout,
   InclusionUnknown,
+  type SignedBytes,
   TransactionExpired,
   waitForInclusion,
 } from "./tx/broadcast.js";
@@ -213,10 +214,10 @@ export {
   type SignedTx,
   SignerAlteredDocument,
   type SigningMode,
-  type SignTxInput,
   type SimulationTxInput,
   signTx,
   simulationTxBytes,
+  type UnsignedTx,
 } from "./tx/builder.js";
 export {
   adjustGas,
@@ -236,11 +237,12 @@ export { type MaxSendable, type MaxSendableInput, maxSendable } from "./tx/max.j
 export {
   type AccountState,
   expectedSequence,
-  type Prepared,
+  type PreparedTx,
   PrepareError,
-  type PrepareInput,
-  prepareAndSign,
+  type PrepareTxInput,
+  prepareTx,
   type SendOptions,
+  type SendTxInput,
   type Sent,
   sendTx,
 } from "./tx/prepare.js";

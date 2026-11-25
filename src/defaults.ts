@@ -39,11 +39,12 @@ import {
 } from "./decode/tx.js";
 import type { TxResponse } from "./gen/cosmos/base/abci/v1beta1/abci_pb.js";
 import type { Tx } from "./gen/cosmos/tx/v1beta1/tx_pb.js";
+import type { Signer } from "./keys/signer.js";
 import { QueryClient as CoreQueryClient, restEndpoints } from "./query/client.js";
 import { GatewayClient as CoreGatewayClient, type GatewayOptions as CoreGatewayOptions } from "./query/gateway.js";
 import { type FoundTx, foundTx as foundTxWith } from "./query/search.js";
 import type { Network } from "./registry/network.js";
-import { type SignedTx, type SignTxInput, signTx as signTxWith } from "./tx/builder.js";
+import { type SignedTx, signTx as signTxWith, type UnsignedTx } from "./tx/builder.js";
 
 export * from "./core.js";
 export { registry };
@@ -143,9 +144,9 @@ export function foundTx(response: TxResponse, tx: Tx | undefined, reg: Registry 
   return foundTxWith(response, tx, reg);
 }
 
-/** Builds and signs a transaction for one signer; amino mode encodes the messages through the registry. */
-export function signTx(input: SignTxInput): Promise<SignedTx> {
-  return signTxWith(withRegistry(input));
+/** Builds the transaction and has one signer sign it; amino mode encodes the messages through the registry. */
+export function signTx(input: UnsignedTx, signer: Signer): Promise<SignedTx> {
+  return signTxWith(withRegistry(input), signer);
 }
 
 /** The gateway client, resolving Any fields against every generated type unless given a registry. */

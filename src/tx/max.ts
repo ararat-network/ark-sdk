@@ -23,7 +23,7 @@ export interface MaxSendableInput extends Pick<FeeQuoteInput, "headroom" | "nati
    * chain prices the tax on these, so whatever it taxes or exempts is counted as it will be.
    */
   messages: (amount: bigint) => readonly TxMessage[];
-  /** The denomination that pays the base fee, as prepareAndSign takes it. Only a gas leg in `denom` comes out of this balance. */
+  /** The denomination that pays the base fee, as prepareTx takes it. Only a gas leg in `denom` comes out of this balance. */
   feeDenom: string;
   /** The gas limit the transaction will declare: simulate with any amount that fits, and adjust. */
   gasLimit: bigint;

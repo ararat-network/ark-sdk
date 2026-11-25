@@ -35,12 +35,13 @@ export class SignerAlteredDocument extends SignerError {
 }
 
 /**
- * The body's members, and who signs it at what account number, sequence, and
- * fee. `registry` is the types the amino encoder resolves the messages
+ * A transaction ready to sign: the body's members, and whose it is at what
+ * account number, sequence, and fee. prepareTx makes one with the fee the
+ * chain's figures price; a caller that already holds every figure writes one
+ * out. `registry` is the types the amino encoder resolves the messages
  * against: amino mode needs it, direct mode does not read it.
  */
-export interface SignTxInput extends TxBodyInput, RegistryOption {
-  signer: Signer;
+export interface UnsignedTx extends TxBodyInput, RegistryOption {
   address: string;
   /** The signer's account for `address`, when the caller already holds it; the signer is asked for its accounts otherwise. */
   signerAccount?: SignerAccount;
@@ -66,12 +67,17 @@ export interface SignedTx {
   signDoc: SignDoc | undefined;
   /** The document signed in amino mode. */
   aminoSignDoc: AminoSignDoc | undefined;
+  /** The body's timeout height, when it has one: what a wait for its block reads to say it expired. */
+  timeoutHeight: bigint | undefined;
 }
 
-/** Builds and signs a transaction for one signer. */
-export async function signTx(input: SignTxInput): Promise<SignedTx> {
+/**
+ * Builds the transaction and has one signer sign it, as it stands and with no
+ * request to a node: the fee signed is the fee it carries.
+ */
+export async function signTx(input: UnsignedTx, signer: Signer): Promise<SignedTx> {
   const mode = input.mode ?? "direct";
-  const account = input.signerAccount ?? signerAccountFor(await input.signer.accounts(), input.address);
+  const account = input.signerAccount ?? signerAccountFor(await signer.accounts(), input.address);
   if (account.address !== input.address) throw new SignerError(`the signer account given is ${account.address}, not ${input.address}`);
   checkKeyForMode(account.publicKey, mode);
 
@@ -86,7 +92,7 @@ export async function signTx(input: SignTxInput): Promise<SignedTx> {
   let aminoSignDoc: AminoSignDoc | undefined;
   if (mode === "direct") {
     signDoc = makeSignDoc({ bodyBytes, authInfoBytes, chainId: input.chainId, accountNumber: input.accountNumber });
-    const signed = await input.signer.signDirect(input.address, signDoc);
+    const signed = await signer.signDirect(input.address, signDoc);
     if (!bytesEqual(toBinary(SignDocSchema, signed.signDoc), directSignBytes(signDoc))) throw new SignerAlteredDocument();
     signature = signed.signature;
   } else {
@@ -95,12 +101,12 @@ export async function signTx(input: SignTxInput): Promise<SignedTx> {
       { body, fee: input.fee, chainId: input.chainId, accountNumber: input.accountNumber, sequence: input.sequence },
       { registry: input.registry },
     );
-    const signed = await input.signer.signAmino(input.address, aminoSignDoc);
+    const signed = await signer.signAmino(input.address, aminoSignDoc);
     if (!bytesEqual(aminoSignDocBytes(signed.signDoc), aminoSignDocBytes(aminoSignDoc))) throw new SignerAlteredDocument();
     signature = signed.signature;
   }
   const txBytes = encodeTxRaw({ bodyBytes, authInfoBytes, signatures: [signature] });
-  return { txBytes, hash: txHash(txBytes), bodyBytes, authInfoBytes, signature, mode, signDoc, aminoSignDoc };
+  return { txBytes, hash: txHash(txBytes), bodyBytes, authInfoBytes, signature, mode, signDoc, aminoSignDoc, timeoutHeight: input.timeoutHeight };
 }
 
 function checkKeyForMode(publicKey: Any, mode: SigningMode): void {

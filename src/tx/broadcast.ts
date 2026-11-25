@@ -248,7 +248,7 @@ export class BroadcastRefused extends ArkSdkError {
  * The mempool accepted the transaction, and the wait for its block then ended
  * on an error that says nothing of the transaction: a node's answer to a
  * lookup, or the caller's abort, kept as the cause. The transaction may still
- * be included, and the hash is what finds it. sendTx and broadcastAndConfirm
+ * be included, and the hash is what finds it. sendTx and broadcastTx
  * throw this so that no failure after an acceptance leaves a caller without
  * the hash; the wait's own verdicts, which carry it, are thrown as they are.
  */
@@ -265,11 +265,24 @@ export class InclusionUnknown extends ArkSdkError {
   }
 }
 
-/** Broadcasts, fails on a CheckTx refusal, and waits for the block; a failure after the acceptance carries the hash. */
-export async function broadcastAndConfirm(client: Pick<QueryClient, "tx" | "node">, txBytes: Uint8Array, options: InclusionOptions = {}): Promise<Confirmed> {
-  const broadcast = await broadcastSync(client, txBytes);
+/** What broadcastTx is handed: a signed transaction, or the bytes of one with the timeout height its body carries, if any. */
+export interface SignedBytes {
+  txBytes: Uint8Array;
+  timeoutHeight?: bigint | undefined;
+}
+
+/**
+ * Broadcasts a signed transaction, fails on a CheckTx refusal, and waits for
+ * the block; a failure after the acceptance carries the hash. The wait reads
+ * the transaction's own timeout height unless the options give another.
+ * Nothing is signed here, so the same bytes can be handed over again after a
+ * broadcast whose outcome is unknown: a node that already holds them counts
+ * that as an acceptance.
+ */
+export async function broadcastTx(client: Pick<QueryClient, "tx" | "node">, signed: SignedBytes, options: InclusionOptions = {}): Promise<Confirmed> {
+  const broadcast = await broadcastSync(client, signed.txBytes);
   if (!broadcast.accepted) throw new BroadcastRefused(broadcast);
-  const response = await waitForAccepted(client, broadcast, options);
+  const response = await waitForAccepted(client, broadcast, { ...options, timeoutHeight: options.timeoutHeight ?? signed.timeoutHeight });
   return { broadcast, response };
 }
 

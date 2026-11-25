@@ -21,7 +21,6 @@ const trader = fixtureKey("trader");
 const signer = MemorySigner.fromPrivateKey(fromHex(trader.private_key_hex));
 const send = typed(MsgSendSchema, create(MsgSendSchema, { fromAddress: signer.address, toAddress: signer.address, amount: [{ denom: "anoah", amount: "1" }] }));
 const base = {
-  signer,
   address: signer.address,
   chainId: "localark",
   accountNumber: 3n,
@@ -31,7 +30,7 @@ const base = {
 };
 
 test("amino mode signs the amino document and marks the signer info", async () => {
-  const signed = await signTx({ ...base, mode: "amino" });
+  const signed = await signTx({ ...base, mode: "amino" }, signer);
   assert.equal(signed.mode, "amino");
   assert.ok(signed.aminoSignDoc);
   assert.equal(signed.aminoSignDoc.chain_id, "localark");
@@ -49,8 +48,8 @@ test("a multisig key is refused in direct mode and not yet signed in amino", asy
     signDirect: () => Promise.reject(new Error("unreachable")),
     signAmino: () => Promise.reject(new Error("unreachable")),
   };
-  await assert.rejects(signTx({ ...base, signer: multisig }), MultisigNeedsAmino);
-  await assert.rejects(signTx({ ...base, signer: multisig, mode: "amino" }), /multisig signing/);
+  await assert.rejects(signTx(base, multisig), MultisigNeedsAmino);
+  await assert.rejects(signTx({ ...base, mode: "amino" }, multisig), /multisig signing/);
 });
 
 test("a signer that alters the document stops the build", async () => {
@@ -65,9 +64,9 @@ test("a signer that alters the document stops the build", async () => {
       return { ...signed, signDoc: { ...doc, memo: "changed" } };
     },
   };
-  await assert.rejects(signTx({ ...base, signer: altering }), SignerAlteredDocument);
-  await assert.rejects(signTx({ ...base, signer: altering, mode: "amino" }), SignerAlteredDocument);
-  await assert.rejects(signTx({ ...base, address: "ark1nobody" }), /no account/);
+  await assert.rejects(signTx(base, altering), SignerAlteredDocument);
+  await assert.rejects(signTx({ ...base, mode: "amino" }, altering), SignerAlteredDocument);
+  await assert.rejects(signTx({ ...base, address: "ark1nobody" }, signer), /no account/);
 });
 
 test("a signer account that is handed in is used without asking the signer, and must be the signing address's", async () => {
@@ -77,9 +76,9 @@ test("a signer account that is handed in is used without asking the signer, and 
     signDirect: (address, doc) => signer.signDirect(address, doc),
     signAmino: (address, doc) => signer.signAmino(address, doc),
   };
-  const signed = await signTx({ ...base, signer: silent, signerAccount: account! });
-  assert.deepEqual(signed.txBytes, (await signTx(base)).txBytes, "the same transaction as when the signer is asked");
-  await assert.rejects(signTx({ ...base, signer: silent, signerAccount: { ...account!, address: "ark1other" } }), SignerError);
+  const signed = await signTx({ ...base, signerAccount: account! }, silent);
+  assert.deepEqual(signed.txBytes, (await signTx(base, signer)).txBytes, "the same transaction as when the signer is asked");
+  await assert.rejects(signTx({ ...base, signerAccount: { ...account!, address: "ark1other" } }, silent), SignerError);
 });
 
 test("a simulation transaction carries the body, signer info, and an empty signature", async () => {
