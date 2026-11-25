@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
+
+What the app's signer needs to review a transaction before it signs: an amino sign document read back into the
+transaction it describes, and a transaction prepared, signed, and broadcast as three steps, so the fee is shown before
+the signature is asked for. Code written against 0.3 needs changes: see Changed and Removed below, and `sendTx` first
+among them, which no longer signs a second time on a sequence mismatch unless asked to.
 
 Fixed:
 
