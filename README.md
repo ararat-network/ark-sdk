@@ -56,26 +56,63 @@ const sent = await searchTxs(client, txQuery.bySender(address), { limit: 20n });
 computes what has vested at a time as the chain does. `searchTxs` needs a node that indexes transactions and returns
 each match decoded: its messages, typed events, message responses, and outcome.
 
-A transaction is simulated, priced per the [fee contract](https://github.com/ararat-network/ark/blob/main/docs/clients/CLIENT_FEES.md),
-signed through a `Signer`, broadcast, and confirmed. The chain publishes the tax and the gas price sheet; the
-headroom and the gas adjustment are yours and must be passed, arkd's numbers are exported for a caller that wants
-them:
+A transaction is prepared, signed, and broadcast, each its own call. `prepareTx` asks the chain what the
+[fee contract](https://github.com/ararat-network/ark/blob/main/docs/clients/CLIENT_FEES.md) needs, in the order it
+needs it: the account, a simulation for gas, the tax on the messages and the gas price sheet, and from them the quote.
+It takes the account that will sign and no signer, since it signs nothing. `signTx` has a `Signer` sign what was
+prepared, as it stands and with no request to a node, so the fee signed is the fee the quote declares. `broadcastTx`
+sends what was signed and waits for its block. The chain publishes the tax and the gas price sheet; the headroom and
+the gas adjustment are yours and must be passed, arkd's numbers are exported for a caller that wants them:
 
 ```ts
 import { create } from "@bufbuild/protobuf";
 import { MsgSendSchema } from "@ararat-network/sdk/gen/cosmos/bank/v1beta1/tx_pb.js";
-import {
-  adjustGas, arkdPolicy, broadcastAndConfirm, classifyResult, coin, feeFromQuote,
-  packMessages, quoteFee, signTx, simulationTxBytes, typed,
-} from "@ararat-network/sdk";
+import { arkdPolicy, broadcastTx, classifyResult, coin, prepareTx, signTx, typed } from "@ararat-network/sdk";
 
 const send = typed(MsgSendSchema, create(MsgSendSchema, { fromAddress, toAddress, amount: [coin("ausd", 10n ** 18n)] }));
-const [account] = await signer.accounts();
-if (!account) throw new Error("the signer holds no account");
+const [signerAccount] = await signer.accounts();
+if (!signerAccount) throw new Error("the signer holds no account");
+
+const prepared = await prepareTx({ client, signerAccount, chainId: network.chainId, messages: [send], feeDenom: "ausd", headroom: arkdPolicy.headroom, gasAdjustment: arkdPolicy.gasAdjustment });
+// prepared.quote is what the fee will be and why: show it, and sign once it is approved.
+const signed = await signTx(prepared.tx, signer);
+const { response } = await broadcastTx(client, signed);
+const outcome = classifyResult(response);
+```
+
+Between the first two steps a caller shows the quote, and what it shows is what is signed. A prepared transaction
+carries the sequence and the prices of the moment it was prepared: one left unsigned long enough for either to have
+moved is prepared again, and so is one the chain refuses for its sequence. Nothing is signed in the third step, so
+after a broadcast whose outcome is unknown the same signed transaction is handed to `broadcastTx` again, with no
+second signature: a node that already holds it counts that as an acceptance.
+
+`sendTx` runs the three in one call, for a caller with nothing to show between the quote and the signature. It
+takes the signer and the address it signs for in place of the account:
+
+```ts
+import { arkdPolicy, sendTx } from "@ararat-network/sdk";
+
+const sent = await sendTx({ client, signer, address: fromAddress, chainId: network.chainId, messages: [send], feeDenom: "ausd", headroom: arkdPolicy.headroom, gasAdjustment: arkdPolicy.gasAdjustment });
+```
+
+Passed `retryOnSequenceMismatch`, `sendTx` signs once more at the sequence the chain names when another transaction
+took it, whether the mismatch surfaced at simulation or at CheckTx. That is a second signature, which a signer that
+shows each document to a person asks them for again, so it is off unless asked for. It signs again only while the
+first transaction cannot be in the mempool; once a broadcast is accepted, or its outcome is unknown, nothing is
+signed again whatever the node then answers.
+
+What `prepareTx` asks can be asked a figure at a time, and `signTx` signs a transaction written out by hand as it
+signs a prepared one:
+
+```ts
+import {
+  adjustGas, arkdPolicy, broadcastTx, feeFromQuote, packMessages, quoteFee, signTx, simulationTxBytes,
+} from "@ararat-network/sdk";
+
 const { info } = await client.auth.accountInfo(fromAddress);
 if (!info) throw new Error(`no account at ${fromAddress}`);
 
-const simulated = await client.tx.simulate(simulationTxBytes({ messages: [send], publicKey: account.publicKey, sequence: info.sequence }));
+const simulated = await client.tx.simulate(simulationTxBytes({ messages: [send], publicKey: signerAccount.publicKey, sequence: info.sequence }));
 if (!simulated.gasInfo) throw new Error("the simulation returned no gas info");
 const gasLimit = adjustGas(simulated.gasInfo.gasUsed, arkdPolicy.gasAdjustment);
 const { tax } = await client.treasury.computeTax(packMessages([send]));
@@ -84,21 +121,8 @@ const price = sheet.gasPrices.find((p) => p.denom === "ausd");
 if (!price) throw new Error("ausd is not on the gas price sheet");
 const quote = quoteFee({ tax, gasPrice: price, gasLimit, headroom: arkdPolicy.headroom });
 
-const signed = await signTx({ signer, address: fromAddress, chainId: network.chainId, accountNumber: info.accountNumber, sequence: info.sequence, messages: [send], fee: feeFromQuote(quote) });
-const { response } = await broadcastAndConfirm(client, signed.txBytes);
-const outcome = classifyResult(response);
-```
-
-`sendTx` runs those steps in that order on the same messages, with the headroom, gas adjustment, and fee
-denomination still yours, and, when another transaction took the sequence, signs once more at the sequence the
-chain names, whether the mismatch surfaced at simulation or at CheckTx. It signs again only while the first
-transaction cannot be in the mempool; once a broadcast is accepted, or its outcome is unknown, nothing is signed
-again whatever the node then answers. `prepareAndSign` stops before the broadcast:
-
-```ts
-import { arkdPolicy, sendTx } from "@ararat-network/sdk";
-
-const sent = await sendTx({ client, signer, address: fromAddress, chainId: network.chainId, messages: [send], feeDenom: "ausd", headroom: arkdPolicy.headroom, gasAdjustment: arkdPolicy.gasAdjustment });
+const tx = { address: fromAddress, chainId: network.chainId, accountNumber: info.accountNumber, sequence: info.sequence, messages: [send], fee: feeFromQuote(quote) };
+const { response } = await broadcastTx(client, await signTx(tx, signer));
 ```
 
 `maxSendable` answers how much of a balance can be sent: the largest amount such that it, the tax the chain computes
@@ -125,7 +149,7 @@ leg every lift is free; beside a NOAH gas leg the tax legs are declared exact, s
 a stable leg's slack before it lets NOAH pay and would then charge the whole NOAH leg as tip, so a tax that rises
 before inclusion refuses the transaction for a new quote. `tip`, in NOAH base units, buys priority: its own leg
 beside a stable gas leg, part of the NOAH leg when NOAH carries the gas, and `quote.tip` is what will be charged as
-tip, exact, since NOAH is charged whole. `broadcastAndConfirm` keeps the mempool's verdict and the block's result
+tip, exact, since NOAH is charged whole. `broadcastTx` keeps the mempool's verdict and the block's result
 apart: a broadcast whose answer never arrives, or arrives and cannot be read, is an unknown outcome that carries the
 hash to poll, a node that already holds the transaction counts as an acceptance, and polling rides out an
 unavailable endpoint until the deadline. A lookup answered for another hash, or for none, is refused. After an
@@ -186,8 +210,8 @@ those is exported on its own, over a gateway: `authClient`, `bankClient`, `disbu
 `govClient`, `marketClient`, `nodeClient`, `oracleClient`, `stakingClient`, `treasuryClient`, and `txClient`. An app
 that builds the ones it calls bundles those services alone, and every flow takes them in place of the whole client,
 each typed by the services it reads: `searchTxs` and `fetchTx` the gateway and `tx`; `maxSendable` the `treasury`;
-`prepareAndSign` the gateway, `auth`, `tx`, and `treasury`; `sendTx`, `waitForInclusion`, and `broadcastAndConfirm`
-the `node` as well, for a timeout height.
+`prepareTx` the gateway, `auth`, `tx`, and `treasury`; `sendTx`, `waitForInclusion`, and `broadcastTx` the `node`
+as well, for a timeout height.
 
 ```ts
 import { arkdPolicy, authClient, GatewayClient, nodeClient, sendTx, treasuryClient, txClient } from "@ararat-network/sdk/core";
@@ -200,7 +224,7 @@ const sent = await sendTx({ client, signer, address: fromAddress, chainId: netwo
 That send is 207 kB minified where the same through the core's `QueryClient` is 276 and through the main entry's 487,
 and a search through `txClient` alone is 155 where through `QueryClient` it is 254.
 
-A client's search and account helpers decode with the gateway's registry, and `prepareAndSign` and `sendTx` encode an
+A client's search and account helpers decode with the gateway's registry, and `prepareTx` and `sendTx` encode an
 amino document through it. A message of a type the registry lacks decodes as unknown, as it does everywhere. The main
 entry's `QueryClient` and `GatewayClient` extend the core's, so anything that takes a core client takes either.
 Passing a registry to the main entry changes what is decoded, a newer release's types or fewer, but not the bundle:

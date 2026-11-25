@@ -28,16 +28,18 @@ for (const f of txFixtures()) {
 
     const body = fromProtoJson(TxBodySchema, f.tx.body);
     const fee = makeFee({ amount: f.fee.declared, gasLimit: BigInt(f.fee.gas_limit) });
-    const signed = await signTx({
+    const signed = await signTx(
+      {
+        address: signer.address,
+        chainId: f.chain_id,
+        accountNumber: BigInt(f.signer.account_number),
+        sequence: BigInt(f.signer.sequence),
+        messages: body.messages,
+        memo: body.memo,
+        fee,
+      },
       signer,
-      address: signer.address,
-      chainId: f.chain_id,
-      accountNumber: BigInt(f.signer.account_number),
-      sequence: BigInt(f.signer.sequence),
-      messages: body.messages,
-      memo: body.memo,
-      fee,
-    });
+    );
     assert.equal(toBase64(signed.bodyBytes), f.sign_mode_direct.body_bytes, "body bytes");
     assert.equal(toBase64(signed.authInfoBytes), f.sign_mode_direct.auth_info_bytes, "auth info bytes");
     assert.equal(toBase64(directSignBytes(signed.signDoc!)), f.sign_mode_direct.sign_doc, "sign doc");

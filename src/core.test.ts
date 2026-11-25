@@ -100,7 +100,6 @@ test("core signTx needs a registry for amino mode only", async () => {
   const signer = MemorySigner.fromPrivateKey(fromHex(fixtureKey("trader").private_key_hex));
   const send = core.typed(MsgSendSchema, create(MsgSendSchema, { fromAddress: signer.address, toAddress: signer.address }));
   const input = {
-    signer,
     address: signer.address,
     chainId: "localark",
     accountNumber: 1n,
@@ -108,11 +107,11 @@ test("core signTx needs a registry for amino mode only", async () => {
     messages: [send],
     fee: core.makeFee({ amount: [], gasLimit: 1n }),
   };
-  assert.equal((await core.signTx(input)).mode, "direct", "direct mode reads no registry");
-  await assert.rejects(core.signTx({ ...input, mode: "amino" }), (err: unknown) => err instanceof SignerError && /needs a registry/.test(err.message));
-  const amino = await core.signTx({ ...input, mode: "amino", registry: createRegistry(MsgSendSchema) });
+  assert.equal((await core.signTx(input, signer)).mode, "direct", "direct mode reads no registry");
+  await assert.rejects(core.signTx({ ...input, mode: "amino" }, signer), (err: unknown) => err instanceof SignerError && /needs a registry/.test(err.message));
+  const amino = await core.signTx({ ...input, mode: "amino", registry: createRegistry(MsgSendSchema) }, signer);
   assert.equal(amino.aminoSignDoc?.msgs[0]?.type, "cosmos-sdk/MsgSend");
-  assert.equal((await main.signTx({ ...input, mode: "amino" })).aminoSignDoc?.msgs[0]?.type, "cosmos-sdk/MsgSend", "the main entry defaults it");
+  assert.equal((await main.signTx({ ...input, mode: "amino" }, signer)).aminoSignDoc?.msgs[0]?.type, "cosmos-sdk/MsgSend", "the main entry defaults it");
 });
 
 // Compile-time: the core entry takes its registry as an argument, so leaving it out does not type-check.

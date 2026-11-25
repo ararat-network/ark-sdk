@@ -7,8 +7,8 @@ import { accepted, fakeNode, gatewayError, included, json, notFound, txResponse,
 import {
   BroadcastRefused,
   BroadcastUnknown,
-  broadcastAndConfirm,
   broadcastSync,
+  broadcastTx,
   InclusionTimeout,
   InclusionUnknown,
   TransactionExpired,
@@ -49,7 +49,7 @@ test("the hash is the bytes' own, and an answer for another transaction is refus
   assert.equal((await broadcastSync(echoed.client, new Uint8Array([1]))).hash, HASH, "the node's echo does not replace the hash");
 
   const redirected = fakeNode([other("0"), other("9")]);
-  await assert.rejects(broadcastAndConfirm(redirected.client, new Uint8Array([1]), { sleep: async () => {} }), (err: unknown) => {
+  await assert.rejects(broadcastTx(redirected.client, { txBytes: new Uint8Array([1]) }, { sleep: async () => {} }), (err: unknown) => {
     assert.ok(err instanceof WrongTransaction);
     assert.equal(err.hash, HASH);
     assert.equal(err.answered, OTHER);
@@ -69,13 +69,13 @@ test("the hash is the bytes' own, and an answer for another transaction is refus
     );
   }
   const confirmedEmpty = fakeNode([broadcastOk, () => json({ tx_response: {} })]);
-  await assert.rejects(broadcastAndConfirm(confirmedEmpty.client, new Uint8Array([1]), { sleep: async () => {} }), WrongTransaction);
+  await assert.rejects(broadcastTx(confirmedEmpty.client, { txBytes: new Uint8Array([1]) }, { sleep: async () => {} }), WrongTransaction);
 });
 
 test("a node that already holds the transaction reports an acceptance", async () => {
   const cached = () => json({ tx_response: txResponse({ txhash: HASH, code: 19, codespace: "sdk", raw_log: "tx already in mempool" }) });
   const { client } = fakeNode([cached, notFound, included]);
-  const confirmed = await broadcastAndConfirm(client, new Uint8Array([1]), { sleep: async () => {} });
+  const confirmed = await broadcastTx(client, { txBytes: new Uint8Array([1]) }, { sleep: async () => {} });
   assert.equal(confirmed.broadcast.accepted, true);
   assert.equal(confirmed.broadcast.alreadyInMempool, true);
   assert.equal(confirmed.broadcast.code, 19, "the code is kept");
@@ -259,11 +259,11 @@ test("waitForInclusion gives up after the timeout and names the hash", async () 
   );
 });
 
-test("broadcastAndConfirm fails on a CheckTx refusal and otherwise returns the block result", async () => {
+test("broadcastTx fails on a CheckTx refusal and otherwise returns the block result", async () => {
   const refused = fakeNode([
     () => json({ tx_response: txResponse({ txhash: HASH, code: 13, codespace: "sdk", raw_log: "fee 1anoah does not cover transfer tax 2ausd" }) }),
   ]);
-  await assert.rejects(broadcastAndConfirm(refused.client, new Uint8Array([1])), (err: unknown) => {
+  await assert.rejects(broadcastTx(refused.client, { txBytes: new Uint8Array([1]) }), (err: unknown) => {
     assert.ok(err instanceof BroadcastRefused);
     assert.equal(err.result.code, 13);
     assert.equal(err.result.codespace, "sdk");
@@ -271,7 +271,7 @@ test("broadcastAndConfirm fails on a CheckTx refusal and otherwise returns the b
     return true;
   });
   const ok = fakeNode([broadcastOk, notFound, included]);
-  const confirmed = await broadcastAndConfirm(ok.client, new Uint8Array([1]), { sleep: async () => {} });
+  const confirmed = await broadcastTx(ok.client, { txBytes: new Uint8Array([1]) }, { sleep: async () => {} });
   assert.equal(confirmed.broadcast.accepted, true);
   assert.equal(confirmed.response.height, 7n);
 });
@@ -280,7 +280,7 @@ test("after an acceptance every failure carries the hash: the wait's verdicts as
   const bytes = new Uint8Array([1]);
   // A lookup the node answers with an error of its own says nothing of the transaction, which the mempool holds.
   const failing = fakeNode([broadcastOk, () => gatewayError(13, "index unavailable", 500)]);
-  await assert.rejects(broadcastAndConfirm(failing.client, bytes, { sleep: async () => {} }), (err: unknown) => {
+  await assert.rejects(broadcastTx(failing.client, { txBytes: bytes }, { sleep: async () => {} }), (err: unknown) => {
     assert.ok(err instanceof InclusionUnknown);
     assert.equal(err.hash, HASH);
     assert.deepEqual(err.broadcast, { hash: HASH, code: 0, codespace: "", rawLog: "", accepted: true, alreadyInMempool: false });
@@ -294,18 +294,21 @@ test("after an acceptance every failure carries the hash: the wait's verdicts as
   controller.abort();
   const aborted = fakeNode([broadcastOk, notFound]);
   await assert.rejects(
-    broadcastAndConfirm(aborted.client, bytes, { signal: controller.signal }),
+    broadcastTx(aborted.client, { txBytes: bytes }, { signal: controller.signal }),
     (err: unknown) => err instanceof InclusionUnknown && err.hash === HASH && err.cause instanceof Error && err.cause.name === "AbortError",
   );
 
   // The wait's verdicts on the transaction already carry the hash and are thrown as they are.
   const never = fakeNode([broadcastOk, notFound, notFound, notFound, notFound]);
   await assert.rejects(
-    broadcastAndConfirm(never.client, bytes, { timeoutMs: 1000, pollMs: 400, ...clocked() }),
+    broadcastTx(never.client, { txBytes: bytes }, { timeoutMs: 1000, pollMs: 400, ...clocked() }),
     (err: unknown) => err instanceof InclusionTimeout && err.hash === HASH,
   );
   const dead = fakeNode([broadcastOk], { [LOOKUP]: notFound, [SYNCING]: tip("11") });
-  await assert.rejects(broadcastAndConfirm(dead.client, bytes, { timeoutHeight: 10n, expiryGraceMs: 0, ...clocked() }), TransactionExpired);
+  await assert.rejects(broadcastTx(dead.client, { txBytes: bytes }, { timeoutHeight: 10n, expiryGraceMs: 0, ...clocked() }), TransactionExpired);
+  // Left out of the options, the timeout height is the signed transaction's own.
+  const deadByItsOwn = fakeNode([broadcastOk], { [LOOKUP]: notFound, [SYNCING]: tip("11") });
+  await assert.rejects(broadcastTx(deadByItsOwn.client, { txBytes: bytes, timeoutHeight: 10n }, { expiryGraceMs: 0, ...clocked() }), TransactionExpired);
 
   // Before an acceptance nothing is wrapped: a refusal is the refusal, and waitForInclusion alone throws what it met.
   const lookupOnly = fakeNode([() => gatewayError(13, "index unavailable", 500)]);

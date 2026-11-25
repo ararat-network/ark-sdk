@@ -19,6 +19,30 @@ Added:
   member that names no field, and whatever the encoder refuses. A decoding is returned only if it encodes back to the
   JSON it was read from. A contract message's bytes come back as the same JSON, compact with sorted keys, and every
   message's bytes with its fields in number order: the document carries the content, not how its bytes were written.
+- `prepareTx`, the first of three steps a transaction now goes through: it asks the chain for the account, the gas,
+  the tax, and the price sheet, and returns a `PreparedTx`, the unsigned transaction with the quote that priced it.
+  It signs nothing and takes no signer, only the account that will sign, so a caller can show the quote before it
+  asks for a signature. `signTx` then signs `prepared.tx` with no request to a node, so the fee signed is the fee
+  the quote declares, and `broadcastTx` sends what was signed.
+- `SignedTx.timeoutHeight`, the body's timeout height when it has one. `broadcastTx` and `sendTx` read it for the
+  wait, so a caller no longer passes it a second time in the options.
+
+Changed:
+
+- `signTx` takes the transaction and the signer as two arguments, `signTx(tx, signer)`, where it took one input
+  holding both. It signs a transaction `prepareTx` made as it signs one written out by hand.
+- `broadcastAndConfirm` is `broadcastTx`, and takes the signed transaction where it took its bytes: a `SignedTx`, or
+  `{ txBytes }` for bytes signed elsewhere. Nothing is signed in it, so the same signed transaction is handed over
+  again after a broadcast whose outcome is unknown.
+- `sendTx` takes the signer and the address it signs for, as before, and now asks the signer for its accounts once
+  and first, before any request to a node. It signs again on a sequence mismatch only when passed
+  `retryOnSequenceMismatch`, which was on by default: signing again is a second signature, which a signer that shows
+  each document to a person asks them for again. The account number and the sequence it returns are under `tx`.
+
+Removed:
+
+- `prepareAndSign`, with `PrepareInput` and `Prepared`: it is `prepareTx` then `signTx`, and had nothing to show
+  between the two. `SignTxInput` is `UnsignedTx`, without the signer.
 
 ## 0.3.0
 

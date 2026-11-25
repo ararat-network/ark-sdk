@@ -14,7 +14,7 @@ import { MsgSendSchema } from "../../src/gen/cosmos/bank/v1beta1/tx_pb.js";
 import {
   adjustGas,
   arkdPolicy,
-  broadcastAndConfirm,
+  broadcastTx,
   classifyResult,
   coin,
   decodeEvents,
@@ -79,17 +79,19 @@ test("localnet: tranche, simulate, price, sign, broadcast, confirm, decode", { s
   const quote = quoteFee({ tax: tax.tax, gasPrice: noahPrice, gasLimit, headroom: arkdPolicy.headroom });
   console.log(`gas ${gasLimit}, declared ${amounts(quote.declared).join(",")}, tip ${quote.tip?.amount ?? "0"}anoah`);
 
-  const signed = await signTx({
+  const signed = await signTx(
+    {
+      address: signer.address,
+      chainId: network.chainId,
+      accountNumber: info.info.accountNumber,
+      sequence: info.info.sequence,
+      messages: [send],
+      memo: "ark-sdk smoke test",
+      fee: feeFromQuote(quote),
+    },
     signer,
-    address: signer.address,
-    chainId: network.chainId,
-    accountNumber: info.info.accountNumber,
-    sequence: info.info.sequence,
-    messages: [send],
-    memo: "ark-sdk smoke test",
-    fee: feeFromQuote(quote),
-  });
-  const { broadcast, response } = await broadcastAndConfirm(client, signed.txBytes, { timeoutMs: 90_000, pollMs: 1_000 });
+  );
+  const { broadcast, response } = await broadcastTx(client, signed, { timeoutMs: 90_000, pollMs: 1_000 });
   assert.equal(broadcast.hash, signed.hash);
   assert.equal(response.txhash, signed.hash);
   assert.deepEqual(classifyResult(response), { kind: "ok" }, response.rawLog);
@@ -145,7 +147,7 @@ test("localnet: tranche, simulate, price, sign, broadcast, confirm, decode", { s
     { timeoutMs: 90_000, pollMs: 1_000 },
   );
   assert.deepEqual(classifyResult(again.response), { kind: "ok" }, again.response.rawLog);
-  assert.equal(again.sequence, decodedAccount.sequence);
+  assert.equal(again.tx.sequence, decodedAccount.sequence);
   console.log(`sendTx included at height ${again.response.height}, declared ${amounts(again.quote.declared).join(",")}`);
   const balanceAfter = await client.bank.balance(recipient, "anoah");
   assert.equal(balanceAfter.balance?.amount, (2n * 10n ** 18n).toString());

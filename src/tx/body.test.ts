@@ -24,18 +24,20 @@ test("an unordered transaction and its timeout timestamp reach the body, the sim
   const [account] = await signer.accounts();
   const until = timestampFromDate(new Date("2030-01-01T00:00:00Z"));
   const fee = makeFee({ amount: [], gasLimit: 1n });
-  const signed = await signTx({
+  const signed = await signTx(
+    {
+      address: signer.address,
+      chainId: "localark",
+      accountNumber: 1n,
+      sequence: 0n,
+      messages: [],
+      fee,
+      unordered: true,
+      timeoutTimestamp: until,
+      mode: "amino",
+    },
     signer,
-    address: signer.address,
-    chainId: "localark",
-    accountNumber: 1n,
-    sequence: 0n,
-    messages: [],
-    fee,
-    unordered: true,
-    timeoutTimestamp: until,
-    mode: "amino",
-  });
+  );
   const body = fromBinary(TxBodySchema, signed.bodyBytes);
   assert.equal(body.unordered, true);
   assert.equal(body.timeoutTimestamp?.seconds, until.seconds);
@@ -51,7 +53,7 @@ test("an unordered transaction and its timeout timestamp reach the body, the sim
   assert.equal(simulatedBody.timeoutHeight, 9n);
   assert.equal(simulatedBody.timeoutTimestamp?.seconds, until.seconds);
 
-  const ordered = await signTx({ signer, address: signer.address, chainId: "localark", accountNumber: 1n, sequence: 0n, messages: [], fee, mode: "amino" });
+  const ordered = await signTx({ address: signer.address, chainId: "localark", accountNumber: 1n, sequence: 0n, messages: [], fee, mode: "amino" }, signer);
   assert.equal(fromBinary(TxBodySchema, ordered.bodyBytes).unordered, false);
   assert.equal(ordered.aminoSignDoc?.unordered, undefined, "omitted when false, as the chain's document omits it");
 });
@@ -91,15 +93,17 @@ test("a message that holds one read without its type cannot be put in a transact
   const [account] = await signer.accounts();
   assert.throws(() => simulationTxBytes({ messages: [read], publicKey: account!.publicKey, sequence: 0n }), UnknownTypeError);
   await assert.rejects(
-    signTx({
+    signTx(
+      {
+        address: signer.address,
+        chainId: "localark",
+        accountNumber: 1n,
+        sequence: 0n,
+        messages: [read],
+        fee: makeFee({ amount: [], gasLimit: 1n }),
+      },
       signer,
-      address: signer.address,
-      chainId: "localark",
-      accountNumber: 1n,
-      sequence: 0n,
-      messages: [read],
-      fee: makeFee({ amount: [], gasLimit: 1n }),
-    }),
+    ),
     UnknownTypeError,
   );
 
